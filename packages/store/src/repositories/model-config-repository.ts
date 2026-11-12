@@ -47,7 +47,7 @@ export class ModelConfigRepository {
 
   public findById(id: string): ModelConfigRecord | null {
     const statement = this.db.prepare(
-      "SELECT id, name, provider, model_id AS modelId, api_key AS apiKey, base_url AS baseUrl, context_window_tokens AS contextWindowTokens, max_output_tokens AS maxOutputTokens, context_reserve_tokens AS contextReserveTokens, created_at AS createdAt, updated_at AS updatedAt FROM model_configs WHERE id = ?"
+      "SELECT id, name, provider, model_id AS modelId, api_key AS apiKey, base_url AS baseUrl, context_window_tokens AS contextWindowTokens, max_output_tokens AS maxOutputTokens, context_reserve_tokens AS contextReserveTokens, created_at AS createdAt, updated_at AS updatedAt FROM model_configs WHERE id = ?",
     );
     const row = statement.get(id) as Record<string, string | null> | undefined;
     return row ? (row as unknown as ModelConfigRecord) : null;
@@ -66,13 +66,13 @@ export class ModelConfigRepository {
       timeoutSeconds: 60,
       contextWindowTokens: record.contextWindowTokens ?? 128000,
       maxOutputTokens: record.maxOutputTokens ?? 4096,
-      contextReserveTokens: record.contextReserveTokens ?? 1000
+      contextReserveTokens: record.contextReserveTokens ?? 1000,
     };
   }
 
   public list(): ModelConfigRecord[] {
     const statement = this.db.prepare(
-      "SELECT id, name, provider, model_id AS modelId, api_key AS apiKey, base_url AS baseUrl, context_window_tokens AS contextWindowTokens, max_output_tokens AS maxOutputTokens, context_reserve_tokens AS contextReserveTokens, created_at AS createdAt, updated_at AS updatedAt FROM model_configs ORDER BY name"
+      "SELECT id, name, provider, model_id AS modelId, api_key AS apiKey, base_url AS baseUrl, context_window_tokens AS contextWindowTokens, max_output_tokens AS maxOutputTokens, context_reserve_tokens AS contextReserveTokens, created_at AS createdAt, updated_at AS updatedAt FROM model_configs ORDER BY name",
     );
     const rows = statement.all() as Record<string, string | null>[];
     return rows as unknown as ModelConfigRecord[];

@@ -22,7 +22,11 @@ interface WebSocketLike {
 
 /** Minimal Fastify server interface for WebSocket registration */
 interface FastifyServerLike {
-  get(path: string, opts: { websocket: true }, handler: (socket: WebSocketLike, request: FastifyRequest) => void): void;
+  get(
+    path: string,
+    opts: { websocket: true },
+    handler: (socket: WebSocketLike, request: FastifyRequest) => void,
+  ): void;
 }
 
 export type ConnectionInfo = {
@@ -37,18 +41,27 @@ export class WebSocketService {
   private connections: Map<string, ConnectionInfo[]> = new Map();
 
   public register(server: FastifyServerLike): void {
-    server.get("/ws", { websocket: true }, (socket: WebSocketLike, request: FastifyRequest) => {
-      this.handleConnection(socket, request);
-    });
+    server.get(
+      "/ws",
+      { websocket: true },
+      (socket: WebSocketLike, request: FastifyRequest) => {
+        this.handleConnection(socket, request);
+      },
+    );
   }
 
-  private handleConnection(socket: WebSocketLike, request: FastifyRequest): void {
+  private handleConnection(
+    socket: WebSocketLike,
+    request: FastifyRequest,
+  ): void {
     const query = request.query as { agentId?: string; sessionId?: string };
     const agentId = query.agentId;
     const sessionId = query.sessionId;
 
     if (!agentId || !sessionId) {
-      logger.warn("WebSocket connection rejected: missing agentId or sessionId");
+      logger.warn(
+        "WebSocket connection rejected: missing agentId or sessionId",
+      );
       socket.close(4000, "Missing agentId or sessionId");
       return;
     }
@@ -60,7 +73,7 @@ export class WebSocketService {
       agentId,
       sessionId,
       connectedAt: new Date(),
-      lastHeartbeatAt: new Date()
+      lastHeartbeatAt: new Date(),
     };
 
     const existing = this.connections.get(agentId) ?? [];
@@ -79,7 +92,7 @@ export class WebSocketService {
     socket.on("close", () => {
       logger.info({ agentId }, "WebSocket connection closed");
       const connections = this.connections.get(agentId) ?? [];
-      const filtered = connections.filter(c => c.socket !== socket);
+      const filtered = connections.filter((c) => c.socket !== socket);
       if (filtered.length === 0) {
         this.connections.delete(agentId);
       } else {
@@ -92,13 +105,16 @@ export class WebSocketService {
     });
   }
 
-  private handleMessage(agentId: string, message: Record<string, unknown>): void {
+  private handleMessage(
+    agentId: string,
+    message: Record<string, unknown>,
+  ): void {
     const connections = this.connections.get(agentId);
     if (!connections || connections.length === 0) {
       return;
     }
 
-    const connection = connections.find(c => c.socket.readyState === 1);
+    const connection = connections.find((c) => c.socket.readyState === 1);
     if (!connection) {
       return;
     }
@@ -106,22 +122,33 @@ export class WebSocketService {
     switch (message.type) {
       case "ping":
         connection.lastHeartbeatAt = new Date();
-        connection.socket.send(JSON.stringify({
-          type: "pong",
-          timestamp: new Date().toISOString()
-        }));
+        connection.socket.send(
+          JSON.stringify({
+            type: "pong",
+            timestamp: new Date().toISOString(),
+          }),
+        );
         break;
       default:
-        logger.debug({ messageType: message.type, agentId }, "Received unknown message type");
+        logger.debug(
+          { messageType: message.type, agentId },
+          "Received unknown message type",
+        );
     }
   }
 
-  public sendToAgent(agentId: string, message: WsInboxMessageNotification): void {
+  public sendToAgent(
+    agentId: string,
+    message: WsInboxMessageNotification,
+  ): void {
     const connections = this.connections.get(agentId) ?? [];
     for (const connection of connections) {
       try {
         connection.socket.send(JSON.stringify(message));
-        logger.debug({ agentId, messageType: message.type }, "Message sent via WebSocket");
+        logger.debug(
+          { agentId, messageType: message.type },
+          "Message sent via WebSocket",
+        );
       } catch (error) {
         logger.error({ error, agentId }, "Failed to send WebSocket message");
       }
@@ -135,7 +162,10 @@ export class WebSocketService {
           try {
             connection.socket.send(JSON.stringify(message));
           } catch (error) {
-            logger.error({ error, agentId }, "Failed to broadcast WebSocket message");
+            logger.error(
+              { error, agentId },
+              "Failed to broadcast WebSocket message",
+            );
           }
         }
       }
@@ -148,13 +178,13 @@ export class WebSocketService {
 
   public broadcastConsoleUpdate(
     sessionId: string,
-    reason: WsConsoleUpdateReason
+    reason: WsConsoleUpdateReason,
   ): void {
     const notification: WsConsoleUpdateNotification = {
       type: "console:update",
       sessionId,
       reason,
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
     this.broadcastToSession(sessionId, notification);
   }
@@ -196,13 +226,14 @@ export class WebSocketService {
     const sessionStats: Record<string, number> = {};
     for (const connections of this.connections.values()) {
       for (const connection of connections) {
-        sessionStats[connection.sessionId] = (sessionStats[connection.sessionId] ?? 0) + 1;
+        sessionStats[connection.sessionId] =
+          (sessionStats[connection.sessionId] ?? 0) + 1;
       }
     }
 
     return {
       totalConnections: this.getConnectionCount(),
-      sessionConnections: sessionStats
+      sessionConnections: sessionStats,
     };
   }
 }

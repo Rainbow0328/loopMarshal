@@ -27,7 +27,7 @@ const main = async () => {
       displayName: "Named Host",
       platform: "codex",
       capabilities: ["planning"],
-      connectionMode: "skill-bridge"
+      connectionMode: "skill-bridge",
     });
 
     const resolved = await client.getSessionByName(sessionName);
@@ -38,7 +38,7 @@ const main = async () => {
       platform: "claude",
       role: "worker",
       capabilities: ["backend"],
-      connectionMode: "skill-bridge"
+      connectionMode: "skill-bridge",
     });
 
     const message = await client.sendMessage({
@@ -47,8 +47,8 @@ const main = async () => {
       toAgentId: worker.agent.id,
       type: "instruction",
       payload: {
-        text: "Use name-based join flow"
-      }
+        text: "Use name-based join flow",
+      },
     });
 
     const claimed = await client.claimNext(worker.agent.id);
@@ -61,11 +61,11 @@ const main = async () => {
           hostAgentId: host.agent.id,
           workerAgentId: worker.agent.id,
           messageId: message.id,
-          claimedStatus: claimed?.processingStatus ?? null
+          claimedStatus: claimed?.processingStatus ?? null,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } finally {
     await instance.close();

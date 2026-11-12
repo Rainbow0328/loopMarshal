@@ -8,13 +8,16 @@
 /** MCP 工具参数的 JSON Schema 定义 */
 export type McpToolParameterSchema = {
   type: "object";
-  properties: Record<string, {
-    type: string;
-    description?: string;
-    enum?: string[];
-    items?: { type: string; description?: string; enum?: string[] };
-    default?: unknown;
-  }>;
+  properties: Record<
+    string,
+    {
+      type: string;
+      description?: string;
+      enum?: string[];
+      items?: { type: string; description?: string; enum?: string[] };
+      default?: unknown;
+    }
+  >;
   required?: string[];
 };
 

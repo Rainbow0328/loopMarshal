@@ -25,7 +25,11 @@ const smokePort = 42782;
 const smokeBaseUrl = `http://127.0.0.1:${smokePort}`;
 const rootDir = process.cwd();
 const cliEntry = resolve(rootDir, "apps/cli/dist/apps/cli/src/index.js");
-const stateDir = resolve(rootDir, ".loopmarshal-test", "smoke-cli-knowledge-keeper");
+const stateDir = resolve(
+  rootDir,
+  ".loopmarshal-test",
+  "smoke-cli-knowledge-keeper",
+);
 
 const assert = (condition, message) => {
   if (!condition) {
@@ -38,9 +42,9 @@ const runCli = async ({ args, env }) => {
     cwd: rootDir,
     env: {
       ...process.env,
-      ...env
+      ...env,
     },
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"],
   });
 
   let stdout = "";
@@ -63,7 +67,7 @@ const runCli = async ({ args, env }) => {
     exitCode,
     stdout,
     stderr,
-    json: stdout ? JSON.parse(stdout) : null
+    json: stdout ? JSON.parse(stdout) : null,
   };
 };
 
@@ -71,7 +75,7 @@ const runCliJson = async (input) => {
   const result = await runCli(input);
   if (result.exitCode !== 0) {
     throw new Error(
-      `CLI command failed (${input.args.join(" ")}): ${result.stderr || result.stdout || result.exitCode}`
+      `CLI command failed (${input.args.join(" ")}): ${result.stderr || result.stdout || result.exitCode}`,
     );
   }
   return result.json;
@@ -88,13 +92,13 @@ const main = async () => {
   const instance = await startCoreServer({
     host: "127.0.0.1",
     port: smokePort,
-    databasePath: resolve(stateDir, "knowledge-keeper.sqlite")
+    databasePath: resolve(stateDir, "knowledge-keeper.sqlite"),
   });
 
   try {
     const env = {
       LOOPMARSHAL_BASE_URL: smokeBaseUrl,
-      LOOPMARSHAL_CLI_STATE_DIR: resolve(stateDir, ".loopmarshal")
+      LOOPMARSHAL_CLI_STATE_DIR: resolve(stateDir, ".loopmarshal"),
     };
     const client = createLoopMarshalClient({ baseUrl: smokeBaseUrl });
     const sessionName = `keeper-${Date.now()}`;
@@ -104,16 +108,43 @@ const main = async () => {
 
     // --- Attach all three members with required --duty ---
     await runCliJson({
-      args: ["attach", hostName, "--session", sessionName, "--role", "host", "--duty", "主控编排"],
-      env
+      args: [
+        "attach",
+        hostName,
+        "--session",
+        sessionName,
+        "--role",
+        "host",
+        "--duty",
+        "主控编排",
+      ],
+      env,
     });
     await runCliJson({
-      args: ["attach", workerName, "--session", sessionName, "--role", "worker", "--duty", "implementation"],
-      env
+      args: [
+        "attach",
+        workerName,
+        "--session",
+        sessionName,
+        "--role",
+        "worker",
+        "--duty",
+        "implementation",
+      ],
+      env,
     });
     await runCliJson({
-      args: ["attach", keeperName, "--session", sessionName, "--role", "knowledge_keeper", "--duty", "知识维护"],
-      env
+      args: [
+        "attach",
+        keeperName,
+        "--session",
+        sessionName,
+        "--role",
+        "knowledge_keeper",
+        "--duty",
+        "知识维护",
+      ],
+      env,
     });
 
     // --- Verify all three members exist with correct roles ---
@@ -122,106 +153,159 @@ const main = async () => {
     const hostAgent = members.find((m) => m.agentName === hostName);
     const workerAgent = members.find((m) => m.agentName === workerName);
     const keeperAgent = members.find((m) => m.agentName === keeperName);
-    assert(hostAgent && workerAgent && keeperAgent, "all three members should exist");
-    assert(keeperAgent.role === "knowledge_keeper", "keeper should have knowledge_keeper role");
+    assert(
+      hostAgent && workerAgent && keeperAgent,
+      "all three members should exist",
+    );
+    assert(
+      keeperAgent.role === "knowledge_keeper",
+      "keeper should have knowledge_keeper role",
+    );
 
     // --- Verify CLI members command ---
     const membersResult = await runCliJson({
       args: ["members", hostName, "--session", sessionName],
-      env
+      env,
     });
-    assert(membersResult.op === "SESSION_MEMBERS", "host should see members list");
+    assert(
+      membersResult.op === "SESSION_MEMBERS",
+      "host should see members list",
+    );
     assert(membersResult.members.length === 3, "should have 3 members");
 
     // --- Host upserts a knowledge document (should succeed) ---
     const hostUpsert = await runCliJson({
       args: [
-        "knowledge", "upsert", hostName,
-        "--session", sessionName,
-        "--level", "l1",
-        "--slug", "session-direction",
-        "--title", "Session Direction",
-        "--content", "Host wrote initial L1 document."
+        "knowledge",
+        "upsert",
+        hostName,
+        "--session",
+        sessionName,
+        "--level",
+        "l1",
+        "--slug",
+        "session-direction",
+        "--title",
+        "Session Direction",
+        "--content",
+        "Host wrote initial L1 document.",
       ],
-      env
+      env,
     });
-    assert(hostUpsert.op === "KNOWLEDGE_UPSERTED", "host should upsert successfully");
+    assert(
+      hostUpsert.op === "KNOWLEDGE_UPSERTED",
+      "host should upsert successfully",
+    );
 
     // --- Keeper reads the document (should succeed — any role can read) ---
     const keeperRead = await runCliJson({
       args: [
-        "knowledge", "read", keeperName,
-        "--session", sessionName,
-        "--ref", "l1/session-direction"
+        "knowledge",
+        "read",
+        keeperName,
+        "--session",
+        sessionName,
+        "--ref",
+        "l1/session-direction",
       ],
-      env
+      env,
     });
-    assert(keeperRead.op === "KNOWLEDGE_READ", "keeper should read successfully");
+    assert(
+      keeperRead.op === "KNOWLEDGE_READ",
+      "keeper should read successfully",
+    );
     assert(
       keeperRead.document?.content === "Host wrote initial L1 document.",
-      "keeper should read what host wrote"
+      "keeper should read what host wrote",
     );
 
     // --- Keeper lists knowledge (should succeed — any role can list) ---
     const keeperList = await runCliJson({
       args: [
-        "knowledge", "list", keeperName,
-        "--session", sessionName,
-        "--level", "l1"
+        "knowledge",
+        "list",
+        keeperName,
+        "--session",
+        sessionName,
+        "--level",
+        "l1",
       ],
-      env
+      env,
     });
-    assert(keeperList.op === "KNOWLEDGE_LIST", "keeper should list successfully");
+    assert(
+      keeperList.op === "KNOWLEDGE_LIST",
+      "keeper should list successfully",
+    );
 
     // --- Keeper upserts a knowledge document (should succeed — knowledge_keeper can write) ---
     const keeperUpsert = await runCliJson({
       args: [
-        "knowledge", "upsert", keeperName,
-        "--session", sessionName,
-        "--level", "l1",
-        "--slug", "keeper-notes",
-        "--title", "Keeper Notes",
-        "--content", "Keeper updated L1 knowledge."
+        "knowledge",
+        "upsert",
+        keeperName,
+        "--session",
+        sessionName,
+        "--level",
+        "l1",
+        "--slug",
+        "keeper-notes",
+        "--title",
+        "Keeper Notes",
+        "--content",
+        "Keeper updated L1 knowledge.",
       ],
-      env
+      env,
     });
-    assert(keeperUpsert.op === "KNOWLEDGE_UPSERTED", "keeper should upsert successfully (knowledge_keeper has write permission)");
+    assert(
+      keeperUpsert.op === "KNOWLEDGE_UPSERTED",
+      "keeper should upsert successfully (knowledge_keeper has write permission)",
+    );
 
     // --- Worker attempts upsert (should fail — requires host or knowledge_keeper role) ---
     const workerUpsertDenied = await runCli({
       args: [
-        "knowledge", "upsert", workerName,
-        "--session", sessionName,
-        "--level", "l1",
-        "--slug", "worker-test",
-        "--title", "Worker Upsert Test",
-        "--content", "Workers cannot upsert."
+        "knowledge",
+        "upsert",
+        workerName,
+        "--session",
+        sessionName,
+        "--level",
+        "l1",
+        "--slug",
+        "worker-test",
+        "--title",
+        "Worker Upsert Test",
+        "--content",
+        "Workers cannot upsert.",
       ],
-      env
+      env,
     });
-    assert(workerUpsertDenied.exitCode !== 0, "worker upsert should be denied (requires host or knowledge_keeper role)");
+    assert(
+      workerUpsertDenied.exitCode !== 0,
+      "worker upsert should be denied (requires host or knowledge_keeper role)",
+    );
 
     // --- Verify session idle detection ---
     await client.updateWindowBindingDefaults(sessionName, hostName, {
       intervalSeconds: 1,
-      maxRounds: 1
+      maxRounds: 1,
     });
     await client.updateWindowBindingDefaults(sessionName, workerName, {
       intervalSeconds: 1,
-      maxRounds: 1
+      maxRounds: 1,
     });
     await client.updateWindowBindingDefaults(sessionName, keeperName, {
       intervalSeconds: 1,
-      maxRounds: 1
+      maxRounds: 1,
     });
 
     const hostIdle = await runCliJson({
       args: ["await", hostName, "--session", sessionName],
-      env
+      env,
     });
     assert(
       hostIdle.op === "PROCESS_SESSION_IDLE",
-      `host should see idle state, got ${hostIdle.op}`
+      `host should see idle state, got ${hostIdle.op}`,
     );
 
     console.log(
@@ -237,8 +321,8 @@ const main = async () => {
           hostIdleOp: hostIdle.op,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } finally {
     await instance.close();

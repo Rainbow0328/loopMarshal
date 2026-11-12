@@ -51,28 +51,33 @@ export type WindowRuntimeState = {
 const client = createLoopMarshalClient({
   headers: {
     "x-loopmarshal-client": "cli",
-    "x-loopmarshal-process": String(process.pid)
-  }
+    "x-loopmarshal-process": String(process.pid),
+  },
 });
 
 const runtimeStoreDescriptor = "db://window-runtime-state";
 
 export const buildWindowRuntimeStateKey = (
   sessionName: string,
-  windowName: string
+  windowName: string,
 ): string => {
   return `${sessionName}::${windowName}`;
 };
 
 const mapBindingToRuntimeState = (
-  binding: Awaited<ReturnType<typeof client.getWindowBinding>>
+  binding: Awaited<ReturnType<typeof client.getWindowBinding>>,
 ): WindowRuntimeState => {
   return {
     windowKey: binding.windowKey,
     sessionName: binding.sessionName,
     windowName: binding.windowName,
     identity: binding.identity,
-    role: binding.role === "host" ? "host" : binding.role === "knowledge_keeper" ? "knowledge_keeper" : "worker",
+    role:
+      binding.role === "host"
+        ? "host"
+        : binding.role === "knowledge_keeper"
+          ? "knowledge_keeper"
+          : "worker",
     activeFlow: binding.runtimeState.activeFlow,
     activeWaitPid: null,
     currentMessageId: binding.runtimeState.currentMessageId,
@@ -96,12 +101,12 @@ const mapBindingToRuntimeState = (
     continuationToken: binding.runtimeState.continuationToken,
     userVisibleResponseAllowed: binding.runtimeState.userVisibleResponseAllowed,
     leaseExpiresAt: binding.runtimeState.leaseExpiresAt,
-    updatedAt: binding.runtimeState.updatedAt ?? binding.lastHeartbeatAt
+    updatedAt: binding.runtimeState.updatedAt ?? binding.lastHeartbeatAt,
   };
 };
 
 export const readWindowRuntimeStates = async (
-  projectRoot: string
+  projectRoot: string,
 ): Promise<WindowRuntimeState[]> => {
   void projectRoot;
   const bindings = await client.listWindowBindings();
@@ -111,7 +116,7 @@ export const readWindowRuntimeStates = async (
 export const readWindowRuntimeState = async (
   projectRoot: string,
   sessionName: string,
-  windowName: string
+  windowName: string,
 ): Promise<WindowRuntimeState | undefined> => {
   void projectRoot;
   try {
@@ -124,7 +129,7 @@ export const readWindowRuntimeState = async (
 
 export const writeWindowRuntimeState = async (
   projectRoot: string,
-  state: WindowRuntimeState
+  state: WindowRuntimeState,
 ): Promise<WindowRuntimeState> => {
   void projectRoot;
   const binding = await client.updateWindowRuntimeState(
@@ -152,8 +157,8 @@ export const writeWindowRuntimeState = async (
       requiredTool: state.requiredTool,
       continuationToken: state.continuationToken,
       userVisibleResponseAllowed: state.userVisibleResponseAllowed,
-      leaseExpiresAt: state.leaseExpiresAt
-    }
+      leaseExpiresAt: state.leaseExpiresAt,
+    },
   );
   return mapBindingToRuntimeState(binding);
 };
@@ -161,7 +166,7 @@ export const writeWindowRuntimeState = async (
 export const clearWindowRuntimeState = async (
   projectRoot: string,
   sessionName: string,
-  windowName: string
+  windowName: string,
 ): Promise<void> => {
   void projectRoot;
   try {
@@ -179,7 +184,7 @@ export const clearWindowRuntimeState = async (
 };
 
 export const getWindowRuntimeStatesStorePath = (
-  projectRoot: string
+  projectRoot: string,
 ): string => {
   void projectRoot;
   return runtimeStoreDescriptor;

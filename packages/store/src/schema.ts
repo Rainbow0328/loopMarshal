@@ -1,4 +1,9 @@
-export const schemaDDL = `
+import { memberRoutingDDL } from "./member-routing-schema.js";
+import { deliveryDDL } from "./delivery-schema.js";
+import { memberCredentialDDL } from "./member-credential-schema.js";
+
+export const schemaDDL =
+  `
   -- ============================================
   -- schema_version: 迁移版本追踪
   -- ============================================
@@ -13,6 +18,7 @@ export const schemaDDL = `
   CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
+    project_path TEXT,
     host_agent_id TEXT NOT NULL,
     status TEXT NOT NULL,
     created_at TEXT NOT NULL,
@@ -341,4 +347,7 @@ export const schemaDDL = `
   -- 记录 schema 版本
   INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (1, datetime('now'));
-`;
+` +
+  memberRoutingDDL +
+  deliveryDDL +
+  memberCredentialDDL;

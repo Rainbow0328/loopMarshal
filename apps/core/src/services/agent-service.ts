@@ -21,7 +21,7 @@ import type { SessionService } from "./session-service.js";
 export class AgentService {
   public constructor(
     private readonly agents: AgentRepository,
-    private readonly sessionService: SessionService
+    private readonly sessionService: SessionService,
   ) {}
 
   /**
@@ -43,7 +43,7 @@ export class AgentService {
 
     return {
       agentId,
-      heartbeatAt
+      heartbeatAt,
     };
   }
 

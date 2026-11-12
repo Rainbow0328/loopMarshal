@@ -17,7 +17,7 @@ import type {
   AgentRole,
   ConnectionMode,
   SessionJoinResult,
-  WindowBinding
+  WindowBinding,
 } from "@loopmarshal/protocol";
 import { LoopMarshalSdkError, createLoopMarshalClient } from "@loopmarshal/sdk";
 import { errorCodes } from "@loopmarshal/protocol";
@@ -40,14 +40,14 @@ export type CliIdentityContext = {
 const client = createLoopMarshalClient({
   headers: {
     "x-loopmarshal-client": "cli",
-    "x-loopmarshal-process": String(process.pid)
-  }
+    "x-loopmarshal-process": String(process.pid),
+  },
 });
 
 const bindingStoreDescriptor = "db://window-bindings";
 
 const parseIdentity = (
-  identity: string
+  identity: string,
 ): {
   sessionName: string;
   agentName: string;
@@ -55,17 +55,19 @@ const parseIdentity = (
   const separator = identity.indexOf("::");
   if (separator <= 0 || separator >= identity.length - 2) {
     throw new Error(
-      `identity="${identity}" does not match the "<sessionName>::<agentName>" format.`
+      `identity="${identity}" does not match the "<sessionName>::<agentName>" format.`,
     );
   }
 
   return {
     sessionName: identity.slice(0, separator),
-    agentName: identity.slice(separator + 2)
+    agentName: identity.slice(separator + 2),
   };
 };
 
-const buildContextFromBinding = (binding: WindowBinding): CliIdentityContext => {
+const buildContextFromBinding = (
+  binding: WindowBinding,
+): CliIdentityContext => {
   return {
     identity: binding.identity,
     sessionId: binding.sessionId,
@@ -78,12 +80,12 @@ const buildContextFromBinding = (binding: WindowBinding): CliIdentityContext => 
     roleDescription: binding.roleDescription,
     capabilities: binding.capabilities,
     connectionMode: binding.connectionMode,
-    updatedAt: binding.runtimeState.updatedAt ?? binding.lastHeartbeatAt
+    updatedAt: binding.runtimeState.updatedAt ?? binding.lastHeartbeatAt,
   };
 };
 
 export const readCliIdentities = async (
-  projectRoot: string
+  projectRoot: string,
 ): Promise<CliIdentityContext[]> => {
   void projectRoot;
   const bindings = await client.listWindowBindings();
@@ -92,7 +94,7 @@ export const readCliIdentities = async (
 
 export const readCliIdentity = async (
   projectRoot: string,
-  identity: string
+  identity: string,
 ): Promise<CliIdentityContext | undefined> => {
   void projectRoot;
   const { sessionName, agentName } = parseIdentity(identity);
@@ -114,7 +116,7 @@ export const readCliIdentity = async (
 export const writeCliIdentity = async (
   projectRoot: string,
   identity: string,
-  result: SessionJoinResult
+  result: SessionJoinResult,
 ): Promise<CliIdentityContext> => {
   void projectRoot;
   return {
@@ -129,13 +131,13 @@ export const writeCliIdentity = async (
     roleDescription: result.agent.roleDescription,
     capabilities: result.agent.capabilities,
     connectionMode: result.agent.connectionMode,
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
   };
 };
 
 export const clearCliIdentity = async (
   projectRoot: string,
-  identity: string
+  identity: string,
 ): Promise<void> => {
   void projectRoot;
   void identity;
@@ -146,7 +148,7 @@ export const clearCliIdentitiesForSession = async (
   target: {
     sessionId?: string;
     sessionName?: string;
-  }
+  },
 ): Promise<string[]> => {
   void projectRoot;
   const bindings = await client.listWindowBindings(target.sessionName);
@@ -167,12 +169,12 @@ export const clearCliIdentitiesForSession = async (
 
 export const requireCliIdentity = async (
   projectRoot: string,
-  identity: string
+  identity: string,
 ): Promise<CliIdentityContext> => {
   const context = await readCliIdentity(projectRoot, identity);
   if (!context) {
     throw new Error(
-      `No binding found for identity="${identity}". Run loopmarshal attach <name> --session <sessionName> --role <host|worker|knowledge_keeper> --duty "<description>" first. Binding source: "${bindingStoreDescriptor}".`
+      `No binding found for identity="${identity}". Run loopmarshal attach <name> --session <sessionName> --role <host|worker|knowledge_keeper> --duty "<description>" first. Binding source: "${bindingStoreDescriptor}".`,
     );
   }
 

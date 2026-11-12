@@ -17,16 +17,18 @@ describe("UserPreferencesService", () => {
         key: "coding.summary",
         value: "Prefer concise Chinese implementation summaries.",
         category: "coding",
-        source: "manual"
+        source: "manual",
       });
 
       expect(preference.key).toBe("coding.summary");
       expect(service.getManifest()).toMatchObject({
         rootPath: filePath,
-        count: 1
+        count: 1,
       });
       expect(service.list({ query: "Chinese" })).toHaveLength(1);
-      await expect(readFile(filePath, "utf8")).resolves.toContain("coding.summary");
+      await expect(readFile(filePath, "utf8")).resolves.toContain(
+        "coding.summary",
+      );
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -42,8 +44,14 @@ describe("UserPreferencesService", () => {
 
       expect(service.list()).toEqual([]);
       expect(service.getManifest().count).toBe(0);
-      const entries = await import("node:fs/promises").then((fs) => fs.readdir(tempRoot));
-      expect(entries.some((entry) => entry.startsWith("user-preferences.json.corrupt."))).toBe(true);
+      const entries = await import("node:fs/promises").then((fs) =>
+        fs.readdir(tempRoot),
+      );
+      expect(
+        entries.some((entry) =>
+          entry.startsWith("user-preferences.json.corrupt."),
+        ),
+      ).toBe(true);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -73,18 +81,19 @@ describe("UserPreferencesService", () => {
             "Current user preference for admin database work:",
             "",
             "- Prefer direct schema rebuilds during this empty-database test cycle.",
-            "- Do not prioritize compatibility migrations right now."
-          ].join("\n")
+            "- Do not prioritize compatibility migrations right now.",
+          ].join("\n"),
         }),
-        "utf8"
+        "utf8",
       );
       await writeFile(
         path.join(currentKnowledgeDir, "current.json"),
         JSON.stringify({
           title: "New Layout Current",
-          content: "Current user preference in the new layout should not be imported as legacy."
+          content:
+            "Current user preference in the new layout should not be imported as legacy.",
         }),
-        "utf8"
+        "utf8",
       );
 
       const service = new UserPreferencesService(filePath);
@@ -94,19 +103,19 @@ describe("UserPreferencesService", () => {
       expect(firstImport).toMatchObject({
         scannedFiles: 1,
         imported: 1,
-        skipped: 0
+        skipped: 0,
       });
       expect(secondImport).toMatchObject({
         scannedFiles: 1,
         imported: 0,
-        skipped: 1
+        skipped: 1,
       });
       expect(service.list()).toEqual([
         expect.objectContaining({
           category: "legacy-knowledge",
           source: "system",
-          value: expect.stringContaining("Prefer direct schema rebuilds")
-        })
+          value: expect.stringContaining("Prefer direct schema rebuilds"),
+        }),
       ]);
       expect(service.list({ query: "用户习惯" })).toHaveLength(1);
       expect(service.list({ query: "历史知识库" })).toHaveLength(1);
@@ -121,17 +130,17 @@ describe("McpToolService user preference tools", () => {
     const tempRoot = await mkdtemp(path.join(tmpdir(), "loopmarshal-prefs-"));
     try {
       const userPreferencesService = new UserPreferencesService(
-        path.join(tempRoot, "user-preferences.json")
+        path.join(tempRoot, "user-preferences.json"),
       );
       const service = new McpToolService({
         findByAgentId: (agentId: string) =>
           agentId === "keeper-agent"
             ? { role: "knowledge_keeper" }
-            : { role: "host" }
+            : { role: "host" },
       } as never);
       const services = {
         mcpToolService: service,
-        userPreferencesService
+        userPreferencesService,
       } as never;
 
       const denied = await service.executeTool(
@@ -139,17 +148,21 @@ describe("McpToolService user preference tools", () => {
         { key: "coding.detail", value: "Use direct progress reports." },
         "host-agent",
         "session-1",
-        services
+        services,
       );
       expect(denied.success).toBe(false);
       expect(denied.error).toContain("not allowed");
 
       const updated = await service.executeTool(
         "user_preference_update",
-        { key: "coding.detail", value: "Use direct progress reports.", category: "coding" },
+        {
+          key: "coding.detail",
+          value: "Use direct progress reports.",
+          category: "coding",
+        },
         "keeper-agent",
         "session-1",
-        services
+        services,
       );
       expect(updated.success).toBe(true);
 
@@ -158,14 +171,14 @@ describe("McpToolService user preference tools", () => {
         { query: "progress" },
         "host-agent",
         "session-1",
-        services
+        services,
       );
       expect(listed.success).toBe(true);
       expect(listed.result).toEqual([
         expect.objectContaining({
           key: "coding.detail",
-          source: "agent"
-        })
+          source: "agent",
+        }),
       ]);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });

@@ -10,12 +10,7 @@ import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-export type McpSetupTarget =
-  | "auto"
-  | "claude"
-  | "codex"
-  | "cursor"
-  | "trae";
+export type McpSetupTarget = "auto" | "claude" | "codex" | "cursor" | "trae";
 
 export type McpSetupOptions = {
   projectRoot: string;
@@ -43,7 +38,7 @@ const getMcpServerCommand = (): { command: string; args: string[] } => {
   // We always use the `loopmarshal` binary since it's the package bin.
   return {
     command: "npx",
-    args: ["loopmarshal", "mcp", "serve"]
+    args: ["loopmarshal", "mcp", "serve"],
   };
 };
 
@@ -60,11 +55,31 @@ type Candidate = {
 const getCandidates = (projectRoot: string): Candidate[] => {
   const home = os.homedir();
   const candidates: Candidate[] = [
-    { target: "claude", path: path.join(projectRoot, ".mcp.json"), kind: "claude-json" },
-    { target: "claude", path: path.join(home, ".claude.json"), kind: "claude-json" },
-    { target: "codex", path: path.join(projectRoot, ".codex", "config.toml"), kind: "codex-toml" },
-    { target: "codex", path: path.join(home, ".codex", "config.toml"), kind: "codex-toml" },
-    { target: "cursor", path: path.join(projectRoot, ".cursor", "mcp.json"), kind: "cursor-json" }
+    {
+      target: "claude",
+      path: path.join(projectRoot, ".mcp.json"),
+      kind: "claude-json",
+    },
+    {
+      target: "claude",
+      path: path.join(home, ".claude.json"),
+      kind: "claude-json",
+    },
+    {
+      target: "codex",
+      path: path.join(projectRoot, ".codex", "config.toml"),
+      kind: "codex-toml",
+    },
+    {
+      target: "codex",
+      path: path.join(home, ".codex", "config.toml"),
+      kind: "codex-toml",
+    },
+    {
+      target: "cursor",
+      path: path.join(projectRoot, ".cursor", "mcp.json"),
+      kind: "cursor-json",
+    },
   ];
 
   return candidates;
@@ -75,10 +90,10 @@ const getCandidates = (projectRoot: string): Candidate[] => {
 // ---------------------------------------------------------------------------
 
 export const setupMcp = async (
-  options: McpSetupOptions
+  options: McpSetupOptions,
 ): Promise<McpSetupResult[]> => {
   const candidates = getCandidates(options.projectRoot).filter(
-    (c) => options.target === "auto" || c.target === options.target
+    (c) => options.target === "auto" || c.target === options.target,
   );
 
   const results: McpSetupResult[] = [];
@@ -96,17 +111,38 @@ export const setupMcp = async (
         path: candidate.path,
         action: "skipped",
         changed: false,
-        message: `Directory not found: ${parentDir}`
+        message: `Directory not found: ${parentDir}`,
       });
       continue;
     }
 
     if (candidate.kind === "claude-json") {
-      results.push(await updateClaudeJson(candidate, options.timeoutSeconds, options.dryRun, options.role));
+      results.push(
+        await updateClaudeJson(
+          candidate,
+          options.timeoutSeconds,
+          options.dryRun,
+          options.role,
+        ),
+      );
     } else if (candidate.kind === "codex-toml") {
-      results.push(await updateCodexToml(candidate, options.timeoutSeconds, options.dryRun, options.role));
+      results.push(
+        await updateCodexToml(
+          candidate,
+          options.timeoutSeconds,
+          options.dryRun,
+          options.role,
+        ),
+      );
     } else if (candidate.kind === "cursor-json") {
-      results.push(await updateCursorJson(candidate, options.timeoutSeconds, options.dryRun, options.role));
+      results.push(
+        await updateCursorJson(
+          candidate,
+          options.timeoutSeconds,
+          options.dryRun,
+          options.role,
+        ),
+      );
     }
   }
 
@@ -121,14 +157,17 @@ const updateClaudeJson = async (
   candidate: Candidate,
   timeoutSeconds: number,
   dryRun: boolean,
-  role?: "host" | "worker"
+  role?: "host" | "worker",
 ): Promise<McpSetupResult> => {
   const { command, args } = getMcpServerCommand();
   const timeoutMs = timeoutSeconds * 1000;
   const exists = existsSync(candidate.path);
 
   const data = exists
-    ? (JSON.parse(await readFile(candidate.path, "utf8")) as Record<string, unknown>)
+    ? (JSON.parse(await readFile(candidate.path, "utf8")) as Record<
+        string,
+        unknown
+      >)
     : {};
 
   if (!data.mcpServers || typeof data.mcpServers !== "object") {
@@ -140,7 +179,7 @@ const updateClaudeJson = async (
   const desiredServer: Record<string, unknown> = {
     command,
     args,
-    timeout: timeoutMs
+    timeout: timeoutMs,
   };
   if (role) {
     desiredServer.env = { LOOPMARSHAL_ROLE: role };
@@ -148,8 +187,7 @@ const updateClaudeJson = async (
 
   const existing = servers[serverName];
   const needsUpdate =
-    !existing ||
-    JSON.stringify(existing) !== JSON.stringify(desiredServer);
+    !existing || JSON.stringify(existing) !== JSON.stringify(desiredServer);
 
   if (!needsUpdate) {
     return {
@@ -157,7 +195,7 @@ const updateClaudeJson = async (
       path: candidate.path,
       action: "skipped",
       changed: false,
-      message: `loopmarshal MCP server already configured with timeout ${timeoutMs}ms.`
+      message: `loopmarshal MCP server already configured with timeout ${timeoutMs}ms.`,
     };
   }
 
@@ -166,7 +204,11 @@ const updateClaudeJson = async (
   if (!dryRun) {
     await backupIfExists(candidate.path);
     await mkdir(path.dirname(candidate.path), { recursive: true });
-    await writeFile(candidate.path, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+    await writeFile(
+      candidate.path,
+      `${JSON.stringify(data, null, 2)}\n`,
+      "utf8",
+    );
   }
 
   return {
@@ -174,7 +216,7 @@ const updateClaudeJson = async (
     path: candidate.path,
     action: exists ? "updated" : "created",
     changed: true,
-    message: `Configured loopmarshal MCP server with timeout ${timeoutMs}ms.`
+    message: `Configured loopmarshal MCP server with timeout ${timeoutMs}ms.`,
   };
 };
 
@@ -186,7 +228,7 @@ const updateCodexToml = async (
   candidate: Candidate,
   timeoutSeconds: number,
   dryRun: boolean,
-  role?: "host" | "worker"
+  role?: "host" | "worker",
 ): Promise<McpSetupResult> => {
   const { command, args } = getMcpServerCommand();
   const exists = existsSync(candidate.path);
@@ -220,12 +262,13 @@ const updateCodexToml = async (
         path: candidate.path,
         action: "skipped",
         changed: false,
-        message: `loopmarshal MCP server already configured with timeout ${timeoutSeconds}s.`
+        message: `loopmarshal MCP server already configured with timeout ${timeoutSeconds}s.`,
       };
     }
 
     // Replace the existing block
-    const next = content.slice(0, blockStart) + desiredBlock + content.slice(blockEnd);
+    const next =
+      content.slice(0, blockStart) + desiredBlock + content.slice(blockEnd);
     if (!dryRun) {
       await backupIfExists(candidate.path);
       await mkdir(path.dirname(candidate.path), { recursive: true });
@@ -237,7 +280,7 @@ const updateCodexToml = async (
       path: candidate.path,
       action: "updated",
       changed: true,
-      message: `Updated loopmarshal MCP server config with timeout ${timeoutSeconds}s.`
+      message: `Updated loopmarshal MCP server config with timeout ${timeoutSeconds}s.`,
     };
   }
 
@@ -256,7 +299,7 @@ const updateCodexToml = async (
     path: candidate.path,
     action: exists ? "updated" : "created",
     changed: true,
-    message: `Configured loopmarshal MCP server with timeout ${timeoutSeconds}s.`
+    message: `Configured loopmarshal MCP server with timeout ${timeoutSeconds}s.`,
   };
 };
 
@@ -268,13 +311,16 @@ const updateCursorJson = async (
   candidate: Candidate,
   timeoutSeconds: number,
   dryRun: boolean,
-  role?: "host" | "worker"
+  role?: "host" | "worker",
 ): Promise<McpSetupResult> => {
   const { command, args } = getMcpServerCommand();
   const exists = existsSync(candidate.path);
 
   const data = exists
-    ? (JSON.parse(await readFile(candidate.path, "utf8")) as Record<string, unknown>)
+    ? (JSON.parse(await readFile(candidate.path, "utf8")) as Record<
+        string,
+        unknown
+      >)
     : {};
 
   if (!data.mcpServers || typeof data.mcpServers !== "object") {
@@ -285,7 +331,7 @@ const updateCursorJson = async (
   const serverName = "loopmarshal";
   const desiredServer: Record<string, unknown> = {
     command,
-    args
+    args,
   };
   if (role) {
     desiredServer.env = { LOOPMARSHAL_ROLE: role };
@@ -293,8 +339,7 @@ const updateCursorJson = async (
 
   const existing = servers[serverName];
   const needsUpdate =
-    !existing ||
-    JSON.stringify(existing) !== JSON.stringify(desiredServer);
+    !existing || JSON.stringify(existing) !== JSON.stringify(desiredServer);
 
   if (!needsUpdate) {
     return {
@@ -302,7 +347,7 @@ const updateCursorJson = async (
       path: candidate.path,
       action: "skipped",
       changed: false,
-      message: `loopmarshal MCP server already configured.`
+      message: `loopmarshal MCP server already configured.`,
     };
   }
 
@@ -311,7 +356,11 @@ const updateCursorJson = async (
   if (!dryRun) {
     await backupIfExists(candidate.path);
     await mkdir(path.dirname(candidate.path), { recursive: true });
-    await writeFile(candidate.path, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+    await writeFile(
+      candidate.path,
+      `${JSON.stringify(data, null, 2)}\n`,
+      "utf8",
+    );
   }
 
   return {
@@ -319,7 +368,7 @@ const updateCursorJson = async (
     path: candidate.path,
     action: exists ? "updated" : "created",
     changed: true,
-    message: `Configured loopmarshal MCP server (note: Cursor does not support explicit timeout config).`
+    message: `Configured loopmarshal MCP server (note: Cursor does not support explicit timeout config).`,
   };
 };
 

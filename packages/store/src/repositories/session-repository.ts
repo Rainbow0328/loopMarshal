@@ -21,11 +21,11 @@ export class SessionRepository {
 
   public insert(session: Session): void {
     const statement = this.database.prepare(`
-      INSERT INTO sessions (id, name, host_agent_id, status, created_at, updated_at)
-      VALUES (@id, @name, @hostAgentId, @status, @createdAt, @updatedAt)
+      INSERT INTO sessions (id, name, project_path, host_agent_id, status, created_at, updated_at)
+      VALUES (@id, @name, @projectPath, @hostAgentId, @status, @createdAt, @updatedAt)
     `);
 
-    statement.run(session);
+    statement.run({ ...session, projectPath: session.projectPath ?? null });
   }
 
   public findById(id: string): Session | null {
@@ -33,6 +33,7 @@ export class SessionRepository {
       SELECT
         id,
         name,
+        project_path AS projectPath,
         host_agent_id AS hostAgentId,
         status,
         created_at AS createdAt,
@@ -49,6 +50,7 @@ export class SessionRepository {
       SELECT
         id,
         name,
+        project_path AS projectPath,
         host_agent_id AS hostAgentId,
         status,
         created_at AS createdAt,
@@ -65,6 +67,7 @@ export class SessionRepository {
       SELECT
         id,
         name,
+        project_path AS projectPath,
         host_agent_id AS hostAgentId,
         status,
         created_at AS createdAt,
@@ -79,7 +82,11 @@ export class SessionRepository {
     return (statement.get(name) as Session | undefined) ?? null;
   }
 
-  public updateStatus(sessionId: string, status: Session["status"], updatedAt: string): void {
+  public updateStatus(
+    sessionId: string,
+    status: Session["status"],
+    updatedAt: string,
+  ): void {
     const statement = this.database.prepare(`
       UPDATE sessions
       SET status = @status,
@@ -90,8 +97,20 @@ export class SessionRepository {
     statement.run({
       sessionId,
       status,
-      updatedAt
+      updatedAt,
     });
+  }
+
+  public updateProjectPath(
+    sessionId: string,
+    projectPath: string,
+    updatedAt: string,
+  ): void {
+    this.database
+      .prepare(
+        "UPDATE sessions SET project_path = ?, updated_at = ? WHERE id = ?",
+      )
+      .run(projectPath, updatedAt, sessionId);
   }
 
   public deleteById(sessionId: string): void {
@@ -119,6 +138,7 @@ export class SessionRepository {
       SELECT
         s.id,
         s.name,
+        s.project_path AS projectPath,
         s.host_agent_id AS hostAgentId,
         s.status,
         COUNT(a.id) AS memberCount,
@@ -138,7 +158,7 @@ export class SessionRepository {
 
     return rows.map((row) => ({
       ...row,
-      onlineMemberCount: row.onlineMemberCount ?? 0
+      onlineMemberCount: row.onlineMemberCount ?? 0,
     }));
   }
 }

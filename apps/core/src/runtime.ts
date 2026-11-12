@@ -19,18 +19,33 @@ import {
   ExternalMcpServerRepository,
   IdentityLeaseRepository,
   MessageRepository,
+  MemberRouteRepository,
+  DeliveryRepository,
   ModelConfigRepository,
   SessionRepository,
   SessionInsightRepository,
   TaskEventRepository,
   TaskRepository,
   WebAgentRuntimeRepository,
-  WorkflowDefinitionRepository
+  WorkflowDefinitionRepository,
 } from "@loopmarshal/store";
 
 import type { CoreConfig } from "./config.js";
+import { dirname, join } from "node:path";
+import { NativeCliSessionAdapter } from "./services/native-session-adapters.js";
 import { defaultCoreConfig } from "./config.js";
 import { createServer } from "./server/create-server.js";
+import { MemberRouteService } from "./services/member-route-service.js";
+import { ToolConfigService } from "./services/tool-config-service.js";
+import { ProxyDeliveryService } from "./services/proxy-delivery-service.js";
+import { MemberCredentialService } from "./services/member-credential-service.js";
+import {
+  ensureCoreManagementToken,
+  readCoreManagementToken,
+} from "@loopmarshal/shared";
+import { managementTokenDigest } from "./server/proxy-auth.js";
+import { prepareProxySessionContext } from "./services/proxy-session-context.js";
+import { ManagedAgentSetupService } from "./services/managed-agent-setup-service.js";
 import {
   AgentService,
   CollaborationWaitService,
@@ -55,42 +70,55 @@ import {
   WorkflowDefinitionService,
   StdioMcpRegistryService,
   AgentWorkflowRegistry,
-  AgentContextService
+  AgentContextService,
 } from "./services/index.js";
 
-export const startCoreServer = async (config: CoreConfig = defaultCoreConfig) => {
+export const startCoreServer = async (
+  config: CoreConfig = defaultCoreConfig,
+) => {
   const databaseManager = new DatabaseManager(config.databasePath);
   databaseManager.migrate();
 
   const sessionRepository = new SessionRepository(databaseManager.connection);
   const agentRepository = new AgentRepository(databaseManager.connection);
   const messageRepository = new MessageRepository(databaseManager.connection);
+  const deliveryRepository = new DeliveryRepository(databaseManager.connection);
+  const memberRouteRepository = new MemberRouteRepository(
+    databaseManager.connection,
+  );
+  messageRepository.setDeliveryRepository(deliveryRepository);
   const identityLeaseRepository = new IdentityLeaseRepository(
-    databaseManager.connection
+    databaseManager.connection,
   );
   const taskRepository = new TaskRepository(databaseManager.connection);
-  const taskEventRepository = new TaskEventRepository(databaseManager.connection);
-  const sessionInsightRepository = new SessionInsightRepository(
-    databaseManager.connection
+  const taskEventRepository = new TaskEventRepository(
+    databaseManager.connection,
   );
-  const agentContextRepository = new AgentContextRepository(databaseManager.connection);
+  const sessionInsightRepository = new SessionInsightRepository(
+    databaseManager.connection,
+  );
+  const agentContextRepository = new AgentContextRepository(
+    databaseManager.connection,
+  );
   const agentContextService = new AgentContextService(agentContextRepository);
-  const modelConfigRepository = new ModelConfigRepository(databaseManager.connection);
+  const modelConfigRepository = new ModelConfigRepository(
+    databaseManager.connection,
+  );
   if (modelConfigRepository.list().length === 0) {
     const timestamp = new Date().toISOString();
-modelConfigRepository.upsert({
-id: "default-model",
-name: "Default Model",
-provider: process.env.LOOPMARSHAL_LLM_PROVIDER ?? "openai",
-modelId: process.env.LOOPMARSHAL_LLM_MODEL ?? "gpt-4o-mini",
-apiKey: null,
-baseUrl: null,
-contextWindowTokens: 128000,
-maxOutputTokens: 4096,
-contextReserveTokens: 1000,
-createdAt: timestamp,
-updatedAt: timestamp
-});
+    modelConfigRepository.upsert({
+      id: "default-model",
+      name: "Default Model",
+      provider: process.env.LOOPMARSHAL_LLM_PROVIDER ?? "openai",
+      modelId: process.env.LOOPMARSHAL_LLM_MODEL ?? "gpt-4o-mini",
+      apiKey: null,
+      baseUrl: null,
+      contextWindowTokens: 128000,
+      maxOutputTokens: 4096,
+      contextReserveTokens: 1000,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
   }
 
   // Load persisted API keys and base URLs into process.env for runtime use.
@@ -105,10 +133,10 @@ updatedAt: timestamp
     }
   }
   const webAgentRuntimeRepository = new WebAgentRuntimeRepository(
-    databaseManager.connection
+    databaseManager.connection,
   );
   const workflowDefinitionRepository = new WorkflowDefinitionRepository(
-    databaseManager.connection
+    databaseManager.connection,
   );
 
   const sessionService = new SessionService(
@@ -119,73 +147,159 @@ updatedAt: timestamp
     taskRepository,
     taskEventRepository,
     sessionInsightRepository,
-    identityLeaseRepository
+    identityLeaseRepository,
   );
   const agentService = new AgentService(agentRepository, sessionService);
+  const memberRouteService = new MemberRouteService(
+    databaseManager.connection,
+    memberRouteRepository,
+    sessionRepository,
+    agentRepository,
+    sessionService,
+  );
   const sessionInsightService = new SessionInsightService(
     sessionRepository,
     agentRepository,
-    sessionInsightRepository
+    sessionInsightRepository,
   );
 
   const messageService = new MessageService(
     sessionRepository,
     agentRepository,
     messageRepository,
-    identityLeaseRepository
+    identityLeaseRepository,
   );
-  const identityLeaseService = new IdentityLeaseService(identityLeaseRepository);
+  const identityLeaseService = new IdentityLeaseService(
+    identityLeaseRepository,
+  );
   const windowBindingService = new WindowBindingService(agentRepository);
   const taskService = new TaskService(
     sessionRepository,
     agentRepository,
     taskRepository,
-    taskEventRepository
+    taskEventRepository,
   );
   const knowledgeFileStore = new KnowledgeFileStore(process.cwd());
-  const knowledgeService = new KnowledgeService(knowledgeFileStore);
+  const websocketService = new WebSocketService();
+  const knowledgeService = new KnowledgeService(
+    knowledgeFileStore,
+    null,
+    (sessionId) =>
+      websocketService.broadcastConsoleUpdate(sessionId, "knowledge_updated"),
+  );
   const userPreferencesService = new UserPreferencesService();
   userPreferencesService.importFromLegacyKnowledgeRoot(
-    knowledgeFileStore.getRootPath()
+    knowledgeFileStore.getRootPath(),
   );
   const extractionService = new ExtractionService();
   const guardService = new GuardService();
 
-  const websocketService = new WebSocketService();
+  const proxyDeliveryService = new ProxyDeliveryService(
+    databaseManager.connection,
+    deliveryRepository,
+    memberRouteRepository,
+    messageRepository,
+    (sessionId) =>
+      websocketService.broadcastConsoleUpdate(sessionId, "message_sent"),
+    new NativeCliSessionAdapter(
+      join(dirname(config.databasePath), "native-session-evidence"),
+    ),
+    async (delivery) =>
+      prepareProxySessionContext(
+        services,
+        delivery,
+        `http://127.0.0.1:${server.server.address() && typeof server.server.address() === "object" ? (server.server.address() as { port: number }).port : config.port}`,
+        config.databasePath,
+      ),
+    (sessionId, agentId, expectedVersion, nativeSessionId, version) =>
+      memberRouteService.bindCreatedNativeSession(
+        sessionId,
+        agentId,
+        expectedVersion,
+        nativeSessionId,
+        version,
+      ),
+    (sessionId, agentId, expectedVersion, message) =>
+      memberRouteService.failNativeSessionCreation(
+        sessionId,
+        agentId,
+        expectedVersion,
+        message,
+      ),
+    (
+      sessionId,
+      workerAgentId,
+      hostAgentId,
+      correlationId,
+      result,
+      idempotencyKey,
+    ) =>
+      messageService.queueKnowledgeMaintenance(
+        sessionId,
+        workerAgentId,
+        hostAgentId,
+        correlationId,
+        result,
+        idempotencyKey,
+      ),
+  );
   const progressService = new ProgressService();
   const sessionConsoleService = new SessionConsoleService(
     sessionService,
     messageService,
     progressService,
-    knowledgeService
+    knowledgeService,
+    memberRouteRepository,
+    deliveryRepository,
   );
   const collaborationWaitService = new CollaborationWaitService(
     messageService,
-    windowBindingService
+    windowBindingService,
   );
   const externalMcpService = new ExternalMcpService(
-    new ExternalMcpServerRepository(databaseManager.connection)
+    new ExternalMcpServerRepository(databaseManager.connection),
   );
-  const mcpToolService = new McpToolService(webAgentRuntimeRepository);
+  const mcpToolService = new McpToolService(
+    webAgentRuntimeRepository,
+    new Map(),
+    sessionRepository,
+    agentRepository,
+  );
   const stdioMcpRegistryService = new StdioMcpRegistryService();
   const webAgentRuntimeService = new WebAgentRuntimeService(
     webAgentRuntimeRepository,
     sessionRepository,
     agentRepository,
-    modelConfigRepository
+    modelConfigRepository,
+    memberRouteRepository,
   );
   const workflowDefinitionService = new WorkflowDefinitionService(
-    workflowDefinitionRepository
+    workflowDefinitionRepository,
   );
   workflowDefinitionService.seedBuiltins();
 
   let services: Parameters<typeof createServer>[1];
   const webAgentRuntimeExecutorService = new WebAgentRuntimeExecutorService(
-    () => services
+    () => services,
   );
   const agentWorkflowRegistry = new AgentWorkflowRegistry();
 
   services = {
+    memberCredentialService: new MemberCredentialService(
+      databaseManager.connection,
+    ),
+    proxyManagementTokenHash: managementTokenDigest(
+      ensureCoreManagementToken(config.databasePath),
+    ),
+    readLocalManagementToken: () =>
+      readCoreManagementToken(config.databasePath),
+    memberRouteService,
+    toolConfigService: new ToolConfigService(
+      databaseManager.connection,
+      memberRouteService,
+      config.databasePath,
+    ),
+    proxyDeliveryService,
     sessionService,
     agentService,
     identityLeaseService,
@@ -209,29 +323,44 @@ updatedAt: timestamp
     webAgentRuntimeExecutorService,
     agentWorkflowRegistry,
     agentContextService,
-    workflowDefinitionService
+    workflowDefinitionService,
   };
+  services.managedAgentSetupService = new ManagedAgentSetupService(
+    config.databasePath,
+    () => services,
+    () =>
+      `http://127.0.0.1:${server.server.address() && typeof server.server.address() === "object" ? (server.server.address() as { port: number }).port : config.port}`,
+  );
 
   const server = await createServer(config, services);
 
   messageService.setWebSocketService(websocketService);
-  for (const runtime of webAgentRuntimeRepository.listRunningEnabled()) {
-    webAgentRuntimeExecutorService.start(runtime);
+  try {
+    proxyDeliveryService.acquireOwnership();
+    services.memberCredentialService!.revokeExecutionCredentials();
+    await server.listen({ host: config.host, port: config.port });
+    services.managedAgentSetupService.reconcile();
+    proxyDeliveryService.start();
+    for (const runtime of webAgentRuntimeRepository.listRunningEnabled()) {
+      webAgentRuntimeExecutorService.start(runtime);
+    }
+  } catch (error) {
+    await proxyDeliveryService.stop();
+    webAgentRuntimeExecutorService.stopAll();
+    await server.close();
+    databaseManager.close();
+    throw error;
   }
-
-  await server.listen({
-    host: config.host,
-    port: config.port
-  });
 
   return {
     server,
     databaseManager,
     stdioMcpRegistryService,
     close: async () => {
+      await proxyDeliveryService.stop();
       webAgentRuntimeExecutorService.stopAll();
       await server.close();
       databaseManager.close();
-    }
+    },
   };
 };

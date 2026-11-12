@@ -34,14 +34,19 @@ export class LoopMarshalWebSocketClient {
   private ws: WebSocket | null = null;
   private reconnectAttempts = 0;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
-  private listeners: { [K in keyof WebSocketEventMap]?: ((...args: WebSocketEventMap[K]) => void)[] } = {};
+  private listeners: {
+    [K in keyof WebSocketEventMap]?: ((
+      ...args: WebSocketEventMap[K]
+    ) => void)[];
+  } = {};
 
   constructor(private options: LoopMarshalWebSocketClientOptions) {}
 
   public on<K extends keyof WebSocketEventMap>(
     event: K,
-    listener: (...args: WebSocketEventMap[K]) => void
+    listener: (...args: WebSocketEventMap[K]) => void,
   ): this {
     let list = this.listeners[event];
     if (!list) {
@@ -54,7 +59,7 @@ export class LoopMarshalWebSocketClient {
 
   public once<K extends keyof WebSocketEventMap>(
     event: K,
-    listener: (...args: WebSocketEventMap[K]) => void
+    listener: (...args: WebSocketEventMap[K]) => void,
   ): this {
     const onceWrapper = (...args: WebSocketEventMap[K]) => {
       this.removeListener(event, onceWrapper);
@@ -65,7 +70,7 @@ export class LoopMarshalWebSocketClient {
 
   public removeListener<K extends keyof WebSocketEventMap>(
     event: K,
-    listener: (...args: WebSocketEventMap[K]) => void
+    listener: (...args: WebSocketEventMap[K]) => void,
   ): this {
     const eventListeners = this.listeners[event];
     if (eventListeners) {
@@ -152,6 +157,7 @@ export class LoopMarshalWebSocketClient {
   }
 
   private startHeartbeat(): void {
+    this.stopHeartbeat();
     const interval = this.options.heartbeatIntervalMs ?? 30000;
     this.heartbeatTimer = setInterval(() => {
       this.send({ type: "ping", timestamp: new Date().toISOString() });
@@ -166,6 +172,7 @@ export class LoopMarshalWebSocketClient {
   }
 
   private scheduleReconnect(): void {
+    if (this.stopped || this.reconnectTimer !== null) return;
     if (this.reconnectAttempts >= (this.options.maxReconnectAttempts ?? 5)) {
       this.emit("maxReconnectAttemptsReached");
       return;
@@ -174,7 +181,9 @@ export class LoopMarshalWebSocketClient {
     const delay = this.options.reconnectDelayMs ?? 1000;
     this.reconnectAttempts++;
 
-    setTimeout(() => {
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.stopped) return;
       this.emit("reconnecting", { attempt: this.reconnectAttempts });
       this.connect();
     }, delay);
@@ -186,7 +195,9 @@ export class LoopMarshalWebSocketClient {
     }
   }
 
-  public waitForNextMessage(timeoutMs = 30000): Promise<WsInboxMessageNotification | null> {
+  public waitForNextMessage(
+    timeoutMs = 30000,
+  ): Promise<WsInboxMessageNotification | null> {
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.removeListener("inbox:message", handler);
@@ -204,6 +215,8 @@ export class LoopMarshalWebSocketClient {
 
   public disconnect(): void {
     this.stopped = true;
+    if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
     this.stopHeartbeat();
     if (this.ws) {
       this.ws.close();

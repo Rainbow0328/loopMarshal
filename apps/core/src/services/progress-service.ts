@@ -16,7 +16,7 @@
 import type {
   ListProgressFilter,
   Progress,
-  UpsertProgressInput
+  UpsertProgressInput,
 } from "@loopmarshal/protocol";
 
 const DEFAULT_TTL_SECONDS = 3600;
@@ -59,7 +59,7 @@ export class ProgressService {
       details: input.details ?? existing?.details,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
-      expiresAt: this.addSeconds(now, ttl)
+      expiresAt: this.addSeconds(now, ttl),
     };
 
     this.progressMap.set(key, progress);

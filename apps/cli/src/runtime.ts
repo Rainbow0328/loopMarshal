@@ -77,18 +77,18 @@ const readRuntimeMetadata = (projectRoot: string): RuntimeMetadata | null => {
 
 const writeRuntimeMetadata = (
   projectRoot: string,
-  metadata: RuntimeMetadata
+  metadata: RuntimeMetadata,
 ): void => {
   writeFileSync(
     getRuntimeMetadataPath(projectRoot),
     JSON.stringify(metadata, null, 2),
-    "utf8"
+    "utf8",
   );
 };
 
 const clearRuntimeMetadata = (projectRoot: string): void => {
   rmSync(getRuntimeMetadataPath(projectRoot), {
-    force: true
+    force: true,
   });
 };
 
@@ -124,13 +124,13 @@ export const initializeConfig = (projectRoot: string): string => {
         {
           core: {
             host: defaultHost,
-            port: defaultPort
-          }
+            port: defaultPort,
+          },
         },
         null,
-        2
+        2,
       ),
-      "utf8"
+      "utf8",
     );
     return configPath;
   }
@@ -153,14 +153,18 @@ export const startCore = async (projectRoot: string): Promise<CoreStatus> => {
       `-WorkingDirectory ${quotePowerShell(projectRoot)}`,
       "-WindowStyle Hidden",
       "-PassThru;",
-      "Write-Output $p.Id"
+      "Write-Output $p.Id",
     ].join(" ");
 
-    const child = spawn(windowsPowerShellPath, ["-NoProfile", "-Command", command], {
-      cwd: projectRoot,
-      windowsHide: true,
-      stdio: ["ignore", "pipe", "ignore"]
-    });
+    const child = spawn(
+      windowsPowerShellPath,
+      ["-NoProfile", "-Command", command],
+      {
+        cwd: projectRoot,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "ignore"],
+      },
+    );
 
     pid = await new Promise<number>((resolve, reject) => {
       let output = "";
@@ -170,7 +174,9 @@ export const startCore = async (projectRoot: string): Promise<CoreStatus> => {
       child.on("error", reject);
       child.on("exit", (code) => {
         if (code !== 0) {
-          reject(new Error(`Failed to start core process. Exit code: ${code ?? -1}`));
+          reject(
+            new Error(`Failed to start core process. Exit code: ${code ?? -1}`),
+          );
           return;
         }
 
@@ -182,7 +188,7 @@ export const startCore = async (projectRoot: string): Promise<CoreStatus> => {
     const child = spawn(process.execPath, [coreEntry], {
       cwd: projectRoot,
       detached: true,
-      stdio: "ignore"
+      stdio: "ignore",
     });
 
     child.unref();
@@ -194,7 +200,7 @@ export const startCore = async (projectRoot: string): Promise<CoreStatus> => {
     startedAt: new Date().toISOString(),
     host: defaultHost,
     port: defaultPort,
-    cwd: projectRoot
+    cwd: projectRoot,
   };
 
   writeRuntimeMetadata(projectRoot, metadata);
@@ -206,13 +212,15 @@ export const startCore = async (projectRoot: string): Promise<CoreStatus> => {
 
 export const runCoreForeground = async (
   projectRoot: string,
-  webDir?: string
+  webDir?: string,
 ): Promise<void> => {
   initializeConfig(projectRoot);
 
   const running = await isCoreReachable();
   if (running) {
-    throw new Error(`loopmarshal core is already running on ${defaultHost}:${defaultPort}.`);
+    throw new Error(
+      `loopmarshal core is already running on ${defaultHost}:${defaultPort}.`,
+    );
   }
 
   // Spawn the web dev server (vite) if a web directory is provided.
@@ -251,14 +259,18 @@ export const runCoreForeground = async (
     startedAt: new Date().toISOString(),
     host: defaultHost,
     port: defaultPort,
-    cwd: projectRoot
+    cwd: projectRoot,
   };
   writeRuntimeMetadata(projectRoot, metadata);
 
   const shutdown = async () => {
     clearRuntimeMetadata(projectRoot);
     if (webChild) {
-      try { webChild.kill(); } catch { /* ignore */ }
+      try {
+        webChild.kill();
+      } catch {
+        /* ignore */
+      }
     }
     await instance.close();
     process.exit(0);
@@ -292,7 +304,9 @@ export const stopCore = async (projectRoot: string): Promise<CoreStatus> => {
   return getCoreStatus(projectRoot);
 };
 
-export const getCoreStatus = async (projectRoot: string): Promise<CoreStatus> => {
+export const getCoreStatus = async (
+  projectRoot: string,
+): Promise<CoreStatus> => {
   const metadata = readRuntimeMetadata(projectRoot);
   const pidRunning = metadata?.pid ? isProcessRunning(metadata.pid) : false;
   const reachable = await isCoreReachable();
@@ -301,14 +315,14 @@ export const getCoreStatus = async (projectRoot: string): Promise<CoreStatus> =>
     return {
       state: "running",
       metadata,
-      reachable
+      reachable,
     };
   }
 
   return {
     state: "stopped",
     metadata,
-    reachable
+    reachable,
   };
 };
 
@@ -326,8 +340,10 @@ export const isCoreReachable = async (): Promise<boolean> => {
  */
 export const getRegisteredMcpServers = async (
   host = defaultHost,
-  port = defaultPort
-): Promise<Array<{ pid: number; startedAt: string; ideLabel: string | null }>> => {
+  port = defaultPort,
+): Promise<
+  Array<{ pid: number; startedAt: string; ideLabel: string | null }>
+> => {
   try {
     const response = await fetch(`http://${host}:${port}/api/mcp-stdio/list`);
     if (!response.ok) return [];
@@ -335,11 +351,15 @@ export const getRegisteredMcpServers = async (
     const servers = data?.data?.servers;
     if (!Array.isArray(servers)) return [];
     return servers.map((s) => {
-      const entry = s as { pid: number; startedAt: string; ideLabel: string | null };
+      const entry = s as {
+        pid: number;
+        startedAt: string;
+        ideLabel: string | null;
+      };
       return {
         pid: entry.pid,
         startedAt: entry.startedAt,
-        ideLabel: entry.ideLabel
+        ideLabel: entry.ideLabel,
       };
     });
   } catch {
@@ -353,7 +373,7 @@ export const getRegisteredMcpServers = async (
  */
 const killRegisteredMcpServers = async (
   host = defaultHost,
-  port = defaultPort
+  port = defaultPort,
 ): Promise<{ killed: number[]; failed: number[] }> => {
   const servers = await getRegisteredMcpServers(host, port);
   const killed: number[] = [];
@@ -389,7 +409,7 @@ export const runDoctor = async (projectRoot: string) => {
     configPath: getConfigPath(projectRoot),
     coreEntry,
     pidKnown: metadata?.pid ?? null,
-    coreReachable: await isCoreReachable()
+    coreReachable: await isCoreReachable(),
   };
 };
 

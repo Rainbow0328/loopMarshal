@@ -34,11 +34,12 @@ type Candidate = {
 const SERVER_NAMES = ["loopmarshal"];
 
 export const configureMcpTimeouts = async (
-  options: McpTimeoutConfigureOptions
+  options: McpTimeoutConfigureOptions,
 ): Promise<McpTimeoutConfigureResult[]> => {
   const timeoutSeconds = Math.max(1, Math.floor(options.timeoutSeconds));
   const candidates = getCandidates(options.projectRoot).filter(
-    (candidate) => options.target === "auto" || candidate.target === options.target
+    (candidate) =>
+      options.target === "auto" || candidate.target === options.target,
   );
   const results: McpTimeoutConfigureResult[] = [];
 
@@ -49,7 +50,8 @@ export const configureMcpTimeouts = async (
         path: candidate.path,
         action: "unsupported",
         changed: false,
-        message: "Cursor MCP timeout key is not reliably documented; keeping cmd fallback."
+        message:
+          "Cursor MCP timeout key is not reliably documented; keeping cmd fallback.",
       });
       continue;
     }
@@ -60,27 +62,27 @@ export const configureMcpTimeouts = async (
         path: candidate.path,
         action: "skipped",
         changed: false,
-        message: "Config file was not found."
+        message: "Config file was not found.",
       });
       continue;
     }
 
     if (candidate.kind === "claude-json") {
       results.push(
-        await updateClaudeJson(candidate.path, timeoutSeconds, options.dryRun)
+        await updateClaudeJson(candidate.path, timeoutSeconds, options.dryRun),
       );
       continue;
     }
 
     if (candidate.kind === "codex-toml") {
       results.push(
-        await updateCodexToml(candidate.path, timeoutSeconds, options.dryRun)
+        await updateCodexToml(candidate.path, timeoutSeconds, options.dryRun),
       );
       continue;
     }
 
     results.push(
-      await updateTraeEnv(candidate.path, timeoutSeconds, options.dryRun)
+      await updateTraeEnv(candidate.path, timeoutSeconds, options.dryRun),
     );
   }
 
@@ -92,26 +94,73 @@ const getCandidates = (projectRoot: string): Candidate[] => {
   const appData = process.env.APPDATA;
   const localAppData = process.env.LOCALAPPDATA;
   const candidates: Candidate[] = [
-    { target: "claude", path: path.join(projectRoot, ".mcp.json"), kind: "claude-json" },
-    { target: "claude", path: path.join(home, ".claude.json"), kind: "claude-json" },
-    { target: "codex", path: path.join(projectRoot, ".codex", "config.toml"), kind: "codex-toml" },
-    { target: "codex", path: path.join(home, ".codex", "config.toml"), kind: "codex-toml" },
-    { target: "cursor", path: path.join(projectRoot, ".cursor", "mcp.json"), kind: "cursor-json" },
-    { target: "trae", path: path.join(projectRoot, ".env"), kind: "trae-env" }
+    {
+      target: "claude",
+      path: path.join(projectRoot, ".mcp.json"),
+      kind: "claude-json",
+    },
+    {
+      target: "claude",
+      path: path.join(home, ".claude.json"),
+      kind: "claude-json",
+    },
+    {
+      target: "codex",
+      path: path.join(projectRoot, ".codex", "config.toml"),
+      kind: "codex-toml",
+    },
+    {
+      target: "codex",
+      path: path.join(home, ".codex", "config.toml"),
+      kind: "codex-toml",
+    },
+    {
+      target: "cursor",
+      path: path.join(projectRoot, ".cursor", "mcp.json"),
+      kind: "cursor-json",
+    },
+    { target: "trae", path: path.join(projectRoot, ".env"), kind: "trae-env" },
   ];
 
   if (appData) {
     candidates.push(
-      { target: "claude", path: path.join(appData, "Claude", "claude_desktop_config.json"), kind: "claude-json" },
-      { target: "cursor", path: path.join(appData, "Cursor", "User", "mcp.json"), kind: "cursor-json" },
-      { target: "trae", path: path.join(appData, "Trae", "User", "settings.json"), kind: "trae-env" }
+      {
+        target: "claude",
+        path: path.join(appData, "Claude", "claude_desktop_config.json"),
+        kind: "claude-json",
+      },
+      {
+        target: "cursor",
+        path: path.join(appData, "Cursor", "User", "mcp.json"),
+        kind: "cursor-json",
+      },
+      {
+        target: "trae",
+        path: path.join(appData, "Trae", "User", "settings.json"),
+        kind: "trae-env",
+      },
     );
   }
 
   if (localAppData) {
     candidates.push(
-      { target: "cursor", path: path.join(localAppData, "Programs", "cursor", "resources", "app", "mcp.json"), kind: "cursor-json" },
-      { target: "trae", path: path.join(localAppData, "Trae", "User", "settings.json"), kind: "trae-env" }
+      {
+        target: "cursor",
+        path: path.join(
+          localAppData,
+          "Programs",
+          "cursor",
+          "resources",
+          "app",
+          "mcp.json",
+        ),
+        kind: "cursor-json",
+      },
+      {
+        target: "trae",
+        path: path.join(localAppData, "Trae", "User", "settings.json"),
+        kind: "trae-env",
+      },
     );
   }
 
@@ -121,12 +170,12 @@ const getCandidates = (projectRoot: string): Candidate[] => {
 const updateClaudeJson = async (
   filePath: string,
   timeoutSeconds: number,
-  dryRun: boolean
+  dryRun: boolean,
 ): Promise<McpTimeoutConfigureResult> => {
   const timeoutMs = timeoutSeconds * 1000;
   const exists = existsSync(filePath);
   const data = exists
-    ? JSON.parse(await readFile(filePath, "utf8")) as Record<string, unknown>
+    ? (JSON.parse(await readFile(filePath, "utf8")) as Record<string, unknown>)
     : {};
   const servers = getServerContainer(data);
   const serverName = findServerName(servers);
@@ -136,7 +185,8 @@ const updateClaudeJson = async (
       path: filePath,
       action: exists ? "skipped" : "created",
       changed: false,
-      message: "No loopmarshal MCP server entry found; timeout was not injected into an unknown server."
+      message:
+        "No loopmarshal MCP server entry found; timeout was not injected into an unknown server.",
     };
   }
 
@@ -148,7 +198,7 @@ const updateClaudeJson = async (
       path: filePath,
       action: "skipped",
       changed: false,
-      message: `Timeout already equals ${timeoutMs}ms.`
+      message: `Timeout already equals ${timeoutMs}ms.`,
     };
   }
 
@@ -164,14 +214,14 @@ const updateClaudeJson = async (
     path: filePath,
     action: exists ? "updated" : "created",
     changed: true,
-    message: `Set loopmarshal MCP timeout to ${timeoutMs}ms.`
+    message: `Set loopmarshal MCP timeout to ${timeoutMs}ms.`,
   };
 };
 
 const updateCodexToml = async (
   filePath: string,
   timeoutSeconds: number,
-  dryRun: boolean
+  dryRun: boolean,
 ): Promise<McpTimeoutConfigureResult> => {
   const exists = existsSync(filePath);
   const content = exists ? await readFile(filePath, "utf8") : "";
@@ -182,7 +232,7 @@ const updateCodexToml = async (
       path: filePath,
       action: "skipped",
       changed: false,
-      message: `tool_timeout_sec already equals ${timeoutSeconds}.`
+      message: `tool_timeout_sec already equals ${timeoutSeconds}.`,
     };
   }
 
@@ -197,28 +247,30 @@ const updateCodexToml = async (
     path: filePath,
     action: exists ? "updated" : "created",
     changed: true,
-    message: `Set [mcp_servers.loopmarshal].tool_timeout_sec to ${timeoutSeconds}.`
+    message: `Set [mcp_servers.loopmarshal].tool_timeout_sec to ${timeoutSeconds}.`,
   };
 };
 
 const updateTraeEnv = async (
   filePath: string,
   timeoutSeconds: number,
-  dryRun: boolean
+  dryRun: boolean,
 ): Promise<McpTimeoutConfigureResult> => {
   const timeoutMs = timeoutSeconds * 1000;
   const exists = existsSync(filePath);
   const content = exists ? await readFile(filePath, "utf8") : "";
   const lines = content ? content.split(/\r?\n/) : [];
   const key = "RUN_MCP_TIMEOUT_MS";
-  const index = lines.findIndex((line) => line.trimStart().startsWith(`${key}=`));
+  const index = lines.findIndex((line) =>
+    line.trimStart().startsWith(`${key}=`),
+  );
   if (index >= 0 && lines[index]?.trim() === `${key}=${timeoutMs}`) {
     return {
       target: "trae",
       path: filePath,
       action: "skipped",
       changed: false,
-      message: `${key} already equals ${timeoutMs}.`
+      message: `${key} already equals ${timeoutMs}.`,
     };
   }
 
@@ -240,12 +292,12 @@ const updateTraeEnv = async (
     path: filePath,
     action: exists ? "updated" : "created",
     changed: true,
-    message: `Set ${key} to ${timeoutMs}.`
+    message: `Set ${key} to ${timeoutMs}.`,
   };
 };
 
 const getServerContainer = (
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
 ): Record<string, unknown> => {
   if (!data.mcpServers || typeof data.mcpServers !== "object") {
     data.mcpServers = {};
@@ -262,7 +314,10 @@ const findServerName = (servers: Record<string, unknown>): string | null => {
   return null;
 };
 
-const setCodexServerTimeout = (content: string, timeoutSeconds: number): string => {
+const setCodexServerTimeout = (
+  content: string,
+  timeoutSeconds: number,
+): string => {
   const header = "[mcp_servers.loopmarshal]";
   if (!content.trim()) {
     return `${header}\ntool_timeout_sec = ${timeoutSeconds}\n`;
@@ -306,7 +361,7 @@ const backupIfExists = async (filePath: string): Promise<void> => {
 };
 
 const dedupeResults = (
-  results: McpTimeoutConfigureResult[]
+  results: McpTimeoutConfigureResult[],
 ): McpTimeoutConfigureResult[] => {
   const seen = new Set<string>();
   return results.filter((result) => {

@@ -5,10 +5,16 @@ import {
   estimateTokens,
   computeLayerBudgets,
 } from "../services/agent-context-builder.js";
-import type { WebAgentRuntime, AgentContextSnapshot, SessionInsight } from "@loopmarshal/protocol";
+import type {
+  WebAgentRuntime,
+  AgentContextSnapshot,
+  SessionInsight,
+} from "@loopmarshal/protocol";
 import type { ServerServices } from "../server/create-server.js";
 
-function createRuntime(role: "host" | "knowledge_keeper" = "host"): WebAgentRuntime {
+function createRuntime(
+  role: "host" | "knowledge_keeper" = "host",
+): WebAgentRuntime {
   return {
     id: "rt-1",
     sessionId: "session-1",
@@ -73,8 +79,12 @@ describe("AgentContextBuilder", () => {
       expect(budgets.recentTurns).toBe(15000); // 15%
       expect(budgets.currentEvent).toBe(20000); // 20%
       // Total should not exceed input budget
-      const total = budgets.systemRoleTools + budgets.sessionSnapshotAndSummary +
-        budgets.relevantKnowledge + budgets.recentTurns + budgets.currentEvent;
+      const total =
+        budgets.systemRoleTools +
+        budgets.sessionSnapshotAndSummary +
+        budgets.relevantKnowledge +
+        budgets.recentTurns +
+        budgets.currentEvent;
       expect(total).toBeLessThanOrEqual(100000);
     });
   });
@@ -106,7 +116,9 @@ describe("AgentContextBuilder", () => {
         insight: null,
         contextSnapshot: null,
       });
-      expect(envelope.roleConfiguration).toContain("Focus on real-time applications");
+      expect(envelope.roleConfiguration).toContain(
+        "Focus on real-time applications",
+      );
       expect(envelope.roleConfiguration).toContain("send_message");
       expect(envelope.roleConfiguration).toContain("session Host");
     });
@@ -154,10 +166,16 @@ describe("AgentContextBuilder", () => {
         insight,
         contextSnapshot: null,
       });
-      expect(envelope.sessionSnapshot.objective).toBe("Build a chat application");
+      expect(envelope.sessionSnapshot.objective).toBe(
+        "Build a chat application",
+      );
       expect(envelope.sessionSnapshot.activePlanSummary).toContain("L1: chat");
-      expect(envelope.sessionSnapshot.acceptanceCriteria).toEqual(["Messages appear within 100ms"]);
-      expect(envelope.sessionSnapshot.constraints).toEqual(["Must work offline"]);
+      expect(envelope.sessionSnapshot.acceptanceCriteria).toEqual([
+        "Messages appear within 100ms",
+      ]);
+      expect(envelope.sessionSnapshot.constraints).toEqual([
+        "Must work offline",
+      ]);
     });
 
     it("includes confirmed decisions from context snapshot", () => {
@@ -173,7 +191,10 @@ describe("AgentContextBuilder", () => {
           { role: "user", content: "Use SQLite instead of Postgres" },
           { role: "assistant", content: "Got it, using SQLite." },
         ],
-        confirmedDecisions: ["Use React for frontend", "Use SQLite for database"],
+        confirmedDecisions: [
+          "Use React for frontend",
+          "Use SQLite for database",
+        ],
         unresolvedQuestions: ["WebSocket or SSE?"],
         pendingActions: ["Design L2 modules"],
         lastProcessedMessageId: "msg-5",
@@ -192,8 +213,12 @@ describe("AgentContextBuilder", () => {
         "Use React for frontend",
         "Use SQLite for database",
       ]);
-      expect(envelope.sessionSnapshot.unresolvedQuestions).toEqual(["WebSocket or SSE?"]);
-      expect(envelope.sessionSnapshot.conversationSummary).toBe("User confirmed React + SQLite");
+      expect(envelope.sessionSnapshot.unresolvedQuestions).toEqual([
+        "WebSocket or SSE?",
+      ]);
+      expect(envelope.sessionSnapshot.conversationSummary).toBe(
+        "User confirmed React + SQLite",
+      );
       expect(envelope.recentTurns).toHaveLength(2);
     });
 
@@ -226,7 +251,10 @@ describe("AgentContextBuilder", () => {
       // Create 20 turns with long content
       const manyTurns = Array.from({ length: 20 }, (_, i) => ({
         role: "user" as const,
-        content: `This is a long user message number ${i + 1} with lots of content to consume tokens. `.repeat(5),
+        content:
+          `This is a long user message number ${i + 1} with lots of content to consume tokens. `.repeat(
+            5,
+          ),
       }));
       const envelope = buildContextEnvelope({
         runtime,
@@ -299,7 +327,9 @@ describe("AgentContextBuilder", () => {
         runtime,
         services,
         currentEvent: "User says: start building",
-        tools: [{ name: "dispatch_task", description: "Dispatch task to worker" }],
+        tools: [
+          { name: "dispatch_task", description: "Dispatch task to worker" },
+        ],
         insight: null,
         contextSnapshot: {
           runtimeId: "rt-1",
@@ -401,11 +431,17 @@ describe("AgentContextBuilder", () => {
         });
 
         // Verify decisions are always present (never trimmed)
-        expect(envelope.sessionSnapshot.confirmedDecisions).toEqual(confirmedDecisions);
+        expect(envelope.sessionSnapshot.confirmedDecisions).toEqual(
+          confirmedDecisions,
+        );
       }
 
       // After 30 turns, all decisions should still be there
-      expect(confirmedDecisions).toEqual(["Use React", "Use SQLite", "Use WebSocket"]);
+      expect(confirmedDecisions).toEqual([
+        "Use React",
+        "Use SQLite",
+        "Use WebSocket",
+      ]);
     });
   });
 });

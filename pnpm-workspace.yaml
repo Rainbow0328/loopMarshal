@@ -3,3 +3,7 @@ packages:
   - packages/*
   - adapters/*
 
+# pnpm deploy uses the workspace lockfile for the self-contained desktop bundle.
+injectWorkspacePackages: true
+syncInjectedDepsAfterScripts:
+  - build

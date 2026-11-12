@@ -91,48 +91,66 @@ export class WebAgentRuntimeRepository {
       lastError: runtime.lastError,
       lastTickAt: runtime.lastTickAt,
       lastSelfMaintenanceAt: runtime.lastSelfMaintenanceAt,
-      externalMcpServerIdsJson: JSON.stringify(runtime.externalMcpServerIds ?? []),
+      externalMcpServerIdsJson: JSON.stringify(
+        runtime.externalMcpServerIds ?? [],
+      ),
       customDuty: runtime.customDuty,
       customSkillIdsJson: JSON.stringify(runtime.customSkillIds ?? []),
       createdAt: runtime.createdAt,
-      updatedAt: runtime.updatedAt
+      updatedAt: runtime.updatedAt,
     });
   }
 
   public findById(id: string): WebAgentRuntime | null {
-    const row = this.database.prepare(`
+    const row = this.database
+      .prepare(
+        `
       SELECT ${SELECT_COLUMNS}
       FROM web_agent_runtimes
       WHERE id = ?
-    `).get(id) as WebAgentRuntimeRow | undefined;
+    `,
+      )
+      .get(id) as WebAgentRuntimeRow | undefined;
     return row ? this.mapRow(row) : null;
   }
 
   public findByAgentId(agentId: string): WebAgentRuntime | null {
-    const row = this.database.prepare(`
+    const row = this.database
+      .prepare(
+        `
       SELECT ${SELECT_COLUMNS}
       FROM web_agent_runtimes
       WHERE agent_id = ?
-    `).get(agentId) as WebAgentRuntimeRow | undefined;
+    `,
+      )
+      .get(agentId) as WebAgentRuntimeRow | undefined;
     return row ? this.mapRow(row) : null;
   }
 
   public listBySessionId(sessionId: string): WebAgentRuntime[] {
-    const rows = this.database.prepare(`
+    const rows = this.database
+      .prepare(
+        `
       SELECT ${SELECT_COLUMNS}
       FROM web_agent_runtimes
       WHERE session_id = ?
       ORDER BY updated_at DESC
-    `).all(sessionId) as WebAgentRuntimeRow[];
+    `,
+      )
+      .all(sessionId) as WebAgentRuntimeRow[];
     return rows.map((row) => this.mapRow(row));
   }
 
   public listRunningEnabled(): WebAgentRuntime[] {
-    const rows = this.database.prepare(`
+    const rows = this.database
+      .prepare(
+        `
       SELECT ${SELECT_COLUMNS}
       FROM web_agent_runtimes
       WHERE status = 'running' AND enabled = 1
-    `).all() as WebAgentRuntimeRow[];
+    `,
+      )
+      .all() as WebAgentRuntimeRow[];
     return rows.map((row) => this.mapRow(row));
   }
 
@@ -142,7 +160,10 @@ export class WebAgentRuntimeRepository {
 
     for (const [key, value] of Object.entries(updates)) {
       if (value === undefined) continue;
-      const column = key.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`);
+      const column = key.replace(
+        /[A-Z]/g,
+        (match) => `_${match.toLowerCase()}`,
+      );
       fields.push(`${column} = @${key}`);
 
       if (key === "enabled") {
@@ -159,15 +180,21 @@ export class WebAgentRuntimeRepository {
     if (fields.length === 0) return;
     fields.push("updated_at = @updatedAt");
     values.updatedAt = new Date().toISOString();
-    this.database.prepare(`
+    this.database
+      .prepare(
+        `
       UPDATE web_agent_runtimes
       SET ${fields.join(", ")}
       WHERE id = @id
-    `).run(values);
+    `,
+      )
+      .run(values);
   }
 
   public deleteById(id: string): void {
-    this.database.prepare("DELETE FROM web_agent_runtimes WHERE id = ?").run(id);
+    this.database
+      .prepare("DELETE FROM web_agent_runtimes WHERE id = ?")
+      .run(id);
   }
 
   private mapRow(row: WebAgentRuntimeRow): WebAgentRuntime {
@@ -189,7 +216,7 @@ export class WebAgentRuntimeRepository {
       customDuty: row.customDuty,
       customSkillIds: parseJsonArray(row.customSkillIds),
       createdAt: row.createdAt,
-      updatedAt: row.updatedAt
+      updatedAt: row.updatedAt,
     };
   }
 }

@@ -25,7 +25,7 @@ export class StdioMcpRegistryService {
       pid,
       startedAt: now,
       lastSeenAt: now,
-      ideLabel: ideLabel ?? null
+      ideLabel: ideLabel ?? null,
     };
     this.entries.set(pid, entry);
     return this.toPublic(entry);
@@ -67,7 +67,7 @@ export class StdioMcpRegistryService {
     return {
       pid: entry.pid,
       startedAt: entry.startedAt,
-      ideLabel: entry.ideLabel
+      ideLabel: entry.ideLabel,
     };
   }
 }

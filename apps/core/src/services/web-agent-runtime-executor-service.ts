@@ -1,3 +1,4 @@
+import { externalToolName } from "./external-tool-name.js";
 import type {
   McpToolDefinition,
   McpToolResult,
@@ -5,11 +6,19 @@ import type {
   MessageType,
 } from "@loopmarshal/protocol";
 import type { ServerServices } from "../server/create-server.js";
-import { createLlmRequest, type LlmChatMessage } from "./llm-provider-client.js";
+import {
+  createLlmRequest,
+  type LlmChatMessage,
+} from "./llm-provider-client.js";
+import {
+  buildContextEnvelope,
+  renderContextEnvelope,
+} from "./agent-context-builder.js";
 
 type RunningLoop = {
   timer: ReturnType<typeof setTimeout> | null;
   stopped: boolean;
+  shutdown: boolean;
 };
 
 const DEFAULT_MAX_TOOL_ROUNDS = 15;
@@ -21,7 +30,7 @@ export class WebAgentRuntimeExecutorService {
 
   public start(runtime: WebAgentRuntime): void {
     this.stop(runtime.id);
-    const loop: RunningLoop = { timer: null, stopped: false };
+    const loop: RunningLoop = { timer: null, stopped: false, shutdown: false };
     this.loops.set(runtime.id, loop);
     void this.tick(runtime.id);
   }
@@ -35,6 +44,7 @@ export class WebAgentRuntimeExecutorService {
   }
 
   public stopAll(): void {
+    for (const loop of this.loops.values()) loop.shutdown = true;
     for (const id of [...this.loops.keys()]) {
       this.stop(id);
     }
@@ -61,9 +71,10 @@ export class WebAgentRuntimeExecutorService {
         lastTickAt: new Date().toISOString(),
       });
 
-      const claimTypes: MessageType[] = runtime.role === "host"
-        ? ["task", "instruction", "result"]
-        : ["task", "instruction"];
+      const claimTypes: MessageType[] =
+        runtime.role === "host"
+          ? ["task", "instruction", "result"]
+          : ["task", "instruction"];
       const message = services.messageService.claimNext(runtime.agentId, {
         types: claimTypes,
       });
@@ -78,24 +89,47 @@ export class WebAgentRuntimeExecutorService {
       claimedMessageId = message.id;
       claimedCorrelationId = message.correlationId ?? null;
 
-      const payload = typeof message.payload === "string"
-        ? message.payload
-        : JSON.stringify(message.payload ?? "");
+      const payload =
+        typeof message.payload === "string"
+          ? message.payload
+          : JSON.stringify(message.payload ?? "");
       services.webAgentRuntimeService.update(runtimeId, {
         currentStep: `Processing ${message.type}...`,
         lastTickAt: new Date().toISOString(),
       });
 
-      const { result, sentDirectedResult, continueAwaiting } = await services.agentWorkflowRegistry.runWorkflow(
-        runtime,
-        services,
-        payload,
-        await this.getTools(runtime),
-        message.type,
-        message.correlationId ?? null
-      );
+      const { result, sentDirectedResult, continueAwaiting } =
+        runtime.role === "worker"
+          ? {
+              result: await this.runToolLoop(runtime, [
+                { role: "user", content: payload },
+              ]),
+              sentDirectedResult: false,
+              continueAwaiting: false,
+            }
+          : await services.agentWorkflowRegistry.runWorkflow(
+              runtime,
+              services,
+              payload,
+              await this.getTools(runtime),
+              message.type,
+              message.correlationId ?? null,
+            );
 
+      if (loop.shutdown) return;
       services.messageService.completeMessage(message.id, runtime.agentId, {});
+      if (runtime.role === "worker") {
+        services.agentContextService.appendTurn(runtime, {
+          role: "user",
+          content: payload,
+          timestamp: new Date().toISOString(),
+        });
+        services.agentContextService.appendTurn(runtime, {
+          role: "assistant",
+          content: result,
+          timestamp: new Date().toISOString(),
+        });
+      }
       // 只有当 workflow 没有自己发送定向 result 时，executor 才发广播 result
       //（Keeper 的 report_to_host 已发定向 result，不需要再广播）
       if (!sentDirectedResult && !continueAwaiting) {
@@ -103,8 +137,22 @@ export class WebAgentRuntimeExecutorService {
           sessionId: runtime.sessionId,
           fromAgentId: runtime.agentId,
           type: "result",
-          payload: result || "completed",
-          ...(message.correlationId ? { correlationId: message.correlationId } : {}),
+          ...(runtime.role === "worker"
+            ? { toAgentId: message.fromAgentId }
+            : runtime.role === "host"
+              ? { toAgentId: runtime.agentId }
+              : {}),
+          payload:
+            runtime.role === "host"
+              ? {
+                  kind: "host_reply",
+                  content: result || "completed",
+                  inReplyTo: message.id,
+                }
+              : result || "completed",
+          ...(message.correlationId
+            ? { correlationId: message.correlationId }
+            : {}),
         });
       }
 
@@ -115,16 +163,34 @@ export class WebAgentRuntimeExecutorService {
       });
       this.schedule(runtimeId, continueAwaiting ? 0 : pollMs);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown runtime error";
+      // The Core closes its store after stopAll. Late model responses must not
+      // report a new failure or update runtime state against that closed store.
+      if (loop.shutdown) return;
+      const message =
+        error instanceof Error ? error.message : "Unknown runtime error";
       if (claimedMessageId) {
         try {
-          services.messageService.failMessage(claimedMessageId, runtime.agentId, message, {});
+          services.messageService.failMessage(
+            claimedMessageId,
+            runtime.agentId,
+            message,
+            {},
+          );
           services.messageService.sendMessage({
             sessionId: runtime.sessionId,
             fromAgentId: runtime.agentId,
             type: "error",
-            payload: { content: message, source: "web_agent_runtime" },
-            ...(claimedCorrelationId ? { correlationId: claimedCorrelationId } : {}),
+            ...(runtime.role === "host" ? { toAgentId: runtime.agentId } : {}),
+            payload: {
+              content: message,
+              source: "web_agent_runtime",
+              ...(runtime.role === "host"
+                ? { kind: "host_reply", inReplyTo: claimedMessageId }
+                : {}),
+            },
+            ...(claimedCorrelationId
+              ? { correlationId: claimedCorrelationId }
+              : {}),
           });
         } catch {
           // Keep the runtime error visible even if message failure reporting itself fails.
@@ -142,14 +208,30 @@ export class WebAgentRuntimeExecutorService {
 
   private async runToolLoop(
     runtime: WebAgentRuntime,
-    userMessages: LlmChatMessage[]
+    userMessages: LlmChatMessage[],
   ): Promise<string> {
     const services = this.getServices();
     const model = services.modelConfigService.getFull(runtime.modelConfigId);
     const tools = await this.getTools(runtime);
     const maxRounds = DEFAULT_MAX_TOOL_ROUNDS;
     const messages: LlmChatMessage[] = [
-      { role: "system", content: this.buildSystemPrompt(runtime, tools) },
+      {
+        role: "system",
+        content: renderContextEnvelope(
+          buildContextEnvelope({
+            runtime,
+            services,
+            currentEvent: userMessages
+              .map((message) => message.content)
+              .join("\n"),
+            tools,
+            insight: services.sessionInsightService.getSessionInsight(
+              runtime.sessionId,
+            ),
+            contextSnapshot: services.agentContextService.load(runtime.id),
+          }),
+        ).systemPrompt,
+      },
       ...userMessages,
     ];
     let lastContent = "";
@@ -168,45 +250,82 @@ export class WebAgentRuntimeExecutorService {
         tool_choice: "auto",
       });
 
+      if (this.loops.get(runtime.id)?.stopped || !this.loops.has(runtime.id))
+        throw new Error("Agent execution was stopped.");
       if (!response.ok) {
-        throw new Error(`LLM HTTP ${response.status}: ${await response.text()}`);
+        throw new Error(
+          `LLM HTTP ${response.status}: ${await response.text()}`,
+        );
       }
 
       const output = await parse();
       if (output.content) lastContent = output.content;
 
       const toolCalls = normalizeToolCalls(output.tool_calls);
-      if (toolCalls.length === 0) break;
+      if (toolCalls.length === 0) return lastContent;
 
-      messages.push({ role: "assistant", content: output.content ?? "" });
+      messages.push({
+        role: "assistant",
+        content: output.content ?? "",
+        tool_calls: toolCalls.map((call) => ({
+          id: call.id,
+          type: "function",
+          function: {
+            name: call.name,
+            arguments: JSON.stringify(call.arguments),
+          },
+        })),
+      });
       for (const call of toolCalls) {
-        const result = await this.executeTool(runtime, call.name, call.arguments);
+        const result = await this.executeTool(
+          runtime,
+          call.name,
+          call.arguments,
+        );
         messages.push({
           role: "tool",
-          content: result.success ? JSON.stringify(result.result ?? "") : `Error: ${result.error ?? "Unknown tool error"}`,
+          content: result.success
+            ? JSON.stringify(result.result ?? "")
+            : `Error: ${result.error ?? "Unknown tool error"}`,
           tool_call_id: call.id,
         });
       }
     }
 
-    return lastContent;
+    throw new Error(
+      "Agent reached the tool-round limit before completing the task.",
+    );
   }
 
   private async getTools(
-    runtime: WebAgentRuntime
+    runtime: WebAgentRuntime,
   ): Promise<McpToolDefinition[]> {
     const services = this.getServices();
-        if (runtime.externalMcpServerIds && runtime.externalMcpServerIds.length > 0) {
-      // TODO: implement getMergedToolDefinitions to merge external MCP server tools
-      // For now, fall back to base toolset definitions
-      return services.mcpToolService.getToolsetDefinitions(runtime.toolsetId);
+    const tools = services.mcpToolService
+      .getToolsetDefinitions(runtime.toolsetId)
+      .filter(
+        (tool) =>
+          ![
+            "claim_next",
+            "submit_result",
+            "fail_task",
+            "resolve_message",
+          ].includes(tool.name) && !tool.name.startsWith("ai_collab_"),
+      );
+    for (const id of runtime.externalMcpServerIds ?? []) {
+      for (const tool of await services.externalMcpService.listTools(id))
+        tools.push({
+          name: externalToolName(id, tool.name),
+          description: tool.description,
+          parameters: tool.inputSchema as McpToolDefinition["parameters"],
+        });
     }
-    return services.mcpToolService.getToolsetDefinitions(runtime.toolsetId);
+    return tools;
   }
 
   private buildSystemPrompt(
     runtime: WebAgentRuntime,
-    tools: McpToolDefinition[]
+    tools: McpToolDefinition[],
   ): string {
     const parts = [
       getDefaultRolePrompt(runtime.role),
@@ -214,10 +333,14 @@ export class WebAgentRuntimeExecutorService {
       "# Runtime\nYou are running on the core server. Continue working even if the browser is closed.",
     ];
     if (runtime.role === "host") {
-      parts.push("You are the session Host. Coordinate tasks, dispatch work, read knowledge, and resolve reports through tools.");
+      parts.push(
+        "You are the session Host. Coordinate tasks, dispatch work, read knowledge, and resolve reports through tools.",
+      );
     }
     if (runtime.role === "knowledge_keeper") {
-      parts.push("You are the Knowledge Keeper. Maintain project knowledge through knowledge tools, and maintain cross-project user habits through user preference tools.");
+      parts.push(
+        "You are the Knowledge Keeper. Maintain project knowledge through knowledge tools, and maintain cross-project user habits through user preference tools.",
+      );
     }
     if (runtime.customDuty) {
       parts.push(`# Custom Duty\n${runtime.customDuty}`);
@@ -226,14 +349,15 @@ export class WebAgentRuntimeExecutorService {
     if (preferences) {
       parts.push(preferences);
     }
-    parts.push(`# Tools\n${tools.map((tool) => `- ${tool.name}: ${tool.description}`).join("\n")}`);
+    parts.push(
+      `# Tools\n${tools.map((tool) => `- ${tool.name}: ${tool.description}`).join("\n")}`,
+    );
     return parts.filter(Boolean).join("\n\n");
   }
 
   private getGlobalUserPreferences(_runtime: WebAgentRuntime): string {
     const preferences = this.getServices()
-      .userPreferencesService
-      .list()
+      .userPreferencesService.list()
       .slice(0, 50);
     if (preferences.length === 0) return "";
 
@@ -244,14 +368,14 @@ export class WebAgentRuntimeExecutorService {
     return [
       "# Global User Preferences",
       "These preferences apply across projects. Read them as durable user habits. Do not update them unless the user clearly establishes a reusable preference.",
-      ...lines
+      ...lines,
     ].join("\n");
   }
 
   private async executeTool(
     runtime: WebAgentRuntime,
     toolName: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
   ): Promise<McpToolResult> {
     const services = this.getServices();
     const result = await services.mcpToolService.executeTool(
@@ -259,7 +383,7 @@ export class WebAgentRuntimeExecutorService {
       args,
       runtime.agentId,
       runtime.sessionId,
-      services
+      services,
     );
     return {
       toolCallId: "",
@@ -279,10 +403,12 @@ export class WebAgentRuntimeExecutorService {
    */
   private async checkSelfTrigger(
     runtime: WebAgentRuntime,
-    services: ServerServices
+    services: ServerServices,
   ): Promise<void> {
     try {
-      const insight = services.sessionInsightService?.getSessionInsight(runtime.sessionId);
+      const insight = services.sessionInsightService?.getSessionInsight(
+        runtime.sessionId,
+      );
       if (!insight) return;
 
       // 条件1：用户输入有变更但知识库未同步
@@ -291,12 +417,14 @@ export class WebAgentRuntimeExecutorService {
 
       // 条件2：session insight 的 directive revision 与已应用的 revision 不同步
       const directiveOutOfSync =
-        insight.latestUserDirectiveRevision > insight.appliedUserDirectiveRevision;
+        insight.latestUserDirectiveRevision >
+        insight.appliedUserDirectiveRevision;
 
       // 冷却：距离上次自主维护不足 60 秒时不触发
       // 使用独立的 lastSelfMaintenanceAt 字段，不用 lastTickAt（后者每次 tick 都更新）
       if (runtime.lastSelfMaintenanceAt) {
-        const elapsed = Date.now() - new Date(runtime.lastSelfMaintenanceAt).getTime();
+        const elapsed =
+          Date.now() - new Date(runtime.lastSelfMaintenanceAt).getTime();
         if (elapsed < 60_000) return;
       }
 
@@ -313,7 +441,8 @@ export class WebAgentRuntimeExecutorService {
           appliedUserDirectiveRevision: insight.appliedUserDirectiveRevision,
           objective: insight.objective ?? null,
           activePlanSummary: insight.activePlanSummary ?? null,
-          currentProjectUnderstanding: insight.currentProjectUnderstanding ?? null,
+          currentProjectUnderstanding:
+            insight.currentProjectUnderstanding ?? null,
           projectSummary: insight.projectSummary ?? null,
         };
         services.messageService.sendMessage({
@@ -328,7 +457,8 @@ export class WebAgentRuntimeExecutorService {
               : "directive_out_of_sync",
             targetRevision,
             insightSnapshot,
-            content: "Session insight has changed. Review the insight snapshot and update knowledge base accordingly.",
+            content:
+              "Session insight has changed. Review the insight snapshot and update knowledge base accordingly.",
             source: "self_trigger",
           },
         });
@@ -364,12 +494,17 @@ function normalizeToolCalls(toolCalls: unknown[] | null): Array<{
 }> {
   if (!Array.isArray(toolCalls)) return [];
   return toolCalls.flatMap((item, index) => {
-    const call = item as { id?: string; function?: { name?: string; arguments?: string } };
+    const call = item as {
+      id?: string;
+      function?: { name?: string; arguments?: string };
+    };
     const name = call.function?.name;
     if (!name) return [];
     let args: Record<string, unknown> = {};
     try {
-      args = call.function?.arguments ? JSON.parse(call.function.arguments) : {};
+      args = call.function?.arguments
+        ? JSON.parse(call.function.arguments)
+        : {};
     } catch {
       args = {};
     }

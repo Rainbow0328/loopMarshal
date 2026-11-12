@@ -35,7 +35,7 @@ export class TaskEventRepository {
       eventType: event.eventType,
       actorAgentId: event.actorAgentId,
       payloadJson: JSON.stringify(event.payload),
-      createdAt: event.createdAt
+      createdAt: event.createdAt,
     });
   }
 
@@ -77,7 +77,7 @@ export class TaskEventRepository {
       eventType: row.eventType,
       actorAgentId: row.actorAgentId,
       payload: JSON.parse(row.payloadJson),
-      createdAt: row.createdAt
+      createdAt: row.createdAt,
     };
   }
 }

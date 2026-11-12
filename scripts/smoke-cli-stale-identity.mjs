@@ -23,7 +23,11 @@ const smokePort = 42713;
 const smokeBaseUrl = `http://127.0.0.1:${smokePort}`;
 const rootDir = process.cwd();
 const cliEntry = resolve(rootDir, "apps/cli/dist/apps/cli/src/index.js");
-const stateDir = resolve(rootDir, ".loopmarshal-test", "smoke-cli-stale-identity");
+const stateDir = resolve(
+  rootDir,
+  ".loopmarshal-test",
+  "smoke-cli-stale-identity",
+);
 
 const assert = (condition, message) => {
   if (!condition) {
@@ -36,9 +40,9 @@ const runCli = async ({ args, env, expectFailure = false }) => {
     cwd: rootDir,
     env: {
       ...process.env,
-      ...env
+      ...env,
     },
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"],
   });
 
   let stdout = "";
@@ -59,7 +63,7 @@ const runCli = async ({ args, env, expectFailure = false }) => {
 
   if (!expectFailure && exitCode !== 0) {
     throw new Error(
-      `CLI command failed (${args.join(" ")}): ${stderr || stdout || exitCode}`
+      `CLI command failed (${args.join(" ")}): ${stderr || stdout || exitCode}`,
     );
   }
 
@@ -71,7 +75,7 @@ const runCli = async ({ args, env, expectFailure = false }) => {
     exitCode,
     stdout,
     stderr,
-    json: stdout ? JSON.parse(stdout) : null
+    json: stdout ? JSON.parse(stdout) : null,
   };
 };
 
@@ -82,14 +86,14 @@ const main = async () => {
   const instance = await startCoreServer({
     host: "127.0.0.1",
     port: smokePort,
-    databasePath: ".loopmarshal-test/smoke-cli-stale-identity.sqlite"
+    databasePath: ".loopmarshal-test/smoke-cli-stale-identity.sqlite",
   });
 
   try {
     const env = {
       LOOPMARSHAL_BASE_URL: smokeBaseUrl,
       LOOPMARSHAL_CLI_STATE_DIR: stateDir,
-      LOOPMARSHAL_ENABLE_AUXILIARY_CLI_COMMANDS: "1"
+      LOOPMARSHAL_ENABLE_AUXILIARY_CLI_COMMANDS: "1",
     };
     const client = createLoopMarshalClient({ baseUrl: smokeBaseUrl });
     const sessionName = `cli-stale-${Date.now()}`;
@@ -105,9 +109,9 @@ const main = async () => {
         "--role",
         "host",
         "--duty",
-        "主控编排"
+        "主控编排",
       ],
-      env
+      env,
     });
     const hostedSession = await client.getSessionByName(sessionName);
     const members = await client.getMembers(hostedSession.id);
@@ -115,32 +119,27 @@ const main = async () => {
     assert(hostAgent, "attached host should exist in the session");
 
     await client.deleteSession(hostedSession.id, {
-      requesterAgentId: hostAgent.id
+      requesterAgentId: hostAgent.id,
     });
 
     const staleRead = await runCli({
-      args: ["members", "--identity", hostIdentity],
+      args: ["members", hostName, "--session", sessionName],
       env,
-      expectFailure: true
+      expectFailure: true,
     });
 
     assert(
-      staleRead.json?.error?.message?.includes("已自动清理"),
-      "stale identity failure should mention auto cleanup"
+      typeof staleRead.json?.error?.message === "string" &&
+        /未找到.*成员绑定/.test(staleRead.json.error.message),
+      "deleted member should report that its binding no longer exists",
     );
 
-    const remainingIdentities = await runCli({
-      args: ["identities"],
-      env
-    });
-    const remainingIdentityCount = Array.isArray(remainingIdentities.json?.identities)
-      ? remainingIdentities.json.identities.filter(
-          (item) => item.identity === hostIdentity
-        ).length
-      : -1;
+    const remainingIdentityCount = (await client.listWindowBindings()).filter(
+      (item) => item.identity === hostIdentity,
+    ).length;
     assert(
       remainingIdentityCount === 0,
-      "stale identity storage should be empty after auto cleanup"
+      "stale identity storage should be empty after auto cleanup",
     );
 
     console.log(
@@ -148,11 +147,11 @@ const main = async () => {
         {
           sessionName,
           staleMessage: staleRead.json.error.message,
-          remainingIdentityCount
+          remainingIdentityCount,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } finally {
     await instance.close();

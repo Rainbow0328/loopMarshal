@@ -1,245 +1,256 @@
-# LoopMarshal — Multi-Agent AI Coding Orchestration Framework
+# LoopMarshal
 
-> **One command to orchestrate multiple AI coding agents.** Support 14 AI tools (Claude Code, Cursor, Codex, etc.) with MCP protocol, knowledge base, and web dashboard. Local-first, zero cloud dependency.
+**Bring multiple coding agents together around one project, in one workspace.**
+
+LoopMarshal is a local-first AI coding collaboration tool. You give a Host a goal; it assigns work by member name, reviews reports, and maintains the session's project knowledge. The desktop app, CLI, and MCP integrations share the same Core, member registry, and message records.
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-20+-green.svg)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](./CHANGELOG.md)
+[![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-green.svg)](https://nodejs.org)
 
 **English** | [中文](./README.md)
 
----
+[Quick start](#quick-start) · [First collaboration guide (Chinese)](./FIRST_COLLABORATION.md) · [Compatibility](./CLI_COMPATIBILITY.md) · [Desktop build](./DESKTOP_BUILD.md) · [Documentation](./DOCUMENTATION.md)
 
-## Overview
+**0.1.0 Preview** is available as a [Windows x64 installer](https://github.com/Rainbow0328/loopMarshal/releases/tag/v0.1.0) or from source. The installer includes its runtime; third-party tools and model services are configured separately. Detailed guides currently use Chinese; this README covers the main workflow in English, with the actual Chinese UI labels alongside it.
 
-LoopMarshal is a **multi-agent AI coding orchestration framework**. With a single command, you can launch and orchestrate multiple AI coding agents — Claude Code, Cursor, Codex CLI, Trae, Gemini CLI, Aider, and 10 more — to work together on the same project. One AI agent acts as the **Host** to orchestrate, while others act as **Workers** to execute tasks.
+## What it does
 
-**It solves a core problem**: when you use multiple AI coding agents on the same project, agents don't know what others are doing, tasks and results are manually copy-pasted, and context can't be synchronized. LoopMarshal uses **MCP protocol** for automatic agent-to-agent communication, forming a stable collaboration loop.
+- Creates project-based collaborations with one required Host and optional Workers and Knowledge Keeper.
+- Routes proxy tasks to a specific tool and native session. It can create a session on the first task or explicitly bind an existing one; subsequent tasks continue that history.
+- Combines Core-managed model agents, proxied CLIs, and external IDE/MCP or CLI waiting members in one collaboration.
+- Edits supported native model, API URL, and authentication settings from a separate configuration page, with preview, backups, restore, and conflict detection.
+- Keeps the main conversation focused on the user and Host. Internal collaboration is available through live activity and searchable history.
+- Maintains a separate L1/L2/L3 knowledge base for each collaboration session.
 
-**Keywords**: multi-agent orchestration · multi-agent framework · AI coding collaboration · MCP protocol · LLM agent coordination · agent-to-agent communication · AI coding tools · local-first · knowledge base · prompt engineering · AI workflow automation · multi-LLM orchestration
+## Quick start
 
----
+Follow this sequence: **prepare a tool or model → choose a project → configure a Host → add a Worker → create the collaboration → send a goal → inspect the reports**.
 
-## Why LoopMarshal?
+| Your starting point                                                | Where to go                                                                          |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| Codex, Claude Code, or another tool already works on your computer | **发现 Worker** to register it, then **工具配置** to check its model and credentials |
+| You have a model API endpoint and credentials                      | **模型配置 → 添加模型**; no third-party CLI is needed                                |
+| An external agent has already created a LoopMarshal collaboration  | Click the session name → **刷新 / 打开已有协作**                                     |
 
-When using multiple AI coding assistants on the same project:
+Already have the app running? Start at step 2. The [detailed first collaboration guide (Chinese)](./FIRST_COLLABORATION.md) explains every field, member setup, and common blocker.
 
-- ❌ Each AI doesn't know what others are doing
-- ❌ Manual copy-paste of tasks and results
-- ❌ No unified session state management
-- ❌ Frontend-backend interface mismatches
+### 1. Open the desktop app or browser workspace
 
-LoopMarshal solves this: one AI as **Host** orchestrates, others as **Workers** execute, communicating automatically via **MCP protocol**.
+Download the [preview installer](https://github.com/Rainbow0328/loopMarshal/releases/tag/v0.1.0), run `LoopMarshal-Setup-0.1.0-x64.exe`, and open LoopMarshal. The Windows app includes its runtime, so end users do not need Node.js or pnpm. Third-party coding tools still need to be installed and authenticated separately.
 
-### Use Cases
-
-- **Parallel module development**: Different AI agents handle different modules in parallel
-- **Frontend-backend separation**: Separate AI for frontend and backend, Host ensures interface consistency
-- **Cost optimization**: Free AI as Host, paid AI for architecture — maximize AI cost-effectiveness
-- **Large-scale refactoring**: Host decomposes tasks, multiple Workers handle different modules
-
----
-
-## Key Features
-
-| Feature | Description |
-|---------|-------------|
-| **One-command launch** | `start-agent` auto-injects Skills + MCP config + launches IDE + generates first prompt |
-| **14 AI tools** | Claude Code, Codex, Cursor, Trae, OpenCode, Gemini, Aider, Windsurf, Qoder, GitHub Copilot, Cline, Crusher, Lovable, Xiaomi MiMo |
-| **Three roles** | Host (orchestrator), Worker (executor), Knowledge Keeper (knowledge base maintainer) |
-| **MCP protocol** | AI agents communicate via MCP tools — no manual copy-paste |
-| **3-tier knowledge base** | L1 project direction, L2 domain rules, L3 field alignment — fragment-level references |
-| **Wait chain** | Workers auto-cycle: await → claim → execute → submit → await. Auto-reconnect on timeout |
-| **Web dashboard** | Real-time monitoring of sessions, members, messages, and knowledge base |
-| **Local-first** | All data stored locally in SQLite — zero cloud dependency |
-
----
-
-## Installation
-
-### Prerequisites
-
-- **Node.js** 20+
-- **pnpm** 10+ (`npm install -g pnpm`)
-- At least one supported AI coding tool (Claude Code, Cursor, Codex, etc.)
-
-### Install from Source
+To run from source, install **Node.js 22.13+ (24 recommended) and pnpm 10.10.0**:
 
 ```powershell
-# Clone
-gh repo clone your-org/loopmarshal
-cd loopmarshal
+git clone --branch feat/desktop-loop-marshal https://github.com/Rainbow0328/loopMarshal.git
+cd loopMarshal
+pnpm install --frozen-lockfile
+pnpm run desktop:dev
+```
 
-# Install dependencies
-pnpm install
+For the browser workspace instead:
 
-# Build all packages
+```powershell
 pnpm run build
+pnpm run start:core
+```
 
-# Register loopmarshal CLI globally
+Open [http://127.0.0.1:42688](http://127.0.0.1:42688). The desktop app manages its own Core; do not start another server on the same port alongside it. See [desktop build and installation](./DESKTOP_BUILD.md) for packaging.
+
+### 2. Prepare a tool or model connection
+
+**Option A: use an installed coding tool.**
+
+1. Open **发现 Worker** (Discover Worker), click the scan button with the same label, then **添加工具** (Add tool) on the matching result. If discovery misses it, add the actual executable or launcher file manually.
+2. Open **工具配置** (Tool configuration), choose the tool, check its real configuration directory, and review its model, Base URL, and authentication settings. Existing working settings can be kept.
+3. If you edit settings, click **保存修改 → 确认写入** (Save changes → Confirm write) after reviewing the preview. Codex can use its existing login, a named environment variable, or a directly entered API key. Supported fields vary by tool.
+
+The tool data directory, such as `.codex` or `.claude` under your user directory, stores tool configuration and history. **It is different from the project source directory.** Environment variables must exist in the app/Core startup environment and be explicitly allowed for the tool to inherit. Existing tool processes may need a restart.
+
+![Tool configuration: Codex model, API URL, and authentication controls](./assets/screenshots/quick-start-config.png)
+
+**Option B: let LoopMarshal execute a model agent.** Open **模型配置 → 添加模型** (Model configuration → Add model). Enter a display name, select the provider, and enter the provider's actual model ID. Set Base URL for a custom endpoint and provide an API key when required, then click **添加** (Add). A blank key only works when the corresponding startup environment variable is already available.
+
+Choose either option; you do not need both. Model connections do not edit Codex/Claude settings. Saving a connection does not test model access; the first task makes the actual request.
+
+### 3. Create a collaboration with a project and Host
+
+1. Under **当前协作** (Current collaboration), click **新建协作** (New collaboration).
+2. Enter **会话名称** (Session name) and an existing **项目目录** (Project directory), for example your real repository at `D:\Projects\shop-admin`. On desktop, **浏览** (Browse) opens the folder picker.
+3. In the **主控** (Host) card, enter a member name such as `项目主控` and keep or edit its responsibility. Choose its execution mode and complete the matching settings below.
+
+| Mode                                    | Preparation                                                                                                        |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| 使用本地模型 — use a configured model   | Save a model service connection first. The endpoint may run locally or remotely.                                   |
+| 使用本机 Worker — use an installed tool | Choose an installation and its actual data directory. MiMo/OpenCode also require a running native session service. |
+
+A Host is required. Each member needs a unique name and a nonempty responsibility. “使用本地模型” means Core executes the agent; its model endpoint can be local or remote.
+
+**Creating a new CLI session does not require an old session ID.** LoopMarshal creates it on the first task and records the returned ID. An exact ID and project check are needed only when choosing an existing session.
+
+![New collaboration: required project and Host, with native session creation selected](./assets/screenshots/quick-start-create.png)
+
+**Add the team before creating:**
+
+1. Scroll down inside the form and click **添加 Worker** (Add Worker). Name it `前端开发` and describe its implementation and reporting responsibilities.
+2. Choose its mode and model or tool. New cards default to **使用本地模型**; change this to **使用本机 Worker** to use Codex/Claude, then select the installation and check its data directory.
+3. Optionally click **添加知识库维护者** (Add Knowledge Keeper), name it `知识库维护`, and configure it the same way. Without a Keeper, the Host can maintain knowledge itself.
+4. When the footer says **配置已完整，可以创建协作**, click **创建协作** (Create collaboration). If disabled, follow **还需完成：…** (Still needed) in the footer and check every added card.
+
+After creation, the app opens the new session. Click **成员** (Members) to verify the Host and Workers. Host-only setup supports discussion; add at least one Worker for delegated work. Core prepares the basic collaboration instructions, tools, and identity automatically; extra MCP tools and Skills are optional. See [member setup with a screenshot (Chinese)](./FIRST_COLLABORATION.md#第三步加入-worker-和知识库维护者).
+
+### 4. Give the Host a goal
+
+To observe the first dispatch, open **实时动态** (Live activity) **before sending**. It shows new events from that point; older events remain in history.
+
+In the main composer, state the task, constraints, acceptance criteria, and actual member names. Adapt this product-list example to your own project:
+
+```text
+Read the project and this session's knowledge base first.
+Add keyword and category filters to the product list. Keep the current API and data structure.
+Assign implementation to “前端开发” and review its report.
+If “知识库维护” was added, ask it to verify and document confirmed project rules.
+Accept when filters can be combined, empty results can be cleared,
+and failed requests preserve existing results and allow retry.
+Report changed files, checks actually run, results, and unresolved issues.
+```
+
+Click **发送** (Send) or press Enter; Shift+Enter inserts a newline. A proxy Host creates its native session on first execution and continues that history later. A model Host runs through Core.
+
+![Current collaboration: the user and Host discuss a goal without internal dispatch logs](./assets/screenshots/quick-start-conversation.png)
+
+### 5. Inspect collaboration and knowledge
+
+| Control                  | Purpose                                                                                     |
+| ------------------------ | ------------------------------------------------------------------------------------------- |
+| 成员 — Members           | Host, Workers, Keeper, external members, responsibilities, and supported runtime operations |
+| 查看绑定 — View bindings | Native session routing, connection settings, and delivery records                           |
+| 进展 — Progress          | Goals, plans, blockers, and review status recorded by the Host                              |
+| 实时动态 — Live activity | New collaboration events since opening; links to conversation history                       |
+| 对话历史 — History       | Search recorded messages by member, type, processing status, and content                    |
+
+![Live activity: observe member work alongside the Host conversation](./assets/screenshots/quick-start-activity.png)
+
+Open **知识库** (Knowledge base) to browse the current session's goals, domain rules, and field contracts. Switching sessions changes the knowledge scope. Updates refresh in the UI. Runtime counters, member IDs, and test probes do not belong in project knowledge.
+
+Check a full cycle: **Host receives your goal → assigns work to the intended Worker → Worker executes and reports → Host reviews → confirmed lasting facts are documented when needed → you verify the actual code and checks**. A sent message or an available tool does not prove task completion. A new knowledge base can be empty until confirmed facts are written.
+
+![Knowledge base: session-scoped documents and their change history](./assets/screenshots/quick-start-knowledge.png)
+
+These are screenshots of the current browser workspace using an isolated demo project and controlled tool responses. They illustrate the real interface and **are not evidence of autonomous collaboration with real models**. The desktop app uses the same workspace. See [screenshot instructions](./assets/screenshots/README.md) to regenerate them.
+
+### Common first-use blockers
+
+| Symptom                                        | What to do                                                                                                                                                                |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Create is disabled                             | Read **还需完成** in the footer; complete the project and every member's name, responsibility, and model/tool settings, or remove unused optional members                 |
+| “选择模型配置” appears when you want Codex     | Switch that member to **使用本机 Worker**, then select the registered Codex installation                                                                                  |
+| A new collaboration asks for an old session ID | Change **会话处理方式** back to **新建原生会话（推荐）**                                                                                                                  |
+| No response after sending                      | Check **查看绑定 → 投递记录** and **对话历史** for errors; start paused/stopped model agents under **成员**; external waiting agents must connect and consume their inbox |
+| Incorrect model, endpoint, or credentials      | Use **工具配置** for installed tools and **模型配置** for Core-managed agents                                                                                             |
+| Live activity misses earlier messages          | Open **查看对话历史**; live activity only follows events since it was opened                                                                                              |
+
+See [full troubleshooting (Chinese)](./FIRST_COLLABORATION.md#常见问题). If delivery has an uncertain outcome, check what actually ran before resending to avoid duplicate changes.
+
+### Continue an external Host collaboration
+
+If an IDE/CLI agent created a collaboration through LoopMarshal MCP or CLI, click the current session name and use **刷新** (Refresh) or **打开已有协作** (Open existing collaboration) at the top of the session picker. The external agent must use the same Core. This lists registered collaborations, not every private chat in third-party tools.
+
+## Compatibility
+
+There are currently **11 native proxy adapters**. Discovery does not imply every tool version, account, and model has passed full validation.
+
+| Tools                                                            | Validation and main conditions                                                                                                                                                |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex, Claude Code                                               | Real-model collaboration records exist; each tool keeps its own authentication and permissions.                                                                               |
+| MiMo Code                                                        | Real collaboration records exist; start the native session service first.                                                                                                     |
+| Qwen Code, ZCode, OpenCode                                       | Official programs tested with a deterministic local model service. The tested Qwen version needs explicit `--bare`; OpenCode requires its session service.                    |
+| Gemini CLI, Kimi Code CLI 2.x, Factory Droid, GitHub Copilot CLI | Official programs tested with a deterministic local model service; version, permission, and configuration limits apply.                                                       |
+| Cursor CLI                                                       | Entry point and arguments checked; real history continuation remains unverified. Only CLI sessions created and recorded by LoopMarshal are supported, not imported IDE chats. |
+
+Tools without a proxy adapter can still join through the existing MCP/CLI waiting workflow. The legacy `start-agent` launch/configuration list is a different capability from native proxy routing. See [the compatibility matrix](./CLI_COMPATIBILITY.md) for versions, conditions, and evidence.
+
+The UI shows availability or a concrete blocker and next steps. Availability covers tool startup and configuration checks; it does not guarantee model authorization, quota, or task success.
+
+## Roles and knowledge
+
+```text
+User goal → Host plans → Core routes by session and member name
+          → Worker executes and reports → Host reviews
+          → Host / Knowledge Keeper updates confirmed knowledge
+          → Further work or user acceptance
+```
+
+| Role             | Responsibility                                                                              |
+| ---------------- | ------------------------------------------------------------------------------------------- |
+| Host             | Understand goals, assign work, review results, decide knowledge changes, request acceptance |
+| Worker           | Execute tasks and report results, validation, and proposed knowledge changes                |
+| Knowledge Keeper | Verify and maintain this session's project knowledge; report to the Host                    |
+
+L1 holds goals and lasting constraints; L2 holds domain rules and module boundaries; L3 holds fields, parameters, and interface contracts. Future decisions read updated knowledge, while its correctness still needs review.
+
+## CLI and MCP
+
+Optionally register the global CLI:
+
+```powershell
+pnpm run build
 pnpm run link:cli
-
-# Verify
 loopmarshal --version
-# Output: 0.1.0
+loopmarshal --help
 ```
 
-After installation, the `loopmarshal` command is available from any directory.
-
----
-
-## Quick Start
-
-### One-Command Launch (Recommended)
-
-In your project directory:
+In the project directory, connect to the same Core. Senders must already be registered members:
 
 ```powershell
-# Launch Host
-loopmarshal start-agent claude --role host --duty "Architecture and task decomposition"
+loopmarshal attach host --session product-ui --role host --duty 'Plan, coordinate, and review'
+loopmarshal members host --session product-ui
+loopmarshal dispatch-many host --session product-ui --task 'frontend::Implement search and filters'
+loopmarshal send --session product-ui --from host --to frontend --type task --content '{"content":"Add empty and retry states"}' --idempotency-key search-1
+loopmarshal messages host --session product-ui --member frontend --limit 20
 
-# In another terminal, launch Worker (same session name)
-loopmarshal start-agent cursor --role worker --duty "Frontend development" --session <session-name-from-above>
-
-# Optional: Launch Knowledge Keeper
-loopmarshal start-agent codex --role knowledge_keeper --duty "Knowledge maintenance" --session <session-name>
+# Waiting members only; proxy Workers do not need an await process.
+loopmarshal await frontend --session product-ui
+loopmarshal submit frontend --session product-ui --content 'Results and verification'
 ```
 
-`start-agent` automatically:
-1. ✅ Checks if core service is running — auto-starts if not
-2. ✅ Resolves session name
-3. ✅ Attaches to session via API
-4. ✅ Injects Skill files to IDE config directory
-5. ✅ Injects MCP config file
-6. ✅ Generates first prompt (role/session/duty/dashboard URL)
-7. ✅ Launches IDE process
+The desktop package also includes a CLI entry point without a global install; see [desktop command access](./DESKTOP_BUILD.md#host-的命令入口). MCP and CLI use the same session identity and routing rules. See [sessions and members](./SESSION_WORKSPACE.md) and [native session proxies](./NATIVE_SESSION_PROXY.md).
 
-After launch, open `http://127.0.0.1:42688` in your browser to view the dashboard.
+## Data and current boundaries
 
-> 💡 **Tip**: Run with `--dry-run` first to preview configuration without launching: `loopmarshal start-agent claude --role host --duty "test" --dry-run`
+- SQLite stores collaboration records locally; knowledge files are separated by session. Windows uses `%LOCALAPPDATA%\loopmarshal` by default; other platforms use their user data directories.
+- Model traffic goes to the configured provider. Third-party tools retain their own data handling. Local-first storage does not imply offline models.
+- Missing native history, project mismatches, or uncertain execution results require repair or review rather than silently choosing another session.
+- Tasks targeting the same native session run serially. Automatic worktree isolation is not implemented; the Host must coordinate overlapping file edits.
+- Observation windows show task activity, not a native terminal. Arbitrary IDE takeover, PTY reattachment, and Host identity transfer are not implemented.
+- Native configuration editing covers adapted fields, not every precedence layer or live process update.
 
-**Host can also start new Workers directly** (MCP tool call, no manual terminal):
-
-```
-start_worker(ide="claude", duty="Backend API development")
-```
-
-### Manual Configuration (Optional)
-
-If you prefer manual setup or your tool isn't in the 14 supported IDEs:
+## Development
 
 ```powershell
-# Start core service
-loopmarshal start
-
-# Configure MCP in your IDE (JSON format)
+pnpm run format
+pnpm run lint
+pnpm run test
+pnpm run build
 ```
 
----
+Build through pnpm so injected workspace dependencies receive new output. The [contribution guide](./CONTRIBUTING.md#coding-and-performance) explains module boundaries, shared connections, coalesced refreshes, lazy routes, and batched message rendering. The message API still reads full history; bounded UI rendering is not server-side pagination.
 
-## Role Architecture
-
-| Role | Responsibility | Recommended AI |
-|------|---------------|----------------|
-| **Host** | Architecture, task decomposition, dispatch, verdict, knowledge strategy | Strong AI (Claude Code, Trae) |
-| **Worker** | Execute specific tasks, submit structured reports | Domain-specific AI (Cursor for frontend, Codex for backend) |
-| **Knowledge Keeper** | Maintain L1/L2/L3 knowledge docs and user preferences | Any AI (addable from Web dashboard) |
-
-### Collaboration Loop
-
-```
-Host understands requirements → calibrates knowledge → decomposes tasks → dispatch_many
-    ↓
-Worker claims task → reads knowledge refs → executes → submits structured report
-    ↓
-Host resolves report → verdicts knowledge updates → continues dispatch or closes
-    ↓
-(loop until project complete)
+```text
+apps/desktop/        Windows shell and managed Core lifecycle
+apps/web/            React workspace, split by feature
+apps/core/           HTTP / WebSocket / MCP and collaboration services
+apps/cli/            Commands, identity, tool integration, and waiting workflow
+packages/protocol/   Shared types and validation
+packages/store/      SQLite, transactions, and repositories
+packages/sdk/        HTTP / WebSocket clients
+packages/shared/     Shared configuration and utilities
+skills/              Role instructions for external tools
+scripts/             Builds, regressions, and documentation screenshots
 ```
 
----
-
-## Knowledge Base (L1/L2/L3)
-
-| Level | Content | Example |
-|-------|---------|---------|
-| **L1 — Project Direction** | Long-term principles, current goals, requirements | "E-commerce system, React + Node.js" |
-| **L2 — Domain Rules** | Module boundaries, protocols, state machines | "Auth module: POST /api/register, bcrypt" |
-| **L3 — Field Alignment** | Fields, API params, data structures, error codes | "register: email(string), password(string, ≥8)" |
-
----
-
-## Commands
-
-```bash
-# Service management
-loopmarshal start              # Start core service + web dashboard
-loopmarshal stop               # Stop service
-loopmarshal status             # Check status
-loopmarshal doctor             # Diagnostics
-
-# One-command launch
-loopmarshal start-agent <ide> --role <host|worker|knowledge_keeper> --duty "<duty>"
-
-# Session & agent
-loopmarshal attach <name> --session <session> --role <role> --duty "<duty>"
-loopmarshal members <hostName> --session <session>
-
-# Task dispatch
-loopmarshal dispatch-many <hostName> --task "<workerName>::<task>"
-loopmarshal await <name>
-loopmarshal submit <name> --content "<result>"
-loopmarshal resolve <hostName> --summary "<summary>"
-
-# Knowledge base
-loopmarshal knowledge read <name> --ref "L1/session-direction#current-goal"
-loopmarshal knowledge list <name> [--level l1|l2|l3]
-loopmarshal knowledge upsert <name> --level <level> --slug <slug> --title "<title>" --content "<content>"
-```
-
----
-
-## Environment Variables
-
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `LOOPMARSHAL_HOST` | Core service host | `127.0.0.1` |
-| `LOOPMARSHAL_PORT` | Core service port | `42688` |
-| `LOOPMARSHAL_WEB_PORT` | Web frontend port | `5173` |
-| `LOOPMARSHAL_SKILLS_DIR` | Skills directory path | Auto-search |
-| `LOOPMARSHAL_MCP_COMMAND` | MCP server command | `npx` |
-| `LOOPMARSHAL_CLI_PATH` | CLI binary path | Auto-resolved |
-
----
-
-## FAQ
-
-### How is this different from AutoGen / CrewAI / LangGraph?
-
-AutoGen, CrewAI, and LangGraph are **code frameworks** that require Python code to define agents. LoopMarshal is a **runtime orchestrator** — no code needed, just use the `start-agent` command to launch existing AI coding tools (Claude Code, Cursor, etc.) and let them collaborate via MCP protocol. Ideal for developers who want to use existing AI IDE tools without writing orchestration code.
-
-### How is this different from function calling?
-
-Function calling is tool invocation within a single LLM. LoopMarshal is **inter-process agent communication** — each AI agent is an independent process (Claude Code process, Cursor process) that communicates via MCP protocol message queues. Each agent has its own context window and LLM.
-
-### Why not fully autonomous agents?
-
-Current LLMs can't reliably do 100% autonomous planning and execution. LoopMarshal takes a "human-AI collaboration" approach: AI agents handle execution and communication, humans handle final verification and direction.
-
-### Why separate Host and Worker agents?
-
-Clear separation enables stability. Host focuses on "how to arrange work," Worker focuses on "how to do the job well." Mixing roles leads to confusion and errors.
-
-### What AI tools are supported?
-
-14 tools: Claude Code, Codex CLI, Cursor, Trae, OpenCode, Gemini CLI, Aider, Windsurf, Qoder, GitHub Copilot CLI, Cline, Crusher AI, Lovable, Xiaomi MiMo.
-
-### What LLMs are supported?
-
-LoopMarshal is LLM-agnostic — each AI agent uses its own IDE's model config. Claude Code uses Claude, Codex uses GPT, Gemini CLI uses Gemini, Trae can switch to DeepSeek. Different agents can use different LLMs in the same collaboration session.
-
----
+See [documentation](./DOCUMENTATION.md), [contributing](./CONTRIBUTING.md), and the [changelog](./CHANGELOG.md).
 
 ## License
 
-Licensed under the [Apache License 2.0](./LICENSE).
+[Apache License 2.0](./LICENSE)

@@ -15,14 +15,19 @@ export const printJson = (value: unknown): void => {
 /**
  * 构建 identity 字符串：sessionName::agentName。
  */
-export const buildIdentity = (sessionName: string, agentName: string): string => {
+export const buildIdentity = (
+  sessionName: string,
+  agentName: string,
+): string => {
   return `${sessionName}::${agentName}`;
 };
 
 /**
  * 动态加载 runtime 模块。
  */
-export const loadRuntimeModule = async (): Promise<typeof import("../runtime.js")> => {
+export const loadRuntimeModule = async (): Promise<
+  typeof import("../runtime.js")
+> => {
   return import("../runtime.js");
 };
 
@@ -51,7 +56,7 @@ export const isTruthyEnvValue = (value: string | undefined): boolean => {
  */
 export const pickDefinedFields = (
   source: Record<string, unknown>,
-  keys: string[]
+  keys: string[],
 ): Record<string, unknown> => {
   const next: Record<string, unknown> = {};
   for (const key of keys) {

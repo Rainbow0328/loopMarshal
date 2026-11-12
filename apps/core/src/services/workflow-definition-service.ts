@@ -4,25 +4,35 @@ import type {
   UpdateWorkflowDefinitionInput,
   WorkflowDefinitionRecord,
   WorkflowEdgeDefinition,
-  WorkflowNodeDefinition
+  WorkflowNodeDefinition,
 } from "@loopmarshal/protocol";
 import type { WorkflowDefinitionRepository } from "@loopmarshal/store";
 import { coreErrors } from "../errors.js";
 
-const builtinWorkflows: Array<Omit<WorkflowDefinitionRecord, "createdAt" | "updatedAt">> = [
+const builtinWorkflows: Array<
+  Omit<WorkflowDefinitionRecord, "createdAt" | "updatedAt">
+> = [
   {
     id: "host-coordination-loop",
     name: "Host Coordination Loop",
-    description: "Host waits for user instructions and worker reports, then plans, dispatches, resolves, and updates session insight through tools.",
+    description:
+      "Host waits for user instructions and worker reports, then plans, dispatches, resolves, and updates session insight through tools.",
     role: "host",
     nodes: [
       { id: "heartbeat", label: "Heartbeat", kind: "heartbeat" },
       { id: "claim", label: "Claim Message", kind: "claim_message" },
       { id: "idle", label: "Idle Backoff", kind: "idle" },
       { id: "present", label: "Present Message", kind: "present_message" },
-      { id: "trace", label: "Trace Context", kind: "trace", config: { message: "Host received a message and is preparing coordination." } },
+      {
+        id: "trace",
+        label: "Trace Context",
+        kind: "trace",
+        config: {
+          message: "Host received a message and is preparing coordination.",
+        },
+      },
       { id: "process", label: "LLM Tool Loop", kind: "llm_tool_loop" },
-      { id: "complete", label: "Complete Message", kind: "complete_message" }
+      { id: "complete", label: "Complete Message", kind: "complete_message" },
     ],
     edges: [
       { from: "heartbeat", to: "claim" },
@@ -30,25 +40,33 @@ const builtinWorkflows: Array<Omit<WorkflowDefinitionRecord, "createdAt" | "upda
       { from: "claim", to: "present", condition: "has_message" },
       { from: "present", to: "trace" },
       { from: "trace", to: "process" },
-      { from: "process", to: "complete" }
+      { from: "process", to: "complete" },
     ],
     enabled: true,
     builtin: true,
-    status: "planning"
+    status: "planning",
   },
   {
     id: "worker-message-loop",
     name: "Worker Message Loop",
-    description: "Worker waits for assigned tasks, runs the LLM/tool loop, and submits results back to the session.",
+    description:
+      "Worker waits for assigned tasks, runs the LLM/tool loop, and submits results back to the session.",
     role: "worker",
     nodes: [
       { id: "heartbeat", label: "Heartbeat", kind: "heartbeat" },
       { id: "claim", label: "Claim Task", kind: "claim_message" },
       { id: "idle", label: "Idle Backoff", kind: "idle" },
       { id: "present", label: "Present Task", kind: "present_message" },
-      { id: "trace", label: "Trace Task", kind: "trace", config: { message: "Worker received a task and is preparing execution." } },
+      {
+        id: "trace",
+        label: "Trace Task",
+        kind: "trace",
+        config: {
+          message: "Worker received a task and is preparing execution.",
+        },
+      },
       { id: "process", label: "LLM Tool Loop", kind: "llm_tool_loop" },
-      { id: "complete", label: "Complete Task", kind: "complete_message" }
+      { id: "complete", label: "Complete Task", kind: "complete_message" },
     ],
     edges: [
       { from: "heartbeat", to: "claim" },
@@ -56,25 +74,39 @@ const builtinWorkflows: Array<Omit<WorkflowDefinitionRecord, "createdAt" | "upda
       { from: "claim", to: "present", condition: "has_message" },
       { from: "present", to: "trace" },
       { from: "trace", to: "process" },
-      { from: "process", to: "complete" }
+      { from: "process", to: "complete" },
     ],
     enabled: true,
     builtin: true,
-    status: "planning"
+    status: "planning",
   },
   {
     id: "knowledge-keeper-loop",
     name: "Knowledge Keeper Loop",
-    description: "Knowledge keeper uses the worker loop with knowledge-maintenance system rules and knowledge/profile tools.",
+    description:
+      "Knowledge keeper uses the worker loop with knowledge-maintenance system rules and knowledge/profile tools.",
     role: "knowledge_keeper",
     nodes: [
       { id: "heartbeat", label: "Heartbeat", kind: "heartbeat" },
       { id: "claim", label: "Claim Knowledge Task", kind: "claim_message" },
       { id: "idle", label: "Idle Backoff", kind: "idle" },
-      { id: "present", label: "Present Knowledge Task", kind: "present_message" },
-      { id: "trace", label: "Trace Knowledge Task", kind: "trace", config: { message: "Knowledge Keeper received a maintenance task." } },
+      {
+        id: "present",
+        label: "Present Knowledge Task",
+        kind: "present_message",
+      },
+      {
+        id: "trace",
+        label: "Trace Knowledge Task",
+        kind: "trace",
+        config: { message: "Knowledge Keeper received a maintenance task." },
+      },
       { id: "process", label: "LLM Tool Loop", kind: "llm_tool_loop" },
-      { id: "complete", label: "Complete Knowledge Task", kind: "complete_message" }
+      {
+        id: "complete",
+        label: "Complete Knowledge Task",
+        kind: "complete_message",
+      },
     ],
     edges: [
       { from: "heartbeat", to: "claim" },
@@ -82,12 +114,12 @@ const builtinWorkflows: Array<Omit<WorkflowDefinitionRecord, "createdAt" | "upda
       { from: "claim", to: "present", condition: "has_message" },
       { from: "present", to: "trace" },
       { from: "trace", to: "process" },
-      { from: "process", to: "complete" }
+      { from: "process", to: "complete" },
     ],
     enabled: true,
     builtin: true,
-    status: "planning"
-  }
+    status: "planning",
+  },
 ];
 
 const supportedNodeKinds = new Set([
@@ -101,11 +133,13 @@ const supportedNodeKinds = new Set([
   "review_gate",
   "llm_tool_loop",
   "complete_message",
-  "custom"
+  "custom",
 ]);
 
 export class WorkflowDefinitionService {
-  public constructor(private readonly repository: WorkflowDefinitionRepository) {}
+  public constructor(
+    private readonly repository: WorkflowDefinitionRepository,
+  ) {}
 
   public seedBuiltins(): void {
     const now = new Date().toISOString();
@@ -114,12 +148,14 @@ export class WorkflowDefinitionService {
       this.repository.upsert({
         ...workflow,
         createdAt: existing?.createdAt ?? now,
-        updatedAt: now
+        updatedAt: now,
       });
     }
   }
 
-  public create(input: CreateWorkflowDefinitionInput): WorkflowDefinitionRecord {
+  public create(
+    input: CreateWorkflowDefinitionInput,
+  ): WorkflowDefinitionRecord {
     const id = input.id ?? randomUUID();
     if (this.repository.findById(id)) {
       throw coreErrors.duplicateSessionName(id);
@@ -137,7 +173,7 @@ export class WorkflowDefinitionService {
       builtin: false,
       status: "planning",
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
     };
     this.repository.upsert(workflow);
     return workflow;
@@ -153,7 +189,10 @@ export class WorkflowDefinitionService {
     return workflow;
   }
 
-  public update(id: string, input: UpdateWorkflowDefinitionInput): WorkflowDefinitionRecord {
+  public update(
+    id: string,
+    input: UpdateWorkflowDefinitionInput,
+  ): WorkflowDefinitionRecord {
     const existing = this.get(id);
     const nextNodes = input.nodes ?? existing.nodes;
     const nextEdges = input.edges ?? existing.edges;
@@ -162,12 +201,20 @@ export class WorkflowDefinitionService {
     }
     this.repository.update(id, {
       ...(input.name !== undefined ? { name: input.name } : {}),
-      ...(input.description !== undefined ? { description: input.description } : {}),
+      ...(input.description !== undefined
+        ? { description: input.description }
+        : {}),
       ...(input.role !== undefined ? { role: input.role } : {}),
-      ...(input.nodes !== undefined ? { nodesJson: JSON.stringify(input.nodes) } : {}),
-      ...(input.edges !== undefined ? { edgesJson: JSON.stringify(input.edges) } : {}),
-      ...(input.enabled !== undefined ? { enabled: input.enabled ? 1 : 0 } : {}),
-      ...(existing.builtin ? { builtin: 1 } : {})
+      ...(input.nodes !== undefined
+        ? { nodesJson: JSON.stringify(input.nodes) }
+        : {}),
+      ...(input.edges !== undefined
+        ? { edgesJson: JSON.stringify(input.edges) }
+        : {}),
+      ...(input.enabled !== undefined
+        ? { enabled: input.enabled ? 1 : 0 }
+        : {}),
+      ...(existing.builtin ? { builtin: 1 } : {}),
     });
     return this.get(id);
   }
@@ -175,7 +222,9 @@ export class WorkflowDefinitionService {
   public delete(id: string): { deleted: boolean } {
     const existing = this.get(id);
     if (existing.builtin) {
-      throw coreErrors.invalidInput(`Builtin workflow "${id}" cannot be deleted.`);
+      throw coreErrors.invalidInput(
+        `Builtin workflow "${id}" cannot be deleted.`,
+      );
     }
     this.repository.deleteById(id);
     return { deleted: true };
@@ -184,7 +233,7 @@ export class WorkflowDefinitionService {
 
 function validateWorkflowDefinition(
   nodes: WorkflowNodeDefinition[],
-  edges: WorkflowEdgeDefinition[]
+  edges: WorkflowEdgeDefinition[],
 ): void {
   if (nodes.length === 0) {
     throw coreErrors.invalidInput("Workflow must contain at least one node.");
@@ -196,13 +245,19 @@ function validateWorkflowDefinition(
       throw coreErrors.invalidInput("Workflow node id must not be empty.");
     }
     if (nodeIds.has(node.id)) {
-      throw coreErrors.invalidInput(`Workflow node "${node.id}" is duplicated.`);
+      throw coreErrors.invalidInput(
+        `Workflow node "${node.id}" is duplicated.`,
+      );
     }
     if (!node.label.trim()) {
-      throw coreErrors.invalidInput(`Workflow node "${node.id}" label must not be empty.`);
+      throw coreErrors.invalidInput(
+        `Workflow node "${node.id}" label must not be empty.`,
+      );
     }
     if (!supportedNodeKinds.has(node.kind)) {
-      throw coreErrors.invalidInput(`Workflow node "${node.id}" uses unsupported kind "${node.kind}".`);
+      throw coreErrors.invalidInput(
+        `Workflow node "${node.id}" uses unsupported kind "${node.kind}".`,
+      );
     }
     nodeIds.add(node.id);
   }
@@ -211,14 +266,20 @@ function validateWorkflowDefinition(
   const adjacency = new Map<string, string[]>();
   for (const edge of edges) {
     if (!nodeIds.has(edge.from)) {
-      throw coreErrors.invalidInput(`Workflow edge source "${edge.from}" does not exist.`);
+      throw coreErrors.invalidInput(
+        `Workflow edge source "${edge.from}" does not exist.`,
+      );
     }
     if (!nodeIds.has(edge.to)) {
-      throw coreErrors.invalidInput(`Workflow edge target "${edge.to}" does not exist.`);
+      throw coreErrors.invalidInput(
+        `Workflow edge target "${edge.to}" does not exist.`,
+      );
     }
     const conditionKey = `${edge.from}:${edge.condition ?? "__default__"}`;
     if (conditionKeys.has(conditionKey)) {
-      throw coreErrors.invalidInput(`Workflow node "${edge.from}" has duplicated condition "${edge.condition ?? "default"}".`);
+      throw coreErrors.invalidInput(
+        `Workflow node "${edge.from}" has duplicated condition "${edge.condition ?? "default"}".`,
+      );
     }
     conditionKeys.add(conditionKey);
     adjacency.set(edge.from, [...(adjacency.get(edge.from) ?? []), edge.to]);
@@ -229,7 +290,9 @@ function validateWorkflowDefinition(
     terminalNodeIds.delete(edge.from);
   }
   if (terminalNodeIds.size === nodes.length && nodes.length > 1) {
-    throw coreErrors.invalidInput("Workflow with multiple nodes must contain at least one edge.");
+    throw coreErrors.invalidInput(
+      "Workflow with multiple nodes must contain at least one edge.",
+    );
   }
 
   const reachable = new Set<string>();
@@ -244,6 +307,8 @@ function validateWorkflowDefinition(
   }
   const unreachable = nodes.find((node) => !reachable.has(node.id));
   if (unreachable) {
-    throw coreErrors.invalidInput(`Workflow node "${unreachable.id}" is unreachable from start node "${nodes[0]!.id}".`);
+    throw coreErrors.invalidInput(
+      `Workflow node "${unreachable.id}" is unreachable from start node "${nodes[0]!.id}".`,
+    );
   }
 }

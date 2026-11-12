@@ -64,7 +64,7 @@ export class TaskRepository {
       capabilityHint: task.capabilityHint ?? null,
       parentTaskId: task.parentTaskId ?? null,
       createdAt: task.createdAt,
-      updatedAt: task.updatedAt
+      updatedAt: task.updatedAt,
     });
   }
 
@@ -158,7 +158,7 @@ export class TaskRepository {
 
     statement.run({
       agentId,
-      updatedAt
+      updatedAt,
     });
   }
 
@@ -182,9 +182,11 @@ export class TaskRepository {
       priority: row.priority,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
-      ...(row.assignedToAgentId ? { assignedToAgentId: row.assignedToAgentId } : {}),
+      ...(row.assignedToAgentId
+        ? { assignedToAgentId: row.assignedToAgentId }
+        : {}),
       ...(row.capabilityHint ? { capabilityHint: row.capabilityHint } : {}),
-      ...(row.parentTaskId ? { parentTaskId: row.parentTaskId } : {})
+      ...(row.parentTaskId ? { parentTaskId: row.parentTaskId } : {}),
     };
   }
 }

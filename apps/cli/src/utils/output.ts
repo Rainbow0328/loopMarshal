@@ -11,7 +11,7 @@ export const printError = (message: string, error?: unknown): void => {
     console.error(
       typeof error === "object" && error !== null
         ? inspect(error, { depth: null, colors: true })
-        : String(error)
+        : String(error),
     );
   }
 };

@@ -23,7 +23,11 @@ const smokePort = 42707;
 const smokeBaseUrl = `http://127.0.0.1:${smokePort}`;
 const rootDir = process.cwd();
 const cliEntry = resolve(rootDir, "apps/cli/dist/apps/cli/src/index.js");
-const stateDir = resolve(rootDir, ".loopmarshal-test", "smoke-cli-host-execute");
+const stateDir = resolve(
+  rootDir,
+  ".loopmarshal-test",
+  "smoke-cli-host-execute",
+);
 
 const assert = (condition, message) => {
   if (!condition) {
@@ -36,9 +40,9 @@ const runCliJson = async ({ args, env }) => {
     cwd: rootDir,
     env: {
       ...process.env,
-      ...env
+      ...env,
     },
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"],
   });
 
   let stdout = "";
@@ -59,7 +63,7 @@ const runCliJson = async ({ args, env }) => {
 
   if (exitCode !== 0) {
     throw new Error(
-      `CLI command failed (${args.join(" ")}): ${stderr || stdout || exitCode}`
+      `CLI command failed (${args.join(" ")}): ${stderr || stdout || exitCode}`,
     );
   }
 
@@ -69,12 +73,11 @@ const runCliJson = async ({ args, env }) => {
 const assertExecuteCmd = (result, expectedMode) => {
   assert(
     result?.op === "EXECUTE_INTERNAL_CMD",
-    `${expectedMode} should return an internal execute-cmd handoff`
+    `${expectedMode} should return an internal execute-cmd handoff`,
   );
   assert(
-    typeof result?.cmd === "string" &&
-      result.cmd.startsWith("loopmarshal "),
-    `${expectedMode} should return a runnable loopmarshal command string`
+    typeof result?.cmd === "string" && result.cmd.startsWith("loopmarshal "),
+    `${expectedMode} should return a runnable loopmarshal command string`,
   );
   return result.cmd.slice("loopmarshal ".length).trim().split(/\s+/);
 };
@@ -86,13 +89,13 @@ const main = async () => {
   const instance = await startCoreServer({
     host: "127.0.0.1",
     port: smokePort,
-    databasePath: ".loopmarshal-test/smoke-cli-host-execute.sqlite"
+    databasePath: ".loopmarshal-test/smoke-cli-host-execute.sqlite",
   });
 
   try {
     const env = {
       LOOPMARSHAL_BASE_URL: smokeBaseUrl,
-      LOOPMARSHAL_CLI_STATE_DIR: stateDir
+      LOOPMARSHAL_CLI_STATE_DIR: stateDir,
     };
     const client = createLoopMarshalClient({ baseUrl: smokeBaseUrl });
     const sessionName = `cli-host-execute-${Date.now()}`;
@@ -108,9 +111,9 @@ const main = async () => {
         "--role",
         "host",
         "--duty",
-        "主控编排"
+        "主控编排",
       ],
-      env
+      env,
     });
     await runCliJson({
       args: [
@@ -121,21 +124,23 @@ const main = async () => {
         "--role",
         "worker",
         "--duty",
-        "负责执行分派下来的开发任务并回报结果"
+        "负责执行分派下来的开发任务并回报结果",
       ],
-      env
+      env,
     });
 
     const session = await client.getSessionByName(sessionName);
     const members = await client.getMembers(session.id);
     const hostAgent = members.find((member) => member.agentName === hostName);
-    const workerAgent = members.find((member) => member.agentName === workerName);
+    const workerAgent = members.find(
+      (member) => member.agentName === workerName,
+    );
     assert(hostAgent, "host should exist");
     assert(workerAgent, "worker should exist");
 
     await client.updateWindowBindingDefaults(sessionName, hostName, {
       intervalSeconds: 1,
-      maxRounds: 3
+      maxRounds: 3,
     });
 
     await client.sendMessage({
@@ -145,14 +150,14 @@ const main = async () => {
       type: "instruction",
       payload: {
         content: "请 host 本地处理并回复：host execute 成功",
-        result: "pending"
+        result: "pending",
       },
-      correlationId: "cli-host-task-1"
+      correlationId: "cli-host-task-1",
     });
 
     const hostAwaitMessage = await runCliJson({
       args: ["await", hostName, "--session", sessionName],
-      env
+      env,
     });
 
     const hostResolve = await runCliJson({
@@ -164,38 +169,39 @@ const main = async () => {
         "--summary",
         "host 已完成本地处理",
         "--reply-content",
-        "host execute 成功"
+        "host execute 成功",
       ],
-      env
+      env,
     });
 
     const hostResolveNextArgs = assertExecuteCmd(hostResolve, "resolve");
     const hostAwaitAfterResolve = await runCliJson({
       args: hostResolveNextArgs,
-      env
+      env,
     });
 
     const workerInbox = await client.getInbox(workerAgent.id);
     const hostReply = workerInbox.find(
-      (message) => message.correlationId === "cli-host-task-1"
+      (message) => message.correlationId === "cli-host-task-1",
     );
 
     assert(
       hostAwaitMessage.op === "PROCESS_CLAIMED_MESSAGE" &&
         hostAwaitMessage.kind === "task" &&
-        hostAwaitMessage.message?.content === "请 host 本地处理并回复：host execute 成功",
-      "await should expose the normalized host task"
+        hostAwaitMessage.message?.content ===
+          "请 host 本地处理并回复：host execute 成功",
+      "await should expose the normalized host task",
     );
     assert(
       hostAwaitAfterResolve.op === "END_TURN_SILENTLY" ||
         hostAwaitAfterResolve.op === "EXECUTE_INTERNAL_CMD",
-      "the returned await command should stay inside the wait protocol when no follow-up message arrives"
+      "the returned await command should stay inside the wait protocol when no follow-up message arrives",
     );
     assert(
       hostReply?.payload &&
         typeof hostReply.payload === "object" &&
         hostReply.payload.content === "host execute 成功",
-      "original sender should receive the host reply"
+      "original sender should receive the host reply",
     );
 
     console.log(
@@ -205,11 +211,11 @@ const main = async () => {
           hostAwaitMessageKind: hostAwaitMessage.kind,
           hostResolveOp: hostResolve.op,
           hostReplyReceived: hostReply?.id ?? null,
-          hostAwaitAfterResolveStatus: hostAwaitAfterResolve.status
+          hostAwaitAfterResolveStatus: hostAwaitAfterResolve.status,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } finally {
     await instance.close();

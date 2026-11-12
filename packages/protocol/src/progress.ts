@@ -18,7 +18,7 @@ export const progressStatuses = [
   "in_progress",
   "completed",
   "failed",
-  "cancelled"
+  "cancelled",
 ] as const;
 export type ProgressStatus = (typeof progressStatuses)[number];
 

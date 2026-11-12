@@ -40,20 +40,49 @@ import type {
   UpdateKnowledgePatchRecordInput,
   UpsertKnowledgePatchReviewRecordInput,
   UpsertKnowledgePersistenceRecordInput,
-  UpsertKnowledgeInput
+  UpsertKnowledgeInput,
+} from "@loopmarshal/protocol";
+import {
+  knowledgeLevelDefinitions,
+  knowledgeLevels,
 } from "@loopmarshal/protocol";
 
 import { coreErrors } from "../errors.js";
 import { KnowledgeFileStore } from "./knowledge-file-store.js";
 
-const KNOWLEDGE_LEVEL_TITLES: Record<KnowledgeLevel, string> = {
-  l1: "Constitution",
-  l2: "Relations",
-  l3: "Module detail"
-};
+const KNOWLEDGE_LEVEL_TITLES: Record<KnowledgeLevel, string> =
+  Object.fromEntries(
+    knowledgeLevels.map((level) => [
+      level,
+      knowledgeLevelDefinitions[level].label,
+    ]),
+  ) as Record<KnowledgeLevel, string>;
 
 export class KnowledgeService {
-  public constructor(private readonly store: KnowledgeFileStore) {}
+  private readonly sessions = new Map<string, KnowledgeService>();
+  public constructor(
+    private readonly store: KnowledgeFileStore,
+    private readonly sessionId: string | null = null,
+    private readonly onChange?: (sessionId: string) => void,
+  ) {}
+
+  public forSession(sessionId: string): KnowledgeService {
+    if (this.sessionId === sessionId) return this;
+    if (this.sessionId)
+      throw coreErrors.invalidInput(
+        "Knowledge service is bound to another session.",
+      );
+    let scoped = this.sessions.get(sessionId);
+    if (!scoped) {
+      scoped = new KnowledgeService(
+        this.store.forSession(sessionId),
+        sessionId,
+        this.onChange,
+      );
+      this.sessions.set(sessionId, scoped);
+    }
+    return scoped;
+  }
 
   public getManifest(): KnowledgeManifest {
     return this.store.getManifest();
@@ -79,21 +108,25 @@ export class KnowledgeService {
     if (!input.content.trim()) {
       throw coreErrors.invalidInput("Knowledge content must not be empty.");
     }
-    return this.store.upsert({
+    const document = this.store.upsert({
       ...input,
       title: input.title.trim(),
-      content: input.content
+      content: input.content,
     });
+    if (this.sessionId) this.onChange?.(this.sessionId);
+    return document;
   }
 
   public delete(input: DeleteKnowledgeInput): { deleted: boolean } {
     this.assertValidSlug(input.slug);
-    return {
-      deleted: this.store.delete(input)
-    };
+    const deleted = this.store.delete(input);
+    if (deleted && this.sessionId) this.onChange?.(this.sessionId);
+    return { deleted };
   }
 
-  public listChanges(input: ListKnowledgeChangesInput = {}): KnowledgeChangeRecord[] {
+  public listChanges(
+    input: ListKnowledgeChangesInput = {},
+  ): KnowledgeChangeRecord[] {
     return this.store.listChanges(input);
   }
 
@@ -105,7 +138,7 @@ export class KnowledgeService {
   }
 
   public createPatchRecord(
-    input: CreateKnowledgePatchRecordInput
+    input: CreateKnowledgePatchRecordInput,
   ): KnowledgePatchRecord {
     return this.store.createPatchRecord(input);
   }
@@ -115,12 +148,14 @@ export class KnowledgeService {
   }
 
   public listPatchRecords(
-    input: ListKnowledgePatchRecordsInput = {}
+    input: ListKnowledgePatchRecordsInput = {},
   ): KnowledgePatchRecord[] {
     return this.store.listPatchRecords(input);
   }
 
-  public getPatchLifecycle(patchId: string): KnowledgePatchLifecycleRecord | null {
+  public getPatchLifecycle(
+    patchId: string,
+  ): KnowledgePatchLifecycleRecord | null {
     const patchRecord = this.getPatchRecord(patchId);
     if (!patchRecord) {
       return null;
@@ -129,68 +164,72 @@ export class KnowledgeService {
     return {
       patchRecord,
       reviewRecord: this.getPatchReviewRecord(patchId),
-      persistenceRecord: this.getPersistenceRecord(patchId)
+      persistenceRecord: this.getPersistenceRecord(patchId),
     };
   }
 
   public listPatchLifecycles(
-    input: ListKnowledgePatchLifecycleInput = {}
+    input: ListKnowledgePatchLifecycleInput = {},
   ): KnowledgePatchLifecycleRecord[] {
     return this.listPatchRecords({
-      ...(input.status ? { status: input.status } : {})
+      ...(input.status ? { status: input.status } : {}),
     }).map((patchRecord) => ({
       patchRecord,
       reviewRecord: this.getPatchReviewRecord(patchRecord.patchId),
-      persistenceRecord: this.getPersistenceRecord(patchRecord.patchId)
+      persistenceRecord: this.getPersistenceRecord(patchRecord.patchId),
     }));
   }
 
   public listPendingPatchRecords(): KnowledgePatchRecord[] {
     return this.store.listPatchRecords({
-      status: "pending_adjudication"
+      status: "pending_adjudication",
     });
   }
 
   public listPendingPatchLifecycles(): KnowledgePatchLifecycleRecord[] {
     return this.listPatchLifecycles({
-      status: "pending_adjudication"
+      status: "pending_adjudication",
     });
   }
 
   public listApprovedForPersistenceLifecycles(): KnowledgePatchLifecycleRecord[] {
     return this.listPatchLifecycles({
-      status: "approved_for_persistence"
+      status: "approved_for_persistence",
     });
   }
 
   public updatePatchRecord(
-    input: UpdateKnowledgePatchRecordInput
+    input: UpdateKnowledgePatchRecordInput,
   ): KnowledgePatchRecord | null {
     return this.store.updatePatchRecord(input);
   }
 
-  public getPatchReviewRecord(patchId: string): KnowledgePatchReviewRecord | null {
+  public getPatchReviewRecord(
+    patchId: string,
+  ): KnowledgePatchReviewRecord | null {
     return this.store.getPatchReviewRecord(patchId);
   }
 
   public upsertPatchReviewRecord(
-    input: UpsertKnowledgePatchReviewRecordInput
+    input: UpsertKnowledgePatchReviewRecordInput,
   ): KnowledgePatchReviewRecord {
     return this.store.upsertPatchReviewRecord(input);
   }
 
-  public getPersistenceRecord(patchId: string): KnowledgePersistenceRecord | null {
+  public getPersistenceRecord(
+    patchId: string,
+  ): KnowledgePersistenceRecord | null {
     return this.store.getPersistenceRecord(patchId);
   }
 
   public upsertPersistenceRecord(
-    input: UpsertKnowledgePersistenceRecordInput
+    input: UpsertKnowledgePersistenceRecordInput,
   ): KnowledgePersistenceRecord {
     return this.store.upsertPersistenceRecord(input);
   }
 
   public createPendingRecordsFromExtraction(
-    result: KnowledgeExtractionResult
+    result: KnowledgeExtractionResult,
   ): {
     patchRecords: KnowledgePatchRecord[];
     reviewRecords: KnowledgePatchReviewRecord[];
@@ -204,12 +243,12 @@ export class KnowledgeService {
       const hasConflict = result.conflicts.some(
         (conflict) =>
           conflict.targetLevel === patch.targetLevel &&
-          conflict.targetSlug === patch.targetSlug
+          conflict.targetSlug === patch.targetSlug,
       );
 
       const patchRecord = this.createPatchRecord({
         patch,
-        status: hasConflict ? "conflict_marked" : "extracted"
+        status: hasConflict ? "conflict_marked" : "extracted",
       });
       const reviewRecord = this.upsertPatchReviewRecord({
         patchId: patch.id,
@@ -220,17 +259,17 @@ export class KnowledgeService {
               .filter(
                 (conflict) =>
                   conflict.targetLevel === patch.targetLevel &&
-                  conflict.targetSlug === patch.targetSlug
+                  conflict.targetSlug === patch.targetSlug,
               )
               .map((conflict) => ({
                 code: conflict.code,
-                message: conflict.message
+                message: conflict.message,
               }))
           : [],
         reviewDecision: hasConflict ? "conflict_marked" : "pending",
         reviewedBy: null,
         reviewComment: null,
-        reviewedAt: null
+        reviewedAt: null,
       });
       const persistenceRecord = this.upsertPersistenceRecord({
         patchId: patch.id,
@@ -238,7 +277,7 @@ export class KnowledgeService {
         targetPath: null,
         persistedVersion: null,
         errorMessage: null,
-        persistedAt: null
+        persistedAt: null,
       });
 
       patchRecords.push(patchRecord);
@@ -249,24 +288,24 @@ export class KnowledgeService {
     return {
       patchRecords,
       reviewRecords,
-      persistenceRecords
+      persistenceRecords,
     };
   }
 
   public createPendingLifecyclesFromExtraction(
-    result: KnowledgeExtractionResult
+    result: KnowledgeExtractionResult,
   ): KnowledgePatchLifecycleRecord[] {
     const created = this.createPendingRecordsFromExtraction(result);
     return created.patchRecords.map((patchRecord, index) => ({
       patchRecord,
       reviewRecord: created.reviewRecords[index] ?? null,
-      persistenceRecord: created.persistenceRecords[index] ?? null
+      persistenceRecord: created.persistenceRecords[index] ?? null,
     }));
   }
 
   public applyGuardDecisionToPatch(
     patchId: string,
-    decision: ArchitectureGuardDecision
+    decision: ArchitectureGuardDecision,
   ): {
     patchRecord: KnowledgePatchRecord | null;
     reviewRecord: KnowledgePatchReviewRecord;
@@ -289,7 +328,7 @@ export class KnowledgeService {
       reviewDecision: nextReviewDecision,
       reviewedBy: existingReviewRecord?.reviewedBy ?? null,
       reviewComment: existingReviewRecord?.reviewComment ?? null,
-      reviewedAt: existingReviewRecord?.reviewedAt ?? null
+      reviewedAt: existingReviewRecord?.reviewedAt ?? null,
     });
 
     let patchRecord = existingPatchRecord;
@@ -302,20 +341,20 @@ export class KnowledgeService {
             : "validation_failed";
       patchRecord = this.updatePatchRecord({
         patchId,
-        status: nextStatus
+        status: nextStatus,
       });
     }
 
     return {
       patchRecord,
       reviewRecord,
-      persistenceRecord: existingPersistenceRecord
+      persistenceRecord: existingPersistenceRecord,
     };
   }
 
   public applyGuardDecisionToPatchLifecycle(
     patchId: string,
-    decision: ArchitectureGuardDecision
+    decision: ArchitectureGuardDecision,
   ): KnowledgePatchLifecycleRecord | null {
     const updated = this.applyGuardDecisionToPatch(patchId, decision);
     if (!updated.patchRecord) {
@@ -325,13 +364,11 @@ export class KnowledgeService {
     return {
       patchRecord: updated.patchRecord,
       reviewRecord: updated.reviewRecord,
-      persistenceRecord: updated.persistenceRecord
+      persistenceRecord: updated.persistenceRecord,
     };
   }
 
-  public adjudicatePatch(
-    input: AdjudicateKnowledgePatchInput
-  ): {
+  public adjudicatePatch(input: AdjudicateKnowledgePatchInput): {
     patchRecord: KnowledgePatchRecord | null;
     reviewRecord: KnowledgePatchReviewRecord;
     persistenceRecord: KnowledgePersistenceRecord;
@@ -343,7 +380,7 @@ export class KnowledgeService {
       reviewDecision: input.decision,
       reviewedBy: input.reviewedBy,
       reviewComment: input.reviewComment ?? null,
-      reviewedAt
+      reviewedAt,
     });
 
     const nextStatus =
@@ -356,7 +393,7 @@ export class KnowledgeService {
     const patchRecord = existingPatchRecord
       ? this.updatePatchRecord({
           patchId: input.patchId,
-          status: nextStatus
+          status: nextStatus,
         })
       : null;
 
@@ -366,19 +403,20 @@ export class KnowledgeService {
       errorMessage:
         input.decision === "approved"
           ? null
-          : input.reviewComment ?? `Patch ${input.decision} during adjudication.`,
-      persistedAt: null
+          : (input.reviewComment ??
+            `Patch ${input.decision} during adjudication.`),
+      persistedAt: null,
     });
 
     return {
       patchRecord,
       reviewRecord,
-      persistenceRecord
+      persistenceRecord,
     };
   }
 
   public adjudicatePatchLifecycle(
-    input: AdjudicateKnowledgePatchInput
+    input: AdjudicateKnowledgePatchInput,
   ): KnowledgePatchLifecycleRecord | null {
     const updated = this.adjudicatePatch(input);
     if (!updated.patchRecord) {
@@ -388,51 +426,51 @@ export class KnowledgeService {
     return {
       patchRecord: updated.patchRecord,
       reviewRecord: updated.reviewRecord,
-      persistenceRecord: updated.persistenceRecord
+      persistenceRecord: updated.persistenceRecord,
     };
   }
 
   public approvePatchForPersistence(
     patchId: string,
     reviewedBy: string,
-    reviewComment?: string | null
+    reviewComment?: string | null,
   ) {
     return this.adjudicatePatch({
       patchId,
       decision: "approved",
       reviewedBy,
-      reviewComment
+      reviewComment,
     });
   }
 
   public rejectPatch(
     patchId: string,
     reviewedBy: string,
-    reviewComment?: string | null
+    reviewComment?: string | null,
   ) {
     return this.adjudicatePatch({
       patchId,
       decision: "rejected",
       reviewedBy,
-      reviewComment
+      reviewComment,
     });
   }
 
   public markPatchConflict(
     patchId: string,
     reviewedBy: string,
-    reviewComment?: string | null
+    reviewComment?: string | null,
   ) {
     return this.adjudicatePatch({
       patchId,
       decision: "conflict_marked",
       reviewedBy,
-      reviewComment
+      reviewComment,
     });
   }
 
   public executeApprovedPatchPersistence(
-    patchId: string
+    patchId: string,
   ): ExecuteKnowledgePatchPersistenceResult {
     const patchRecord = this.getPatchRecord(patchId);
     if (!patchRecord) {
@@ -442,7 +480,7 @@ export class KnowledgeService {
         status: "skipped",
         reason: "patch_not_found",
         targetPath: null,
-        persistedVersion: null
+        persistedVersion: null,
       };
     }
 
@@ -453,7 +491,7 @@ export class KnowledgeService {
         status: "skipped",
         reason: `patch_status_${patchRecord.status}`,
         targetPath: null,
-        persistedVersion: null
+        persistedVersion: null,
       };
     }
 
@@ -468,12 +506,12 @@ export class KnowledgeService {
         ownerAgentId: patchRecord.payload.source.sourceAgentId,
         sourceKind: patchRecord.payload.source.type,
         sourceAgentId: patchRecord.payload.source.sourceAgentId,
-        changeSummary: patchRecord.payload.summary
+        changeSummary: patchRecord.payload.summary,
       });
 
       this.updatePatchRecord({
         patchId,
-        status: "persisted"
+        status: "persisted",
       });
       this.upsertPersistenceRecord({
         patchId,
@@ -481,7 +519,7 @@ export class KnowledgeService {
         persistedVersion: document.version,
         persistResult: "succeeded",
         errorMessage: null,
-        persistedAt: new Date().toISOString()
+        persistedAt: new Date().toISOString(),
       });
 
       return {
@@ -490,19 +528,19 @@ export class KnowledgeService {
         status: "persisted",
         reason: "persisted",
         targetPath: document.path,
-        persistedVersion: document.version
+        persistedVersion: document.version,
       };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "unknown_error";
       this.updatePatchRecord({
         patchId,
-        status: "persistence_failed"
+        status: "persistence_failed",
       });
       this.upsertPersistenceRecord({
         patchId,
         persistResult: "failed",
         errorMessage: message,
-        persistedAt: new Date().toISOString()
+        persistedAt: new Date().toISOString(),
       });
 
       return {
@@ -511,13 +549,13 @@ export class KnowledgeService {
         status: "persistence_failed",
         reason: message,
         targetPath: null,
-        persistedVersion: null
+        persistedVersion: null,
       };
     }
   }
 
   public persistApprovedPatch(
-    patchId: string
+    patchId: string,
   ): ExecuteKnowledgePatchPersistenceResult {
     return this.executeApprovedPatchPersistence(patchId);
   }
@@ -525,14 +563,16 @@ export class KnowledgeService {
   private assertValidSlug(slug: string): void {
     if (!/^[a-z0-9][a-z0-9-/_]*[a-z0-9]$/i.test(slug)) {
       throw coreErrors.invalidInput(
-        `Knowledge slug "${slug}" must use letters, digits, "-", "_" or "/".`
+        `Knowledge slug "${slug}" must use letters, digits, "-", "_" or "/".`,
       );
     }
   }
 }
 
 export class ExtractionService {
-  public extract(candidate: KnowledgeExtractionCandidate): KnowledgeExtractionResult {
+  public extract(
+    candidate: KnowledgeExtractionCandidate,
+  ): KnowledgeExtractionResult {
     const content = candidate.content.trim();
     if (!content) {
       return {
@@ -541,7 +581,7 @@ export class ExtractionService {
         patches: [],
         conflicts: [],
         warnings: ["Knowledge extraction candidate content is empty."],
-        candidates: []
+        candidates: [],
       };
     }
 
@@ -550,8 +590,10 @@ export class ExtractionService {
       reason: "not_implemented",
       patches: [],
       conflicts: [],
-      warnings: ["Knowledge extraction in KnowledgeService remains a placeholder."],
-      candidates: []
+      warnings: [
+        "Knowledge extraction in KnowledgeService remains a placeholder.",
+      ],
+      candidates: [],
     };
   }
 }
@@ -562,18 +604,18 @@ export class GuardService {
     if (!input.content.trim()) {
       violations.push({
         code: "EMPTY_CONTENT",
-        message: "Knowledge content must not be empty."
+        message: "Knowledge content must not be empty.",
       });
     }
     if (!input.slug.trim()) {
       violations.push({
         code: "EMPTY_SLUG",
-        message: "Knowledge slug must not be empty."
+        message: "Knowledge slug must not be empty.",
       });
     }
     return {
       ok: violations.length === 0,
-      violations
+      violations,
     };
   }
 

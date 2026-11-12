@@ -5,7 +5,7 @@ import type {
   CollaborationRunState,
   MessageRecord,
   WindowBinding,
-  WindowRuntimeMessageKind
+  WindowRuntimeMessageKind,
 } from "@loopmarshal/protocol";
 
 import type { MessageService } from "./message-service.js";
@@ -76,10 +76,14 @@ const sleep = async (milliseconds: number): Promise<void> => {
 };
 
 const clampTimeoutSeconds = (value: unknown): number => {
-  const numeric = typeof value === "number" && Number.isFinite(value)
-    ? value
-    : DEFAULT_MCP_BUSINESS_WAIT_SECONDS;
-  return Math.max(1, Math.min(Math.floor(numeric), MAX_MCP_BUSINESS_WAIT_SECONDS));
+  const numeric =
+    typeof value === "number" && Number.isFinite(value)
+      ? value
+      : DEFAULT_MCP_BUSINESS_WAIT_SECONDS;
+  return Math.max(
+    1,
+    Math.min(Math.floor(numeric), MAX_MCP_BUSINESS_WAIT_SECONDS),
+  );
 };
 
 const getPayloadInstruction = (payload: unknown): string => {
@@ -101,15 +105,18 @@ const getPayloadInstruction = (payload: unknown): string => {
 export class CollaborationWaitService {
   public constructor(
     private readonly messageService: MessageService,
-    private readonly windowBindingService: WindowBindingService
+    private readonly windowBindingService: WindowBindingService,
   ) {}
 
-  public async awaitEvent(input: CollaborationAwaitInput): Promise<CollaborationControlEnvelope> {
+  public async awaitEvent(
+    input: CollaborationAwaitInput,
+  ): Promise<CollaborationControlEnvelope> {
     const binding = this.resolveBinding(input);
     const role = this.resolveRole(binding, input.role);
     const timeoutSeconds = clampTimeoutSeconds(input.timeoutSeconds);
     const startedAt = Date.now();
-    const continuationToken = input.continuationToken ?? `mcp-wait:${randomUUID()}`;
+    const continuationToken =
+      input.continuationToken ?? `mcp-wait:${randomUUID()}`;
 
     await this.writeRuntime(binding, {
       state: "waiting",
@@ -121,13 +128,20 @@ export class CollaborationWaitService {
       requiredTool: "ai_collab_await_event",
       continuationToken,
       userVisibleResponseAllowed: false,
-      leaseExpiresAt: new Date(Date.now() + (timeoutSeconds + 60) * 1000).toISOString()
+      leaseExpiresAt: new Date(
+        Date.now() + (timeoutSeconds + 60) * 1000,
+      ).toISOString(),
     });
 
     while (Date.now() - startedAt < timeoutSeconds * 1000) {
       const candidate = this.claimNextCandidate(binding, role);
       if (candidate) {
-        return this.buildAssignedEnvelope(binding, role, candidate, continuationToken);
+        return this.buildAssignedEnvelope(
+          binding,
+          role,
+          candidate,
+          continuationToken,
+        );
       }
 
       await this.writeRuntime(binding, {
@@ -139,11 +153,16 @@ export class CollaborationWaitService {
         requiredAction: "await_event",
         requiredTool: "ai_collab_await_event",
         continuationToken,
-        userVisibleResponseAllowed: false
+        userVisibleResponseAllowed: false,
       });
 
       const remainingMs = timeoutSeconds * 1000 - (Date.now() - startedAt);
-      await sleep(Math.min(DEFAULT_POLL_INTERVAL_SECONDS * 1000, Math.max(0, remainingMs)));
+      await sleep(
+        Math.min(
+          DEFAULT_POLL_INTERVAL_SECONDS * 1000,
+          Math.max(0, remainingMs),
+        ),
+      );
     }
 
     const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
@@ -155,7 +174,7 @@ export class CollaborationWaitService {
       continuationToken: nextToken,
       timeoutSeconds,
       quiet: true,
-      returnOnlyOnEvent: true
+      returnOnlyOnEvent: true,
     };
 
     await this.writeRuntime(binding, {
@@ -167,7 +186,7 @@ export class CollaborationWaitService {
       requiredAction: "call_tool",
       requiredTool: "ai_collab_await_event",
       continuationToken: nextToken,
-      userVisibleResponseAllowed: false
+      userVisibleResponseAllowed: false,
     });
 
     return {
@@ -180,25 +199,31 @@ export class CollaborationWaitService {
       requiredTool: "ai_collab_await_event",
       arguments: nextArguments,
       userVisibleResponseAllowed: false,
-      messageToAgent: "Do not summarize. Call requiredTool with arguments exactly.",
+      messageToAgent:
+        "Do not summarize. Call requiredTool with arguments exactly.",
       continuationToken: nextToken,
       elapsedSeconds,
-      timeoutSeconds
+      timeoutSeconds,
     };
   }
 
   public async submitAndAwaitNext(
-    input: CollaborationSubmitAndAwaitInput
+    input: CollaborationSubmitAndAwaitInput,
   ): Promise<CollaborationControlEnvelope> {
     const binding = this.resolveBinding(input);
-    const completed = input.status === "failed" || input.status === "blocked"
-      ? this.messageService.failMessage(
-          input.taskId,
-          binding.agentId,
-          input.failureReason ?? input.status,
-          {}
-        )
-      : this.messageService.completeMessage(input.taskId, binding.agentId, {});
+    const completed =
+      input.status === "failed" || input.status === "blocked"
+        ? this.messageService.failMessage(
+            input.taskId,
+            binding.agentId,
+            input.failureReason ?? input.status,
+            {},
+          )
+        : this.messageService.completeMessage(
+            input.taskId,
+            binding.agentId,
+            {},
+          );
 
     if (input.status === "completed") {
       this.messageService.sendMessage({
@@ -206,7 +231,9 @@ export class CollaborationWaitService {
         fromAgentId: binding.agentId,
         type: "result",
         payload: input.result ?? { status: input.status },
-        ...(completed.correlationId ? { correlationId: completed.correlationId } : {})
+        ...(completed.correlationId
+          ? { correlationId: completed.correlationId }
+          : {}),
       });
     }
 
@@ -218,17 +245,17 @@ export class CollaborationWaitService {
       turnDisposition: "silent_continue",
       requiredAction: "call_tool",
       requiredTool: "ai_collab_await_event",
-      userVisibleResponseAllowed: false
+      userVisibleResponseAllowed: false,
     });
 
     return this.awaitEvent({
       ...input,
-      role: this.resolveRole(binding, input.role)
+      role: this.resolveRole(binding, input.role),
     });
   }
 
   public async reportAndAwaitNext(
-    input: CollaborationReportAndAwaitInput
+    input: CollaborationReportAndAwaitInput,
   ): Promise<CollaborationControlEnvelope> {
     const binding = this.resolveBinding(input);
     if (input.action === "failed") {
@@ -236,13 +263,13 @@ export class CollaborationWaitService {
         input.messageId,
         binding.agentId,
         input.failureReason ?? "failed",
-        {}
+        {},
       );
     } else {
       const resolved = this.messageService.completeMessage(
         input.messageId,
         binding.agentId,
-        {}
+        {},
       );
       if (input.reply !== undefined) {
         this.messageService.sendMessage({
@@ -250,7 +277,9 @@ export class CollaborationWaitService {
           fromAgentId: binding.agentId,
           type: "result",
           payload: input.reply,
-          ...(resolved.correlationId ? { correlationId: resolved.correlationId } : {})
+          ...(resolved.correlationId
+            ? { correlationId: resolved.correlationId }
+            : {}),
         });
       }
     }
@@ -263,12 +292,12 @@ export class CollaborationWaitService {
       turnDisposition: "silent_continue",
       requiredAction: "call_tool",
       requiredTool: "ai_collab_await_event",
-      userVisibleResponseAllowed: false
+      userVisibleResponseAllowed: false,
     });
 
     return this.awaitEvent({
       ...input,
-      role: this.resolveRole(binding, input.role)
+      role: this.resolveRole(binding, input.role),
     });
   }
 
@@ -285,12 +314,14 @@ export class CollaborationWaitService {
       sessionName: binding.sessionName,
       windowName: binding.windowName,
       role,
-      ...(runtime.requiredAction ? { requiredAction: runtime.requiredAction } : {}),
+      ...(runtime.requiredAction
+        ? { requiredAction: runtime.requiredAction }
+        : {}),
       ...(runtime.requiredTool ? { requiredTool: runtime.requiredTool } : {}),
       userVisibleResponseAllowed: runtime.userVisibleResponseAllowed ?? false,
       ...(runtime.continuationToken
         ? { continuationToken: runtime.continuationToken }
-        : {})
+        : {}),
     };
     if (runtime.requiredTool) {
       envelope.arguments = {
@@ -299,7 +330,7 @@ export class CollaborationWaitService {
         role,
         ...(runtime.continuationToken
           ? { continuationToken: runtime.continuationToken }
-          : {})
+          : {}),
       };
     }
     return envelope;
@@ -312,34 +343,49 @@ export class CollaborationWaitService {
     return this.windowBindingService.get(input.sessionName, input.windowName);
   }
 
-  private resolveRole(binding: WindowBinding, role: AwaitRole | undefined): AwaitRole {
-    const bindingRole = binding.role === "knowledge_keeper" ? "knowledge_keeper" : binding.role;
-    if (bindingRole !== "host" && bindingRole !== "worker" && bindingRole !== "knowledge_keeper") {
-      throw new Error(`Window role '${binding.role}' cannot await collaboration events.`);
+  private resolveRole(
+    binding: WindowBinding,
+    role: AwaitRole | undefined,
+  ): AwaitRole {
+    const bindingRole =
+      binding.role === "knowledge_keeper" ? "knowledge_keeper" : binding.role;
+    if (
+      bindingRole !== "host" &&
+      bindingRole !== "worker" &&
+      bindingRole !== "knowledge_keeper"
+    ) {
+      throw new Error(
+        `Window role '${binding.role}' cannot await collaboration events.`,
+      );
     }
     if (role && role !== bindingRole) {
-      throw new Error(`Requested role '${role}' does not match window role '${bindingRole}'.`);
+      throw new Error(
+        `Requested role '${role}' does not match window role '${bindingRole}'.`,
+      );
     }
     return bindingRole;
   }
 
-  private claimNextCandidate(binding: WindowBinding, role: AwaitRole): WaitCandidate | null {
+  private claimNextCandidate(
+    binding: WindowBinding,
+    role: AwaitRole,
+  ): WaitCandidate | null {
     if (role === "worker" || role === "knowledge_keeper") {
       const message = this.messageService.claimNext(binding.agentId, {
-        types: ["task"]
+        types: ["task"],
       });
       return message ? { message, kind: "task" } : null;
     }
 
     const report = this.messageService.claimNext(binding.agentId, {
-      types: ["result", "error"]
+      types: ["result", "error"],
     });
     if (report) {
       return { message: report, kind: "report" };
     }
 
     const task = this.messageService.claimNext(binding.agentId, {
-      types: ["task"]
+      types: ["task"],
     });
     return task ? { message: task, kind: "task" } : null;
   }
@@ -348,7 +394,7 @@ export class CollaborationWaitService {
     binding: WindowBinding,
     role: AwaitRole,
     candidate: WaitCandidate,
-    continuationToken: string
+    continuationToken: string,
   ): Promise<CollaborationControlEnvelope> {
     const { message, kind } = candidate;
     const isWorkerTask = role !== "host" || kind === "task";
@@ -363,14 +409,15 @@ export class CollaborationWaitService {
       state: "in_progress",
       status: kind === "task" ? "task_assigned" : "message_assigned",
       workflowStep: "message_received",
-      automationState: kind === "task" ? "mcp_task_assigned" : "mcp_report_assigned",
+      automationState:
+        kind === "task" ? "mcp_task_assigned" : "mcp_report_assigned",
       turnDisposition: "silent_handoff",
       message,
       messageKind: kind,
       requiredAction: nextAction,
       requiredTool,
       continuationToken,
-      userVisibleResponseAllowed: false
+      userVisibleResponseAllowed: false,
     });
 
     const envelope: CollaborationControlEnvelope = {
@@ -386,7 +433,7 @@ export class CollaborationWaitService {
       nextActionAfterCompletion: nextAction,
       requiredToolAfterCompletion: requiredTool,
       userVisibleResponseAllowed: false,
-      continuationToken
+      continuationToken,
     };
     if (kind === "task") {
       envelope.taskId = message.id;
@@ -409,37 +456,41 @@ export class CollaborationWaitService {
       leaseExpiresAt?: string | null;
       message?: MessageRecord | null;
       messageKind?: WindowRuntimeMessageKind | null;
-    }
+    },
   ): Promise<void> {
     const timestamp = now();
-    this.windowBindingService.updateRuntimeState(binding.sessionName, binding.windowName, {
-      activeFlow: binding.role === "host" ? "host-cycle" : "worker-cycle",
-      currentMessageId: patch.message?.id ?? null,
-      currentCorrelationId: patch.message?.correlationId ?? null,
-      currentMessageKind: patch.message ? patch.messageKind ?? null : null,
-      waitChainId: `${binding.identity}:mcp`,
-      waitChainStatus:
-        patch.state === "in_progress" ? "claimed" : patch.state,
-      lastPollAt: timestamp,
-      lastClaimAt: patch.message ? timestamp : null,
-      lastSubmitAt:
-        patch.state === "submit_pending_continue" ||
-        patch.state === "resolve_pending_continue"
-          ? timestamp
-          : null,
-      pendingInboxCount: null,
-      claimedInboxCount: null,
-      lastCommand: "mcp",
-      lastStatus: patch.status,
-      lastWorkflowStep: patch.workflowStep,
-      lastAutomationState: patch.automationState,
-      lastTurnDisposition: patch.turnDisposition,
-      state: patch.state,
-      requiredAction: patch.requiredAction ?? null,
-      requiredTool: patch.requiredTool ?? null,
-      continuationToken: patch.continuationToken ?? null,
-      userVisibleResponseAllowed: patch.userVisibleResponseAllowed ?? false,
-      leaseExpiresAt: patch.leaseExpiresAt ?? null
-    });
+    this.windowBindingService.updateRuntimeState(
+      binding.sessionName,
+      binding.windowName,
+      {
+        activeFlow: binding.role === "host" ? "host-cycle" : "worker-cycle",
+        currentMessageId: patch.message?.id ?? null,
+        currentCorrelationId: patch.message?.correlationId ?? null,
+        currentMessageKind: patch.message ? (patch.messageKind ?? null) : null,
+        waitChainId: `${binding.identity}:mcp`,
+        waitChainStatus:
+          patch.state === "in_progress" ? "claimed" : patch.state,
+        lastPollAt: timestamp,
+        lastClaimAt: patch.message ? timestamp : null,
+        lastSubmitAt:
+          patch.state === "submit_pending_continue" ||
+          patch.state === "resolve_pending_continue"
+            ? timestamp
+            : null,
+        pendingInboxCount: null,
+        claimedInboxCount: null,
+        lastCommand: "mcp",
+        lastStatus: patch.status,
+        lastWorkflowStep: patch.workflowStep,
+        lastAutomationState: patch.automationState,
+        lastTurnDisposition: patch.turnDisposition,
+        state: patch.state,
+        requiredAction: patch.requiredAction ?? null,
+        requiredTool: patch.requiredTool ?? null,
+        continuationToken: patch.continuationToken ?? null,
+        userVisibleResponseAllowed: patch.userVisibleResponseAllowed ?? false,
+        leaseExpiresAt: patch.leaseExpiresAt ?? null,
+      },
+    );
   }
 }

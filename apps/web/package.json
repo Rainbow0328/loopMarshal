@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run"
   },
   "dependencies": {
     "@loopmarshal/protocol": "workspace:*",
@@ -25,6 +26,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "tailwindcss": "^4.1.8",
     "typescript": "^5.9.2",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vitest": "4.1.5"
   }
 }

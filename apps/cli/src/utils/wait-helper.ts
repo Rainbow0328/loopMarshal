@@ -1,4 +1,7 @@
-import { createLoopMarshalClient, LoopMarshalWebSocketClient } from "@loopmarshal/sdk";
+import {
+  createLoopMarshalClient,
+  LoopMarshalWebSocketClient,
+} from "@loopmarshal/sdk";
 import type { MessageRecord } from "@loopmarshal/protocol";
 import { getLogger } from "@loopmarshal/shared";
 
@@ -8,7 +11,7 @@ export async function waitForNextInboxMessage(
   baseUrl: string,
   agentId: string,
   sessionId: string,
-  timeoutMs = 30000
+  timeoutMs = 30000,
 ): Promise<MessageRecord | null> {
   let wsClient: LoopMarshalWebSocketClient | null = null;
 
@@ -24,7 +27,10 @@ export async function waitForNextInboxMessage(
       const client = createLoopMarshalClient();
       const inbox = await client.getInbox(agentId);
       if (inbox.length > 0) {
-        logger.info({ count: inbox.length }, "Shutdown: found messages in inbox");
+        logger.info(
+          { count: inbox.length },
+          "Shutdown: found messages in inbox",
+        );
         return inbox[0];
       }
     } catch (error) {
@@ -54,7 +60,7 @@ export async function waitForNextInboxMessage(
     wsClient = new LoopMarshalWebSocketClient({
       baseUrl,
       agentId,
-      sessionId
+      sessionId,
     });
 
     wsClient.connect();
@@ -67,7 +73,6 @@ export async function waitForNextInboxMessage(
 
     // WebSocket 超时，返回 null，外层走轮询
     return null;
-
   } catch (error) {
     // WebSocket 失败，降级到轮询
     logger.warn({ error }, "WebSocket wait failed, falling back to polling");

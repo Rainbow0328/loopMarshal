@@ -14,8 +14,8 @@
  */
 import { z } from "zod";
 
+import { progressStatuses } from "./progress.js";
 import {
-  agentPlatforms,
   agentRoles,
   agentStatuses,
   collaborationRunStates,
@@ -24,17 +24,17 @@ import {
   messageProcessingStatuses,
   messageTypes,
   PROTOCOL_VERSION,
+  reviewStatuses,
   sessionStatuses,
   taskPriorities,
   taskStatuses,
-  reviewStatuses
 } from "./types.js";
-import { progressStatuses } from "./progress.js";
 
 export const protocolVersionSchema = z.literal(PROTOCOL_VERSION);
 
 export const sessionStatusSchema = z.enum(sessionStatuses);
-export const agentPlatformSchema = z.enum(agentPlatforms);
+// Platform is descriptive metadata; new waiting-chain tools need no native adapter.
+export const agentPlatformSchema = z.string().trim().min(1).max(120);
 export const agentRoleSchema = z.enum(agentRoles);
 export const connectionModeSchema = z.enum(connectionModes);
 export const agentStatusSchema = z.enum(agentStatuses);
@@ -49,10 +49,11 @@ export const progressStatusSchema = z.enum(progressStatuses);
 export const sessionSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
+  projectPath: z.string().nullable().optional(),
   hostAgentId: z.string().min(1),
   status: sessionStatusSchema,
   createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime()
+  updatedAt: z.string().datetime(),
 });
 
 export const agentSchema = z.object({
@@ -67,12 +68,12 @@ export const agentSchema = z.object({
   connectionMode: connectionModeSchema,
   status: agentStatusSchema,
   lastHeartbeatAt: z.string().datetime(),
-  createdAt: z.string().datetime()
+  createdAt: z.string().datetime(),
 });
 
 export const windowBindingDefaultsSchema = z.object({
   intervalSeconds: z.number().int().positive(),
-  maxRounds: z.number().int().positive()
+  maxRounds: z.number().int().positive(),
 });
 
 export const windowRuntimeMessageKindSchema = z.enum(["task", "report"]);
@@ -101,7 +102,7 @@ export const windowRuntimeStateSchema = z.object({
   continuationToken: z.string().nullable(),
   userVisibleResponseAllowed: z.boolean().nullable(),
   leaseExpiresAt: z.string().datetime().nullable(),
-  updatedAt: z.string().datetime().nullable()
+  updatedAt: z.string().datetime().nullable(),
 });
 
 export const windowBindingSchema = z.object({
@@ -121,7 +122,7 @@ export const windowBindingSchema = z.object({
   defaults: windowBindingDefaultsSchema,
   runtimeState: windowRuntimeStateSchema,
   createdAt: z.string().datetime(),
-  lastHeartbeatAt: z.string().datetime()
+  lastHeartbeatAt: z.string().datetime(),
 });
 
 export const messageEnvelopeSchema = z.object({
@@ -133,7 +134,7 @@ export const messageEnvelopeSchema = z.object({
   idempotencyKey: z.string().min(1).optional(),
   correlationId: z.string().min(1).optional(),
   createdAt: z.string().datetime(),
-  payload: z.unknown()
+  payload: z.unknown(),
 });
 
 export const taskSchema = z.object({
@@ -148,7 +149,7 @@ export const taskSchema = z.object({
   capabilityHint: z.string().min(1).optional(),
   parentTaskId: z.string().min(1).optional(),
   createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime()
+  updatedAt: z.string().datetime(),
 });
 
 export const taskEventSchema = z.object({
@@ -157,12 +158,12 @@ export const taskEventSchema = z.object({
   eventType: z.string().min(1),
   actorAgentId: z.string().min(1),
   payload: z.unknown(),
-  createdAt: z.string().datetime()
+  createdAt: z.string().datetime(),
 });
 
 export const ackPayloadSchema = z.object({
   messageId: z.string().min(1),
-  processed: z.boolean()
+  processed: z.boolean(),
 });
 
 export const messageClaimInputSchema = z.object({
@@ -172,14 +173,14 @@ export const messageClaimInputSchema = z.object({
   correlationId: z.string().min(1).optional(),
   identity: z.string().min(1).optional(),
   flow: z.enum(["host", "worker"]).optional(),
-  ownerToken: z.string().min(1).optional()
+  ownerToken: z.string().min(1).optional(),
 });
 
 export const messageProcessCompleteInputSchema = z.object({
   agentId: z.string().min(1),
   identity: z.string().min(1).optional(),
   flow: z.enum(["host", "worker"]).optional(),
-  ownerToken: z.string().min(1).optional()
+  ownerToken: z.string().min(1).optional(),
 });
 
 export const messageProcessFailInputSchema = z.object({
@@ -187,23 +188,24 @@ export const messageProcessFailInputSchema = z.object({
   reason: z.string().min(1).optional(),
   identity: z.string().min(1).optional(),
   flow: z.enum(["host", "worker"]).optional(),
-  ownerToken: z.string().min(1).optional()
+  ownerToken: z.string().min(1).optional(),
 });
 
 export const errorPayloadSchema = z.object({
   code: z.string().min(1),
   message: z.string().min(1),
-  details: z.unknown().optional()
+  details: z.unknown().optional(),
 });
 
 export const createSessionInputSchema = z.object({
   sessionName: z.string().min(1),
+  projectPath: z.string().nullable().optional(),
   agentName: z.string().min(1),
   displayName: z.string().min(1),
   platform: agentPlatformSchema,
   roleDescription: z.string().min(1).optional(),
   capabilities: z.array(z.string()),
-  connectionMode: connectionModeSchema
+  connectionMode: connectionModeSchema,
 });
 
 export const joinSessionInputSchema = z.object({
@@ -214,7 +216,7 @@ export const joinSessionInputSchema = z.object({
   role: z.enum(["worker", "observer"]),
   roleDescription: z.string().min(1).optional(),
   capabilities: z.array(z.string()),
-  connectionMode: connectionModeSchema
+  connectionMode: connectionModeSchema,
 });
 
 export const joinSessionByNameInputSchema = z.object({
@@ -225,20 +227,21 @@ export const joinSessionByNameInputSchema = z.object({
   role: z.enum(["worker", "observer"]),
   roleDescription: z.string().min(1).optional(),
   capabilities: z.array(z.string()),
-  connectionMode: connectionModeSchema
+  connectionMode: connectionModeSchema,
 });
 
 export const attachSessionInputSchema = z.object({
   sessionName: z.string().min(1),
+  projectPath: z.string().trim().min(1).optional(),
   agentName: z.string().min(1),
   role: z.enum(["host", "worker", "knowledge_keeper"]),
-  roleDescription: z.string().min(1)
+  roleDescription: z.string().min(1),
 });
 
 export const removeSessionMemberInputSchema = z.object({
   sessionId: z.string().min(1),
   requesterAgentId: z.string().min(1),
-  targetAgentId: z.string().min(1)
+  targetAgentId: z.string().min(1),
 });
 
 export const sendMessageInputSchema = z.object({
@@ -249,7 +252,7 @@ export const sendMessageInputSchema = z.object({
   payload: z.unknown(),
   idempotencyKey: z.string().min(1).optional(),
   correlationId: z.string().min(1).optional(),
-  supersedeMessageIds: z.array(z.string().min(1)).optional()
+  supersedeMessageIds: z.array(z.string().min(1)).optional(),
 });
 
 export const messageRecordSchema = messageEnvelopeSchema.extend({
@@ -259,7 +262,7 @@ export const messageRecordSchema = messageEnvelopeSchema.extend({
   claimedAt: z.string().datetime().optional(),
   processedAt: z.string().datetime().optional(),
   failedAt: z.string().datetime().optional(),
-  failureReason: z.string().min(1).optional()
+  failureReason: z.string().min(1).optional(),
 });
 
 export const createTaskInputSchema = z.object({
@@ -270,17 +273,17 @@ export const createTaskInputSchema = z.object({
   assignedToAgentId: z.string().min(1).optional(),
   priority: taskPrioritySchema,
   capabilityHint: z.string().min(1).optional(),
-  parentTaskId: z.string().min(1).optional()
+  parentTaskId: z.string().min(1).optional(),
 });
 
 export const completeTaskInputSchema = z.object({
   completedByAgentId: z.string().min(1),
-  summary: z.string().min(1).optional()
+  summary: z.string().min(1).optional(),
 });
 
 export const pendingUserInputSchema = z.object({
   revision: z.number().int().nonnegative(),
-  content: z.string().min(1)
+  content: z.string().min(1),
 });
 
 export const sessionInsightSchema = z.object({
@@ -313,7 +316,7 @@ export const sessionInsightSchema = z.object({
   reviewReason: z.string().nullable(),
   readyForReview: z.boolean(),
   lastUpdatedByAgentId: z.string().min(1).optional(),
-  updatedAt: z.string().datetime()
+  updatedAt: z.string().datetime(),
 });
 
 export const updateSessionInsightInputSchema = z.object({
@@ -347,7 +350,7 @@ export const updateSessionInsightInputSchema = z.object({
   reviewReason: z.string().nullable().optional(),
   readyForReview: z.boolean().optional(),
   mergeMode: z.enum(["replace", "append"]).optional(),
-  expectedUpdatedAt: z.string().datetime().optional()
+  expectedUpdatedAt: z.string().datetime().optional(),
 });
 
 export const acquireIdentityLeaseInputSchema = z.object({
@@ -355,18 +358,18 @@ export const acquireIdentityLeaseInputSchema = z.object({
   flow: z.enum(["host", "worker"]),
   ownerToken: z.string().min(1),
   leaseSeconds: z.number().int().positive().max(7200),
-  takeover: z.boolean().optional()
+  takeover: z.boolean().optional(),
 });
 
 export const releaseIdentityLeaseInputSchema = z.object({
   identity: z.string().min(1),
   flow: z.enum(["host", "worker"]),
-  ownerToken: z.string().min(1)
+  ownerToken: z.string().min(1),
 });
 
 export const updateWindowBindingDefaultsInputSchema = z.object({
   intervalSeconds: z.number().int().positive().max(3600),
-  maxRounds: z.number().int().positive().max(86400)
+  maxRounds: z.number().int().positive().max(86400),
 });
 
 export const updateWindowRuntimeStateInputSchema = z.object({
@@ -391,7 +394,7 @@ export const updateWindowRuntimeStateInputSchema = z.object({
   requiredTool: z.string().nullable().optional(),
   continuationToken: z.string().nullable().optional(),
   userVisibleResponseAllowed: z.boolean().nullable().optional(),
-  leaseExpiresAt: z.string().datetime().nullable().optional()
+  leaseExpiresAt: z.string().datetime().nullable().optional(),
 });
 
 export const upsertProgressInputSchema = z.object({
@@ -403,11 +406,11 @@ export const upsertProgressInputSchema = z.object({
   currentStep: z.string().optional(),
   message: z.string().nullable().optional(),
   details: z.record(z.unknown()).optional(),
-  ttlSeconds: z.number().int().positive().max(86400).optional()
+  ttlSeconds: z.number().int().positive().max(86400).optional(),
 });
 
 export const listProgressFilterSchema = z.object({
   sessionId: z.string().min(1).optional(),
   agentId: z.string().min(1).optional(),
-  status: progressStatusSchema.optional()
+  status: progressStatusSchema.optional(),
 });

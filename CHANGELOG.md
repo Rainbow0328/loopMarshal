@@ -1,26 +1,44 @@
 # Changelog
 
-## [0.1.0] — 2026-09-07
+## 0.1.0 Preview — 2026-11-12
 
-### Added
+The first public preview. Desktop, CLI, and workspace package versions remain **0.1.0**. Windows x64 installers are distributed through GitHub Releases; source updates do not update an installed application.
 
-- Multi-Agent AI coding orchestration framework with 14 IDE support
-- `start-agent` one-command launch (Skill injection + MCP config + IDE spawn + session attach)
-- Three-role system: Host, Worker, Knowledge Keeper
-- MCP protocol-based inter-agent communication
-- Three-level knowledge base (L1 project direction, L2 domain rules, L3 field alignment)
-- Wait chain: auto claim → execute → submit → re-await with timeout recovery
-- Web dashboard (React + Vite) at `http://127.0.0.1:42688`
-- Local-first SQLite storage (shared across all projects via user data directory)
-- MCP config auto-injection: project-level first, global-level fallback
-- Merge-write MCP config (preserves existing server configurations)
-- Cross-platform new terminal window launch (Windows/macOS/Linux)
-- 14 AI tools: Claude Code, Codex, Cursor, Trae, OpenCode, Gemini, Aider, Windsurf, Qoder, GitHub Copilot, Cline, Crusher, Lovable, Xiaomi MiMo
+### Collaboration
 
-### Technical
+- Windows x64 desktop client with a managed local Core, bundled runtime, single-instance behavior, and NSIS packaging into `release/desktop`.
+- Project-based sessions with one required Host and optional Workers/Knowledge Keeper. Core-managed model agents, native CLI proxies, and external MCP/CLI waiting members can share a collaboration.
+- Central member registry and named routing; new native sessions are created on first execution, while later messages continue the recorded history. Explicit existing-session binding is also supported.
+- Durable task delivery, per-native-session serialization, directed reports, cancellation, restart recovery, and manual reconciliation for uncertain outcomes.
+- Eleven native tool adapters with different validation levels and prerequisites. See [compatibility](CLI_COMPATIBILITY.md); discovery alone is not real-model validation.
+- Session-scoped L1/L2/L3 knowledge, automatically prepared collaboration instructions and tools, and Host queries over recorded member messages.
 
-- Monorepo with pnpm workspaces (apps/cli, apps/core, apps/web, packages/*)
-- TypeScript 5.9+ strict mode, zero `any` types
-- Fastify HTTP server + node:sqlite DatabaseSync
-- 89 unit tests + 20+ smoke test scripts
-- Apache License 2.0
+### Workspace and configuration
+
+- User/Host conversation as the main workspace, with separate members, progress, binding, live activity, and searchable message history views.
+- Explicit project/Host requirements, native session creation by default, manual session refresh, and registered external Host discovery.
+- Separate installation discovery, native tool configuration, model connections, MCP extensions, and preferences pages.
+- Native configuration preview/write, masked secrets, backups, restore, external-change conflicts, and readiness rechecks for supported fields.
+- Responsive layouts, Markdown rendering, keyboard/focus behavior, IME-safe sending, retained drafts on failure, and stable history reading.
+
+### Maintainability and performance
+
+- Split workbench panels, message components, configuration editors, CLI input helpers, and server routes by responsibility. Feature styles retain the original cascade order through a small CSS entry.
+- Shared per-session WebSocket subscriptions, 100ms notification coalescing, selective knowledge invalidation, and cleaned-up reconnect timers.
+- Lazy non-home routes, optional data fetched on demand, indexed/deferred history search, 100-message display batches, and cached Markdown rendering.
+- Immediate queue continuation after task completion, asynchronous static file checks, and immutable caching for content-hashed assets.
+- Standardized formatting/line endings, frontend unused-code checks, pnpm build synchronization, and CI formatting/type checks.
+- Node.js 22.13+ requirement, with Node.js 24 recommended. Core depends on built-in SQLite.
+
+### Documentation
+
+- Rewritten Chinese and English READMEs with current workflows, compatibility boundaries, and six real UI screenshots using isolated demo data.
+- Step-by-step [first collaboration guide](FIRST_COLLABORATION.md) covering tool/model setup, required fields, Host/Worker/Keeper creation, the first task, report and knowledge checks, and common blockers.
+- Updated session, configuration, desktop, and development guides, plus a [documentation index](DOCUMENTATION.md).
+- Repeatable screenshot capture via `scripts/capture-docs.mjs`, without real model calls or changes to user configuration.
+
+### Current boundaries
+
+- Full-history message API remains; UI batching is not server-side pagination.
+- No automatic worktree isolation, arbitrary IDE takeover, native terminal embedding/reattachment, or Host identity transfer.
+- Configuration coverage and real-model evidence vary by tool. See [native configuration](NATIVE_TOOL_CONFIG.md) and [compatibility](CLI_COMPATIBILITY.md).

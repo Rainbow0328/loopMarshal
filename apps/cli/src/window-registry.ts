@@ -30,9 +30,7 @@ export type WindowRegistryEntry = {
   source: "derived" | "profile";
 };
 
-const inferLegacyRole = (
-  windowName: string
-): "host" | "worker" | null => {
+const inferLegacyRole = (windowName: string): "host" | "worker" | null => {
   const normalized = windowName.trim().toLowerCase();
   if (normalized.startsWith("host-")) {
     return "host";
@@ -48,21 +46,26 @@ export const resolveWindowRegistryEntry = (
   sessionName: string,
   windowName: string,
   profile?: WindowProfile,
-  expectedRole?: "host" | "worker" | "knowledge_keeper"
+  expectedRole?: "host" | "worker" | "knowledge_keeper",
 ): WindowRegistryEntry => {
   void projectRoot;
 
   if (profile) {
     if (profile.sessionName !== sessionName) {
       throw new Error(
-        `name="${windowName}" is bound to session="${profile.sessionName}" but requested session="${sessionName}". Run loopmarshal reset ${windowName} --session ${sessionName} first, then re-attach.`
+        `name="${windowName}" is bound to session="${profile.sessionName}" but requested session="${sessionName}". Run loopmarshal reset ${windowName} --session ${sessionName} first, then re-attach.`,
       );
     }
 
     return {
       windowName: profile.windowName,
       identity: profile.identity,
-      role: profile.role === "host" ? "host" : profile.role === "knowledge_keeper" ? "knowledge_keeper" : "worker",
+      role:
+        profile.role === "host"
+          ? "host"
+          : profile.role === "knowledge_keeper"
+            ? "knowledge_keeper"
+            : "worker",
       roleDescription: profile.roleDescription,
       platform: profile.platform,
       agentName: profile.agentName,
@@ -70,14 +73,14 @@ export const resolveWindowRegistryEntry = (
       sessionName: profile.sessionName,
       capabilities: profile.capabilities,
       connectionMode: "skill-bridge",
-      source: "profile"
+      source: "profile",
     };
   }
 
   const role = expectedRole ?? inferLegacyRole(windowName);
   if (!role) {
     throw new Error(
-      `name="${windowName}" has no local binding and role cannot be inferred. Use loopmarshal attach <name> --session <sessionName> --role <host|worker|knowledge_keeper> --duty "<description>" instead.`
+      `name="${windowName}" has no local binding and role cannot be inferred. Use loopmarshal attach <name> --session <sessionName> --role <host|worker|knowledge_keeper> --duty "<description>" instead.`,
     );
   }
 
@@ -92,6 +95,6 @@ export const resolveWindowRegistryEntry = (
     sessionName,
     capabilities: [],
     connectionMode: "skill-bridge",
-    source: "derived"
+    source: "derived",
   };
 };

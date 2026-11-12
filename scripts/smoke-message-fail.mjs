@@ -13,10 +13,7 @@
  * limitations under the License.
  */
 import { startCoreServer } from "@loopmarshal/core";
-import {
-  LoopMarshalSdkError,
-  createLoopMarshalClient
-} from "@loopmarshal/sdk";
+import { LoopMarshalSdkError, createLoopMarshalClient } from "@loopmarshal/sdk";
 
 const smokePort = 42699;
 const smokeBaseUrl = `http://127.0.0.1:${smokePort}`;
@@ -31,7 +28,7 @@ const main = async () => {
   const instance = await startCoreServer({
     host: "127.0.0.1",
     port: smokePort,
-    databasePath: ".loopmarshal-test/smoke-message-fail.sqlite"
+    databasePath: ".loopmarshal-test/smoke-message-fail.sqlite",
   });
 
   try {
@@ -43,7 +40,7 @@ const main = async () => {
       displayName: "Fail Host",
       platform: "codex",
       capabilities: ["planning"],
-      connectionMode: "skill-bridge"
+      connectionMode: "skill-bridge",
     });
 
     const worker = await client.joinNamedSession(sessionName, {
@@ -51,8 +48,9 @@ const main = async () => {
       displayName: "Fail Worker",
       platform: "claude",
       role: "worker",
+      roleDescription: "执行任务失败回报验证",
       capabilities: ["backend"],
-      connectionMode: "skill-bridge"
+      connectionMode: "skill-bridge",
     });
 
     await client.sendMessage({
@@ -63,36 +61,45 @@ const main = async () => {
       correlationId: "fail-correlation",
       payload: {
         content: "simulate failure",
-        result: "pending"
-      }
+        result: "pending",
+      },
     });
 
-    const pendingBeforeClaim = await client.getInboxWithOptions(worker.agent.id, {
-      pendingOnly: true
-    });
+    const pendingBeforeClaim = await client.getInboxWithOptions(
+      worker.agent.id,
+      {
+        pendingOnly: true,
+      },
+    );
     const claimed = await client.claimNext(worker.agent.id);
-    const claimedOnlyBeforeFail = await client.getInboxWithOptions(worker.agent.id, {
-      claimedOnly: true
-    });
+    const claimedOnlyBeforeFail = await client.getInboxWithOptions(
+      worker.agent.id,
+      {
+        claimedOnly: true,
+      },
+    );
 
     assert(claimed, "worker should claim one message");
 
     const failed = await client.failMessage(claimed.id, {
       agentId: worker.agent.id,
-      reason: "simulated failure"
+      reason: "simulated failure",
     });
 
     const pendingAfterFail = await client.getInboxWithOptions(worker.agent.id, {
-      pendingOnly: true
+      pendingOnly: true,
     });
-    const claimedOnlyAfterFail = await client.getInboxWithOptions(worker.agent.id, {
-      claimedOnly: true
-    });
+    const claimedOnlyAfterFail = await client.getInboxWithOptions(
+      worker.agent.id,
+      {
+        claimedOnly: true,
+      },
+    );
 
     let completionErrorCode = null;
     try {
       await client.completeMessage(claimed.id, {
-        agentId: worker.agent.id
+        agentId: worker.agent.id,
       });
     } catch (error) {
       if (error instanceof LoopMarshalSdkError) {
@@ -102,15 +109,33 @@ const main = async () => {
       }
     }
 
-    assert(pendingBeforeClaim.length === 1, "pending inbox before claim should contain one message");
-    assert(claimedOnlyBeforeFail.length === 1, "claimed inbox before fail should contain one message");
-    assert(failed.processingStatus === "failed", "message should be marked as failed");
-    assert(failed.failureReason === "simulated failure", "failure reason should be persisted");
-    assert(pendingAfterFail.length === 0, "pending inbox after fail should be empty");
-    assert(claimedOnlyAfterFail.length === 0, "claimed inbox after fail should be empty");
+    assert(
+      pendingBeforeClaim.length === 1,
+      "pending inbox before claim should contain one message",
+    );
+    assert(
+      claimedOnlyBeforeFail.length === 1,
+      "claimed inbox before fail should contain one message",
+    );
+    assert(
+      failed.processingStatus === "failed",
+      "message should be marked as failed",
+    );
+    assert(
+      failed.failureReason === "simulated failure",
+      "failure reason should be persisted",
+    );
+    assert(
+      pendingAfterFail.length === 0,
+      "pending inbox after fail should be empty",
+    );
+    assert(
+      claimedOnlyAfterFail.length === 0,
+      "claimed inbox after fail should be empty",
+    );
     assert(
       completionErrorCode === "MESSAGE_ALREADY_FINISHED",
-      "completing a failed message should return MESSAGE_ALREADY_FINISHED"
+      "completing a failed message should return MESSAGE_ALREADY_FINISHED",
     );
 
     console.log(
@@ -124,11 +149,11 @@ const main = async () => {
           claimedBeforeFail: claimedOnlyBeforeFail.length,
           pendingAfterFail: pendingAfterFail.length,
           claimedAfterFail: claimedOnlyAfterFail.length,
-          completionErrorCode
+          completionErrorCode,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } finally {
     await instance.close();

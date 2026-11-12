@@ -4,13 +4,13 @@ import type {
   CompleteTaskInput,
   CreateTaskInput,
   Task,
-  TaskEvent
+  TaskEvent,
 } from "@loopmarshal/protocol";
 import type {
   AgentRepository,
   SessionRepository,
   TaskEventRepository,
-  TaskRepository
+  TaskRepository,
 } from "@loopmarshal/store";
 
 import { coreErrors } from "../errors.js";
@@ -22,7 +22,7 @@ export class TaskService {
     private readonly sessions: SessionRepository,
     private readonly agents: AgentRepository,
     private readonly tasks: TaskRepository,
-    private readonly taskEvents: TaskEventRepository
+    private readonly taskEvents: TaskEventRepository,
   ) {}
 
   public createTask(input: CreateTaskInput): { task: Task; event: TaskEvent } {
@@ -36,7 +36,10 @@ export class TaskService {
       throw coreErrors.agentNotFound(input.createdByAgentId);
     }
     if (creator.sessionId !== input.sessionId) {
-      throw coreErrors.crossSessionAgent(input.createdByAgentId, input.sessionId);
+      throw coreErrors.crossSessionAgent(
+        input.createdByAgentId,
+        input.sessionId,
+      );
     }
 
     if (input.assignedToAgentId) {
@@ -45,7 +48,10 @@ export class TaskService {
         throw coreErrors.agentNotFound(input.assignedToAgentId);
       }
       if (assignee.sessionId !== input.sessionId) {
-        throw coreErrors.crossSessionAgent(input.assignedToAgentId, input.sessionId);
+        throw coreErrors.crossSessionAgent(
+          input.assignedToAgentId,
+          input.sessionId,
+        );
       }
     }
 
@@ -60,9 +66,11 @@ export class TaskService {
       priority: input.priority,
       createdAt: timestamp,
       updatedAt: timestamp,
-      ...(input.assignedToAgentId ? { assignedToAgentId: input.assignedToAgentId } : {}),
+      ...(input.assignedToAgentId
+        ? { assignedToAgentId: input.assignedToAgentId }
+        : {}),
       ...(input.capabilityHint ? { capabilityHint: input.capabilityHint } : {}),
-      ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {})
+      ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
     };
     const event: TaskEvent = {
       id: randomUUID(),
@@ -71,9 +79,9 @@ export class TaskService {
       actorAgentId: input.createdByAgentId,
       payload: {
         title: input.title,
-        assignedToAgentId: input.assignedToAgentId ?? null
+        assignedToAgentId: input.assignedToAgentId ?? null,
       },
-      createdAt: timestamp
+      createdAt: timestamp,
     };
 
     this.tasks.insert(task);
@@ -93,7 +101,7 @@ export class TaskService {
 
   public completeTask(
     taskId: string,
-    input: CompleteTaskInput
+    input: CompleteTaskInput,
   ): { task: Task; event: TaskEvent } {
     const task = this.tasks.findById(taskId);
     if (!task) {
@@ -105,14 +113,17 @@ export class TaskService {
       throw coreErrors.agentNotFound(input.completedByAgentId);
     }
     if (actor.sessionId !== task.sessionId) {
-      throw coreErrors.crossSessionAgent(input.completedByAgentId, task.sessionId);
+      throw coreErrors.crossSessionAgent(
+        input.completedByAgentId,
+        task.sessionId,
+      );
     }
 
     const timestamp = now();
     const completed = this.tasks.updateStatus({
       taskId,
       status: "completed",
-      updatedAt: timestamp
+      updatedAt: timestamp,
     });
     if (!completed) {
       throw coreErrors.invalidInput(`Task "${taskId}" was not found.`);
@@ -124,9 +135,9 @@ export class TaskService {
       eventType: "completed",
       actorAgentId: input.completedByAgentId,
       payload: {
-        summary: input.summary ?? null
+        summary: input.summary ?? null,
       },
-      createdAt: timestamp
+      createdAt: timestamp,
     };
     this.taskEvents.insert(event);
 

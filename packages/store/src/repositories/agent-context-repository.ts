@@ -18,7 +18,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type {
   AgentContextSnapshot,
   ContextTurn,
-  UpdateAgentContextSnapshotInput
+  UpdateAgentContextSnapshotInput,
 } from "@loopmarshal/protocol";
 
 type AgentContextRow = {
@@ -57,7 +57,7 @@ const parseTurns = (value: string): ContextTurn[] => {
           item !== null &&
           typeof item === "object" &&
           typeof (item as { role?: unknown }).role === "string" &&
-          typeof (item as { content?: unknown }).content === "string"
+          typeof (item as { content?: unknown }).content === "string",
       )
       .map((item) => {
         const turn = item as ContextTurn;
@@ -94,7 +94,7 @@ export class AgentContextRepository {
           summary_revision AS summaryRevision,
           updated_at AS updatedAt
         FROM agent_context_snapshots
-        WHERE runtime_id = ?`
+        WHERE runtime_id = ?`,
       )
       .get(runtimeId) as AgentContextRow | undefined;
 
@@ -125,12 +125,18 @@ export class AgentContextRepository {
       sessionId: input.sessionId,
       agentId: input.agentId,
       role: input.role,
-      conversationSummary: input.conversationSummary ?? existing?.conversationSummary ?? null,
+      conversationSummary:
+        input.conversationSummary ?? existing?.conversationSummary ?? null,
       recentTurns: input.recentTurns ?? existing?.recentTurns ?? [],
-      confirmedDecisions: input.confirmedDecisions ?? existing?.confirmedDecisions ?? [],
-      unresolvedQuestions: input.unresolvedQuestions ?? existing?.unresolvedQuestions ?? [],
+      confirmedDecisions:
+        input.confirmedDecisions ?? existing?.confirmedDecisions ?? [],
+      unresolvedQuestions:
+        input.unresolvedQuestions ?? existing?.unresolvedQuestions ?? [],
       pendingActions: input.pendingActions ?? existing?.pendingActions ?? [],
-      lastProcessedMessageId: input.lastProcessedMessageId ?? existing?.lastProcessedMessageId ?? null,
+      lastProcessedMessageId:
+        input.lastProcessedMessageId ??
+        existing?.lastProcessedMessageId ??
+        null,
       summaryRevision: input.summaryRevision ?? existing?.summaryRevision ?? 0,
       updatedAt: now,
     };
@@ -151,7 +157,7 @@ export class AgentContextRepository {
           pending_actions_json = excluded.pending_actions_json,
           last_processed_message_id = COALESCE(excluded.last_processed_message_id, agent_context_snapshots.last_processed_message_id),
           summary_revision = excluded.summary_revision,
-          updated_at = excluded.updated_at`
+          updated_at = excluded.updated_at`,
       )
       .run(
         merged.runtimeId,
@@ -165,7 +171,7 @@ export class AgentContextRepository {
         JSON.stringify(merged.pendingActions),
         merged.lastProcessedMessageId,
         merged.summaryRevision,
-        merged.updatedAt
+        merged.updatedAt,
       );
 
     return merged;

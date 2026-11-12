@@ -22,6 +22,9 @@ export type ConsoleMessageBrief = {
 export type ConsoleMemberRole = "host" | "worker" | "knowledge_keeper";
 
 export type ConsoleMember = {
+  automaticSetup?: import("./session-setup.js").ManagedAgentSetup | null;
+  route?: import("./member-routes.js").SessionMemberRoute;
+  activity?: import("./deliveries.js").MemberActivity;
   agentId: string;
   agentName: string;
   displayName: string;

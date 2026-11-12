@@ -17,10 +17,21 @@ export const PROTOCOL_VERSION = "0.1.0";
 export const sessionStatuses = ["active", "paused", "closed"] as const;
 export type SessionStatus = (typeof sessionStatuses)[number];
 
-export const agentPlatforms = ["generic", "vscode", "codex", "claude", "cursor"] as const;
+export const agentPlatforms = [
+  "generic",
+  "vscode",
+  "codex",
+  "claude",
+  "cursor",
+] as const;
 export type AgentPlatform = string;
 
-export const agentRoles = ["host", "worker", "observer", "knowledge_keeper"] as const;
+export const agentRoles = [
+  "host",
+  "worker",
+  "observer",
+  "knowledge_keeper",
+] as const;
 export type AgentRole = (typeof agentRoles)[number];
 
 export type UserProfileEntry = {
@@ -29,11 +40,7 @@ export type UserProfileEntry = {
   updatedAt: string;
 };
 
-export const connectionModes = [
-  "plugin",
-  "extension",
-  "skill-bridge"
-] as const;
+export const connectionModes = ["plugin", "extension", "skill-bridge"] as const;
 export type ConnectionMode = (typeof connectionModes)[number];
 
 export const agentStatuses = [
@@ -41,7 +48,7 @@ export const agentStatuses = [
   "idle",
   "busy",
   "paused",
-  "offline"
+  "offline",
 ] as const;
 export type AgentStatus = (typeof agentStatuses)[number];
 
@@ -53,7 +60,7 @@ export const messageTypes = [
   "result",
   "heartbeat",
   "ack",
-  "error"
+  "error",
 ] as const;
 export type MessageType = (typeof messageTypes)[number];
 
@@ -62,7 +69,7 @@ export const messageDeliveryStatuses = [
   "delivered",
   "acknowledged",
   "processed",
-  "delivery_failed"
+  "delivery_failed",
 ] as const;
 export type MessageDeliveryStatus = (typeof messageDeliveryStatuses)[number];
 
@@ -70,7 +77,7 @@ export const messageProcessingStatuses = [
   "pending",
   "claimed",
   "processed",
-  "failed"
+  "failed",
 ] as const;
 export type MessageProcessingStatus =
   (typeof messageProcessingStatuses)[number];
@@ -83,7 +90,7 @@ export const taskStatuses = [
   "completed",
   "failed",
   "cancelled",
-  "awaiting_reassign"
+  "awaiting_reassign",
 ] as const;
 export type TaskStatus = (typeof taskStatuses)[number];
 
@@ -94,13 +101,14 @@ export const reviewStatuses = [
   "in_progress",
   "blocked",
   "needs_user_input",
-  "ready_for_review"
+  "ready_for_review",
 ] as const;
 export type ReviewStatus = (typeof reviewStatuses)[number];
 
 export type Session = {
   id: string;
   name: string;
+  projectPath?: string | null | undefined;
   hostAgentId: string;
   status: SessionStatus;
   createdAt: string;
@@ -155,7 +163,7 @@ export const collaborationRunStates = [
   "resolve_pending_continue",
   "stale",
   "blocked_requires_user",
-  "session_complete"
+  "session_complete",
 ] as const;
 export type CollaborationRunState = (typeof collaborationRunStates)[number];
 
@@ -279,6 +287,7 @@ export type ErrorPayload = {
 
 export type CreateSessionInput = {
   sessionName: string;
+  projectPath?: string | null | undefined;
   agentName: string;
   displayName: string;
   platform: AgentPlatform;
@@ -316,6 +325,7 @@ export type JoinSessionByNameInput = {
 
 export type AttachSessionInput = {
   sessionName: string;
+  projectPath?: string | undefined;
   agentName: string;
   role: "host" | "worker" | "knowledge_keeper";
   roleDescription: string;

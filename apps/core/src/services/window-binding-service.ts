@@ -15,7 +15,7 @@
 import type {
   UpdateWindowBindingDefaultsInput,
   UpdateWindowRuntimeStateInput,
-  WindowBinding
+  WindowBinding,
 } from "@loopmarshal/protocol";
 import { AgentRepository } from "@loopmarshal/store";
 
@@ -44,10 +44,13 @@ export class WindowBindingService {
   public updateDefaults(
     sessionName: string,
     windowName: string,
-    input: UpdateWindowBindingDefaultsInput
+    input: UpdateWindowBindingDefaultsInput,
   ): WindowBinding {
     const binding = this.get(sessionName, windowName);
-    const updated = this.agents.updateWindowBindingDefaults(binding.agentId, input);
+    const updated = this.agents.updateWindowBindingDefaults(
+      binding.agentId,
+      input,
+    );
     if (!updated) {
       throw coreErrors.agentNotFound(binding.agentId);
     }
@@ -58,13 +61,13 @@ export class WindowBindingService {
   public updateRuntimeState(
     sessionName: string,
     windowName: string,
-    input: UpdateWindowRuntimeStateInput
+    input: UpdateWindowRuntimeStateInput,
   ): WindowBinding {
     const binding = this.get(sessionName, windowName);
     const updated = this.agents.updateWindowRuntimeState(
       binding.agentId,
       input,
-      now()
+      now(),
     );
     if (!updated) {
       throw coreErrors.agentNotFound(binding.agentId);
@@ -73,7 +76,10 @@ export class WindowBindingService {
     return updated;
   }
 
-  public clearRuntimeState(sessionName: string, windowName: string): WindowBinding {
+  public clearRuntimeState(
+    sessionName: string,
+    windowName: string,
+  ): WindowBinding {
     const binding = this.get(sessionName, windowName);
     const updated = this.agents.clearWindowRuntimeState(binding.agentId, now());
     if (!updated) {

@@ -14,12 +14,12 @@
  */
 import type {
   SessionInsight,
-  UpdateSessionInsightInput
+  UpdateSessionInsightInput,
 } from "@loopmarshal/protocol";
 import {
   AgentRepository,
   SessionInsightRepository,
-  SessionRepository
+  SessionRepository,
 } from "@loopmarshal/store";
 
 import { coreErrors } from "../errors.js";
@@ -32,7 +32,7 @@ export class SessionInsightService {
   public constructor(
     private readonly sessions: SessionRepository,
     private readonly agents: AgentRepository,
-    private readonly sessionInsights: SessionInsightRepository
+    private readonly sessionInsights: SessionInsightRepository,
   ) {}
 
   public getSessionInsight(sessionId: string): SessionInsight {
@@ -71,12 +71,14 @@ export class SessionInsightService {
         reviewStatus: "in_progress",
         reviewReason: null,
         readyForReview: false,
-        updatedAt: session.updatedAt
+        updatedAt: session.updatedAt,
       }
     );
   }
 
-  public updateSessionInsight(input: UpdateSessionInsightInput): SessionInsight {
+  public updateSessionInsight(
+    input: UpdateSessionInsightInput,
+  ): SessionInsight {
     const session = this.sessions.findById(input.sessionId);
     if (!session) {
       throw coreErrors.sessionNotFound(input.sessionId);
@@ -87,12 +89,15 @@ export class SessionInsightService {
       throw coreErrors.agentNotFound(input.updatedByAgentId);
     }
     if (actor.sessionId !== input.sessionId) {
-      throw coreErrors.crossSessionAgent(input.updatedByAgentId, input.sessionId);
+      throw coreErrors.crossSessionAgent(
+        input.updatedByAgentId,
+        input.sessionId,
+      );
     }
 
     const updatedInsight = this.sessionInsights.upsert({
       ...input,
-      updatedAt: now()
+      updatedAt: now(),
     });
     if (!updatedInsight) {
       throw coreErrors.sessionInsightConflict(input.sessionId);

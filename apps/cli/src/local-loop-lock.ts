@@ -32,9 +32,7 @@ export type ExistingLocalLoopLock = {
   metadata: LocalLoopLockMetadata | null;
 };
 
-export type LocalLoopLockResult =
-  | AcquiredLocalLoopLock
-  | ExistingLocalLoopLock;
+export type LocalLoopLockResult = AcquiredLocalLoopLock | ExistingLocalLoopLock;
 
 const buildLockPath = (identity: string, flow: string): string => {
   return `db://identity-leases/${flow}/${identity}`;
@@ -46,7 +44,7 @@ export const tryAcquireLocalLoopLock = (
     identity: string;
     flow: string;
     takeover?: boolean;
-  }
+  },
 ): LocalLoopLockResult => {
   void projectRoot;
   void options.takeover;
@@ -58,8 +56,8 @@ export const tryAcquireLocalLoopLock = (
       identity: options.identity,
       flow: options.flow,
       pid: process.pid,
-      acquiredAt: new Date().toISOString()
-    }
+      acquiredAt: new Date().toISOString(),
+    },
   };
 };
 
@@ -72,7 +70,7 @@ export const clearLocalLoopLock = (
   options: {
     identity: string;
     flow: string;
-  }
+  },
 ): string => {
   void projectRoot;
   return buildLockPath(options.identity, options.flow);
@@ -81,13 +79,13 @@ export const clearLocalLoopLock = (
 export const clearLocalLoopLocksForIdentity = (
   projectRoot: string,
   identity: string,
-  flows: string[] = ["host-cycle", "worker-cycle"]
+  flows: string[] = ["host-cycle", "worker-cycle"],
 ): string[] => {
   return flows.map((flow) =>
     clearLocalLoopLock(projectRoot, {
       identity,
-      flow
-    })
+      flow,
+    }),
   );
 };
 
@@ -98,7 +96,7 @@ export const withLocalLoopLock = async <T>(
     flow: string;
     takeover?: boolean;
   },
-  task: () => Promise<T>
+  task: () => Promise<T>,
 ): Promise<
   | {
       status: "acquired";
@@ -114,7 +112,7 @@ export const withLocalLoopLock = async <T>(
   if (lock.status === "already_running") {
     return {
       status: "already_running",
-      lock
+      lock,
     };
   }
 
@@ -123,7 +121,7 @@ export const withLocalLoopLock = async <T>(
     return {
       status: "acquired",
       value,
-      lock
+      lock,
     };
   } finally {
     releaseLocalLoopLock(lock);

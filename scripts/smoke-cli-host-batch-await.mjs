@@ -24,7 +24,11 @@ const smokePort = 42781;
 const smokeBaseUrl = `http://127.0.0.1:${smokePort}`;
 const rootDir = process.cwd();
 const cliEntry = resolve(rootDir, "apps/cli/dist/apps/cli/src/index.js");
-const stateDir = resolve(rootDir, ".loopmarshal-test", "smoke-cli-host-batch-await");
+const stateDir = resolve(
+  rootDir,
+  ".loopmarshal-test",
+  "smoke-cli-host-batch-await",
+);
 
 const assert = (condition, message) => {
   if (!condition) {
@@ -37,9 +41,9 @@ const runCliJson = async ({ args, env }) => {
     cwd: rootDir,
     env: {
       ...process.env,
-      ...env
+      ...env,
     },
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"],
   });
 
   let stdout = "";
@@ -60,7 +64,7 @@ const runCliJson = async ({ args, env }) => {
 
   if (exitCode !== 0) {
     throw new Error(
-      `CLI command failed (${args.join(" ")}): ${stderr || stdout || exitCode}`
+      `CLI command failed (${args.join(" ")}): ${stderr || stdout || exitCode}`,
     );
   }
 
@@ -70,11 +74,11 @@ const runCliJson = async ({ args, env }) => {
 const assertExecuteCmd = (result, expectedMode) => {
   assert(
     result?.op === "EXECUTE_INTERNAL_CMD",
-    `${expectedMode} should return an internal execute-cmd handoff`
+    `${expectedMode} should return an internal execute-cmd handoff`,
   );
   assert(
     typeof result?.cmd === "string" && result.cmd.startsWith("loopmarshal "),
-    `${expectedMode} should return a runnable loopmarshal command string`
+    `${expectedMode} should return a runnable loopmarshal command string`,
   );
   return result.cmd.slice("loopmarshal ".length).trim().split(/\s+/);
 };
@@ -90,13 +94,13 @@ const main = async () => {
   const instance = await startCoreServer({
     host: "127.0.0.1",
     port: smokePort,
-    databasePath: resolve(stateDir, "host-batch-await.sqlite")
+    databasePath: resolve(stateDir, "host-batch-await.sqlite"),
   });
 
   try {
     const env = {
       LOOPMARSHAL_BASE_URL: smokeBaseUrl,
-      LOOPMARSHAL_CLI_STATE_DIR: resolve(stateDir, ".loopmarshal")
+      LOOPMARSHAL_CLI_STATE_DIR: resolve(stateDir, ".loopmarshal"),
     };
     const client = createLoopMarshalClient({ baseUrl: smokeBaseUrl });
     const sessionName = `host-batch-await-${Date.now()}`;
@@ -105,36 +109,67 @@ const main = async () => {
     const workerTwoName = "worker-two";
 
     await runCliJson({
-      args: ["attach", hostName, "--session", sessionName, "--role", "host", "--duty", "plan and dispatch"],
-      env
+      args: [
+        "attach",
+        hostName,
+        "--session",
+        sessionName,
+        "--role",
+        "host",
+        "--duty",
+        "plan and dispatch",
+      ],
+      env,
     });
     await runCliJson({
-      args: ["attach", workerOneName, "--session", sessionName, "--role", "worker", "--duty", "execute work one"],
-      env
+      args: [
+        "attach",
+        workerOneName,
+        "--session",
+        sessionName,
+        "--role",
+        "worker",
+        "--duty",
+        "execute work one",
+      ],
+      env,
     });
     await runCliJson({
-      args: ["attach", workerTwoName, "--session", sessionName, "--role", "worker", "--duty", "execute work two"],
-      env
+      args: [
+        "attach",
+        workerTwoName,
+        "--session",
+        sessionName,
+        "--role",
+        "worker",
+        "--duty",
+        "execute work two",
+      ],
+      env,
     });
 
     await client.updateWindowBindingDefaults(sessionName, hostName, {
       intervalSeconds: 1,
-      maxRounds: 1
+      maxRounds: 1,
     });
     await client.updateWindowBindingDefaults(sessionName, workerOneName, {
       intervalSeconds: 1,
-      maxRounds: 1
+      maxRounds: 1,
     });
     await client.updateWindowBindingDefaults(sessionName, workerTwoName, {
       intervalSeconds: 1,
-      maxRounds: 1
+      maxRounds: 1,
     });
 
     const session = await client.getSessionByName(sessionName);
     const members = await client.getMembers(session.id);
     const hostAgent = members.find((member) => member.agentName === hostName);
-    const workerOne = members.find((member) => member.agentName === workerOneName);
-    const workerTwo = members.find((member) => member.agentName === workerTwoName);
+    const workerOne = members.find(
+      (member) => member.agentName === workerOneName,
+    );
+    const workerTwo = members.find(
+      (member) => member.agentName === workerTwoName,
+    );
     assert(hostAgent && workerOne && workerTwo, "all members should exist");
 
     await client.sendMessage({
@@ -143,7 +178,7 @@ const main = async () => {
       toAgentId: hostAgent.id,
       type: "result",
       payload: { content: "worker one done", result: "done" },
-      correlationId: "batch-report-one"
+      correlationId: "batch-report-one",
     });
     await client.sendMessage({
       sessionId: session.id,
@@ -151,51 +186,86 @@ const main = async () => {
       toAgentId: hostAgent.id,
       type: "progress",
       payload: { content: "worker two pending", result: "pending" },
-      correlationId: "batch-report-two"
+      correlationId: "batch-report-two",
     });
 
     const firstHostAwait = await runCliJson({
       args: ["await", hostName, "--session", sessionName],
-      env
+      env,
     });
     assert(
       firstHostAwait.op === "PROCESS_CLAIMED_MESSAGE",
-      `host await should return a claimed message batch, got ${firstHostAwait.op}`
+      `host await should return a claimed message batch, got ${firstHostAwait.op}`,
     );
-    assert(firstHostAwait.messageCount === 2, "host should claim both reports");
+    // The current await contract claims one report at a time, including on master.
+    assert(
+      firstHostAwait.message?.messageId &&
+        firstHostAwait.message.correlationId === "batch-report-one",
+      "host should claim the first directed report",
+    );
 
     const restoredHostAwait = await runCliJson({
       args: ["await", hostName, "--session", sessionName],
-      env
+      env,
     });
     assert(
       restoredHostAwait.op === "PROCESS_CLAIMED_MESSAGE" &&
-        restoredHostAwait.messageCount === 2,
-      "host await should restore the already claimed batch before claiming anything else"
+        restoredHostAwait.message?.messageId ===
+          firstHostAwait.message.messageId,
+      "host await should restore its claimed report before claiming anything else",
     );
 
     const resolveMany = await runCliJson({
-      args: ["resolve-many", hostName, "--session", sessionName, "--summary", "reviewed worker reports"],
-      env
+      args: [
+        "resolve",
+        hostName,
+        "--session",
+        sessionName,
+        "--summary",
+        "reviewed worker reports",
+      ],
+      env,
     });
-    const nextAwaitArgs = assertExecuteCmd(resolveMany, "resolve-many");
+    const nextAwaitArgs = assertExecuteCmd(resolveMany, "resolve");
+    const secondHostAwait = await runCliJson({ args: nextAwaitArgs, env });
+    assert(
+      secondHostAwait.op === "PROCESS_CLAIMED_MESSAGE" &&
+        secondHostAwait.message?.correlationId === "batch-report-two",
+      "host should claim the remaining report after resolution",
+    );
+    assert(
+      secondHostAwait.message?.messageId !== firstHostAwait.message?.messageId,
+      "the next report must be a different message",
+    );
+    const secondResolve = await runCliJson({
+      args: [
+        "resolve",
+        hostName,
+        "--session",
+        sessionName,
+        "--summary",
+        "reviewed remaining worker report",
+      ],
+      env,
+    });
+    const idleArgs = assertExecuteCmd(secondResolve, "resolve");
 
     await runCliJson({
       args: ["await", workerOneName, "--session", sessionName],
-      env
+      env,
     });
     await runCliJson({
       args: ["await", workerTwoName, "--session", sessionName],
-      env
+      env,
     });
 
     const hostAfterResolve = await runCliJson({
-      args: nextAwaitArgs,
-      env
+      args: idleArgs,
+      env,
     });
     assert(
       hostAfterResolve.op === "PROCESS_SESSION_IDLE",
-      `host should move to next planning stage after resolving batch, got ${hostAfterResolve.op}`
+      `host should move to next planning stage after resolving batch, got ${hostAfterResolve.op}`,
     );
 
     console.log(
@@ -203,12 +273,12 @@ const main = async () => {
         {
           sessionName,
           firstHostAwaitOp: firstHostAwait.op,
-          restoredCount: restoredHostAwait.messageCount,
-          hostAfterResolveOp: hostAfterResolve.op
+          restoredMessageId: restoredHostAwait.message.messageId,
+          hostAfterResolveOp: hostAfterResolve.op,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } finally {
     await instance.close();

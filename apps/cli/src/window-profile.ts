@@ -15,7 +15,7 @@
 import type {
   AgentPlatform,
   AgentRole,
-  ConnectionMode
+  ConnectionMode,
 } from "@loopmarshal/protocol";
 import { LoopMarshalSdkError, createLoopMarshalClient } from "@loopmarshal/sdk";
 import { errorCodes } from "@loopmarshal/protocol";
@@ -46,20 +46,22 @@ export type WindowProfile = {
 const client = createLoopMarshalClient({
   headers: {
     "x-loopmarshal-client": "cli",
-    "x-loopmarshal-process": String(process.pid)
-  }
+    "x-loopmarshal-process": String(process.pid),
+  },
 });
 
 const bindingStoreDescriptor = "db://window-bindings";
 
 export const buildWindowProfileKey = (
   sessionName: string,
-  windowName: string
+  windowName: string,
 ): string => {
   return `${sessionName}::${windowName}`;
 };
 
-const mapBindingToProfile = (binding: Awaited<ReturnType<typeof client.getWindowBinding>>): WindowProfile => {
+const mapBindingToProfile = (
+  binding: Awaited<ReturnType<typeof client.getWindowBinding>>,
+): WindowProfile => {
   return {
     windowKey: binding.windowKey,
     windowName: binding.windowName,
@@ -76,14 +78,14 @@ const mapBindingToProfile = (binding: Awaited<ReturnType<typeof client.getWindow
     connectionMode: binding.connectionMode,
     defaults: {
       intervalSeconds: binding.defaults.intervalSeconds,
-      maxRounds: binding.defaults.maxRounds
+      maxRounds: binding.defaults.maxRounds,
     },
-    updatedAt: binding.runtimeState.updatedAt ?? binding.lastHeartbeatAt
+    updatedAt: binding.runtimeState.updatedAt ?? binding.lastHeartbeatAt,
   };
 };
 
 export const readWindowProfiles = async (
-  projectRoot: string
+  projectRoot: string,
 ): Promise<WindowProfile[]> => {
   void projectRoot;
   const bindings = await client.listWindowBindings();
@@ -93,7 +95,7 @@ export const readWindowProfiles = async (
 export const readWindowProfile = async (
   projectRoot: string,
   sessionName: string,
-  windowName: string
+  windowName: string,
 ): Promise<WindowProfile | undefined> => {
   void projectRoot;
   try {
@@ -113,7 +115,7 @@ export const readWindowProfile = async (
 
 export const writeWindowProfile = async (
   projectRoot: string,
-  profile: WindowProfile
+  profile: WindowProfile,
 ): Promise<WindowProfile> => {
   void projectRoot;
   const binding = await client.updateWindowBindingDefaults(
@@ -121,8 +123,8 @@ export const writeWindowProfile = async (
     profile.windowName,
     {
       intervalSeconds: profile.defaults.intervalSeconds,
-      maxRounds: profile.defaults.maxRounds
-    }
+      maxRounds: profile.defaults.maxRounds,
+    },
   );
   return mapBindingToProfile(binding);
 };
@@ -130,7 +132,7 @@ export const writeWindowProfile = async (
 export const clearWindowProfile = async (
   projectRoot: string,
   sessionName: string,
-  windowName: string
+  windowName: string,
 ): Promise<void> => {
   void projectRoot;
   void sessionName;
@@ -139,7 +141,7 @@ export const clearWindowProfile = async (
 
 export const clearWindowProfilesForIdentity = async (
   projectRoot: string,
-  identity: string
+  identity: string,
 ): Promise<string[]> => {
   void projectRoot;
   return [identity.split("::")[1] ?? identity].filter(Boolean);
@@ -150,7 +152,7 @@ export const clearWindowProfilesForSession = async (
   target: {
     sessionId?: string;
     sessionName?: string;
-  }
+  },
 ): Promise<string[]> => {
   void projectRoot;
   if (!target.sessionName) {
@@ -175,7 +177,7 @@ export const clearWindowProfilesForAgent = async (
     sessionId: string;
     agentId?: string;
     agentName?: string;
-  }
+  },
 ): Promise<string[]> => {
   void projectRoot;
   const bindings = await client.listWindowBindings();
@@ -205,7 +207,7 @@ export const registerWindowProfileFromIdentity = async (
     context: CliIdentityContext;
     intervalSeconds: number;
     maxRounds: number;
-  }
+  },
 ): Promise<WindowProfile> => {
   void projectRoot;
   const binding = await client.updateWindowBindingDefaults(
@@ -213,8 +215,8 @@ export const registerWindowProfileFromIdentity = async (
     options.windowName,
     {
       intervalSeconds: options.intervalSeconds,
-      maxRounds: options.maxRounds
-    }
+      maxRounds: options.maxRounds,
+    },
   );
 
   return mapBindingToProfile(binding);
@@ -223,12 +225,12 @@ export const registerWindowProfileFromIdentity = async (
 export const requireWindowProfile = async (
   projectRoot: string,
   sessionName: string,
-  windowName: string
+  windowName: string,
 ): Promise<WindowProfile> => {
   const profile = await readWindowProfile(projectRoot, sessionName, windowName);
   if (!profile) {
     throw new Error(
-      `当前未找到 session="${sessionName}" 下 name="${windowName}" 的成员绑定。请先执行 loopmarshal attach <name> --session <sessionName> --role <host|worker> --duty "<职责>"。当前绑定来源为 "${bindingStoreDescriptor}"。`
+      `当前未找到 session="${sessionName}" 下 name="${windowName}" 的成员绑定。请先执行 loopmarshal attach <name> --session <sessionName> --role <host|worker> --duty "<职责>"。当前绑定来源为 "${bindingStoreDescriptor}"。`,
     );
   }
 

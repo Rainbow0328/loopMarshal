@@ -5,7 +5,11 @@
  * 配置持久化到 SQLite 数据库，重启后自动恢复。
  */
 import { randomUUID } from "node:crypto";
-import type { McpServerConfig, CreateMcpServerInput, UpdateMcpServerInput } from "@loopmarshal/protocol";
+import type {
+  McpServerConfig,
+  CreateMcpServerInput,
+  UpdateMcpServerInput,
+} from "@loopmarshal/protocol";
 import type { ExternalMcpServerRepository } from "@loopmarshal/store";
 import { getLogger } from "@loopmarshal/shared";
 
@@ -29,7 +33,11 @@ type JsonRpcResponse = {
 
 /** 缓存的外部 Server 工具列表 */
 type CachedTools = {
-  tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
+  tools: Array<{
+    name: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+  }>;
   fetchedAt: number;
 };
 
@@ -94,7 +102,9 @@ export class ExternalMcpService {
     const updated: McpServerConfig = {
       ...existing,
       ...(input.name !== undefined ? { name: input.name } : {}),
-      ...(input.description !== undefined ? { description: input.description } : {}),
+      ...(input.description !== undefined
+        ? { description: input.description }
+        : {}),
       ...(input.transport !== undefined ? { transport: input.transport } : {}),
       ...(input.url !== undefined ? { url: input.url } : {}),
       ...(input.headers !== undefined ? { headers: input.headers } : {}),
@@ -122,7 +132,13 @@ export class ExternalMcpService {
    * 获取外部 MCP Server 的工具列表
    * 通过 JSON-RPC `tools/list` 方法获取
    */
-  async listTools(serverId: string): Promise<Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>> {
+  async listTools(serverId: string): Promise<
+    Array<{
+      name: string;
+      description: string;
+      inputSchema: Record<string, unknown>;
+    }>
+  > {
     const server = this.configs.get(serverId);
     if (!server || !server.enabled) {
       return [];
@@ -136,11 +152,22 @@ export class ExternalMcpService {
 
     try {
       const response = await this.sendRpc(server, "tools/list", {});
-      const tools = (response as { tools?: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> })?.tools ?? [];
+      const tools =
+        (
+          response as {
+            tools?: Array<{
+              name: string;
+              description: string;
+              inputSchema: Record<string, unknown>;
+            }>;
+          }
+        )?.tools ?? [];
       this.toolCache.set(serverId, { tools, fetchedAt: Date.now() });
       return tools;
     } catch (error) {
-      logger.warn(`Failed to list tools from MCP server ${server.name}: ${error instanceof Error ? error.message : String(error)}`);
+      logger.warn(
+        `Failed to list tools from MCP server ${server.name}: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return [];
     }
   }
@@ -148,8 +175,22 @@ export class ExternalMcpService {
   /**
    * 获取所有外部 MCP Server 的工具列表（合并）
    */
-  async listAllTools(): Promise<Array<{ name: string; description: string; inputSchema: Record<string, unknown>; serverId: string; serverName: string }>> {
-    const allTools: Array<{ name: string; description: string; inputSchema: Record<string, unknown>; serverId: string; serverName: string }> = [];
+  async listAllTools(): Promise<
+    Array<{
+      name: string;
+      description: string;
+      inputSchema: Record<string, unknown>;
+      serverId: string;
+      serverName: string;
+    }>
+  > {
+    const allTools: Array<{
+      name: string;
+      description: string;
+      inputSchema: Record<string, unknown>;
+      serverId: string;
+      serverName: string;
+    }> = [];
     for (const [serverId, server] of this.configs) {
       if (!server.enabled) continue;
       try {
@@ -175,14 +216,22 @@ export class ExternalMcpService {
   async callTool(
     serverId: string,
     toolName: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
   ): Promise<{ success: boolean; result: unknown; error?: string }> {
     const server = this.configs.get(serverId);
     if (!server) {
-      return { success: false, result: null, error: `MCP Server not found: ${serverId}` };
+      return {
+        success: false,
+        result: null,
+        error: `MCP Server not found: ${serverId}`,
+      };
     }
     if (!server.enabled) {
-      return { success: false, result: null, error: `MCP Server is disabled: ${server.name}` };
+      return {
+        success: false,
+        result: null,
+        error: `MCP Server is disabled: ${server.name}`,
+      };
     }
 
     try {
@@ -192,9 +241,14 @@ export class ExternalMcpService {
       });
 
       // MCP tools/call 返回 { content: [...], isError?: boolean }
-      const result = response as { content?: Array<{ type: string; text?: string }>; isError?: boolean };
+      const result = response as {
+        content?: Array<{ type: string; text?: string }>;
+        isError?: boolean;
+      };
       if (result.isError) {
-        const errorText = result.content?.map((c) => c.text ?? "").join("\n") ?? "Unknown tool error";
+        const errorText =
+          result.content?.map((c) => c.text ?? "").join("\n") ??
+          "Unknown tool error";
         return { success: false, result: null, error: errorText };
       }
 
@@ -204,7 +258,9 @@ export class ExternalMcpService {
       };
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      logger.error(`External MCP tool call failed [${server.name}/${toolName}]: ${msg}`);
+      logger.error(
+        `External MCP tool call failed [${server.name}/${toolName}]: ${msg}`,
+      );
       return { success: false, result: null, error: msg };
     }
   }
@@ -215,7 +271,7 @@ export class ExternalMcpService {
    */
   async callToolByName(
     toolName: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
   ): Promise<{ success: boolean; result: unknown; error?: string }> {
     for (const [serverId, server] of this.configs) {
       if (!server.enabled) continue;
@@ -228,11 +284,19 @@ export class ExternalMcpService {
         continue;
       }
     }
-    return { success: false, result: null, error: `No MCP server provides tool: ${toolName}` };
+    return {
+      success: false,
+      result: null,
+      error: `No MCP server provides tool: ${toolName}`,
+    };
   }
 
   /** 发送 JSON-RPC 请求到 MCP Server（SSE/HTTP 传输） */
-  private async sendRpc(server: McpServerConfig, method: string, params: Record<string, unknown>): Promise<unknown> {
+  private async sendRpc(
+    server: McpServerConfig,
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
     const request: JsonRpcRequest = {
       jsonrpc: "2.0",
       id: ++this.rpcId,
@@ -243,7 +307,9 @@ export class ExternalMcpService {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Accept: "application/json",
-      ...(server.headers ? Object.fromEntries(Object.entries(server.headers)) : {}),
+      ...(server.headers
+        ? Object.fromEntries(Object.entries(server.headers))
+        : {}),
     };
 
     const response = await fetch(server.url, {
@@ -254,12 +320,16 @@ export class ExternalMcpService {
     });
 
     if (!response.ok) {
-      throw new Error(`MCP Server returned HTTP ${response.status}: ${await response.text()}`);
+      throw new Error(
+        `MCP Server returned HTTP ${response.status}: ${await response.text()}`,
+      );
     }
 
-    const json = await response.json() as JsonRpcResponse;
+    const json = (await response.json()) as JsonRpcResponse;
     if (json.error) {
-      throw new Error(`MCP Server RPC error [${json.error.code}]: ${json.error.message}`);
+      throw new Error(
+        `MCP Server RPC error [${json.error.code}]: ${json.error.message}`,
+      );
     }
 
     return json.result;

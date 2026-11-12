@@ -1,14 +1,15 @@
 import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
 import { schemaDDL } from "./schema.js";
-import { runMigrations } from "./migrations.js";
+import { migrations, runMigrations } from "./migrations.js";
 
 export class DatabaseManager {
   private readonly database: DatabaseSync;
 
-  public constructor(databasePath: string) {
+  public constructor(private readonly databasePath: string) {
     mkdirSync(dirname(databasePath), { recursive: true });
     this.database = new DatabaseSync(databasePath);
   }
@@ -27,6 +28,30 @@ export class DatabaseManager {
    * schema_version 表记录已应用的版本，跳过已执行的迁移。
    */
   public migrate(): void {
+    const populated = this.database
+      .prepare(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sessions'",
+      )
+      .get();
+    if (populated && this.databasePath !== ":memory:") {
+      const hasVersions = this.database
+        .prepare(
+          "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'",
+        )
+        .get();
+      const versions = hasVersions
+        ? (this.database
+            .prepare("SELECT version FROM schema_version")
+            .all() as Array<{ version: number }>)
+        : [];
+      const applied = new Set(versions.map((row) => row.version));
+      if (migrations.some((migration) => !applied.has(migration.version))) {
+        const previous = Math.max(0, ...applied);
+        // SQLite produces a consistent backup, including committed WAL pages.
+        const backupPath = `${resolve(this.databasePath)}.pre-migration-v${previous}-${Date.now()}-${randomUUID()}.bak`;
+        this.database.prepare("VACUUM INTO ?").run(backupPath);
+      }
+    }
     this.database.exec(schemaDDL);
     runMigrations(this.database);
   }

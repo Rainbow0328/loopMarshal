@@ -1,0 +1,37 @@
+name: Windows Desktop Package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.10.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check types
+        run: npm run typecheck
+      - name: Run tests
+        run: npm test
+      - name: Package Windows client
+        run: npm run desktop:dist
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: LoopMarshal-Windows-x64
+          path: |
+            release/desktop/LoopMarshal-Setup-*-x64.exe
+            release/desktop/LoopMarshal-Setup-*-x64.exe.blockmap
+          if-no-files-found: error

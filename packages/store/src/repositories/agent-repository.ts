@@ -19,7 +19,7 @@ import type {
   CollaborationRunState,
   UpdateWindowBindingDefaultsInput,
   UpdateWindowRuntimeStateInput,
-  WindowBinding
+  WindowBinding,
 } from "@loopmarshal/protocol";
 
 type AgentRow = Omit<Agent, "capabilities"> & { capabilitiesJson: string };
@@ -120,7 +120,7 @@ export class AgentRepository {
       lastHeartbeatAt: agent.lastHeartbeatAt,
       createdAt: agent.createdAt,
       defaultWaitIntervalSeconds: 10,
-      defaultWaitMaxRounds: 600
+      defaultWaitMaxRounds: 600,
     });
   }
 
@@ -180,7 +180,7 @@ export class AgentRepository {
   public findBySessionIdAndAgentName(
     sessionId: string,
     agentName: string,
-    role?: Agent["role"]
+    role?: Agent["role"],
   ): Agent | null {
     const roleClause = role ? "AND role = @role" : "";
     const statement = this.database.prepare(`
@@ -207,7 +207,7 @@ export class AgentRepository {
     const row = statement.get({
       sessionId,
       agentName,
-      ...(role ? { role } : {})
+      ...(role ? { role } : {}),
     }) as AgentRow | undefined;
 
     if (!row) {
@@ -219,7 +219,7 @@ export class AgentRepository {
 
   public existsBySessionIdAndAgentName(
     sessionId: string,
-    agentName: string
+    agentName: string,
   ): boolean {
     const statement = this.database.prepare(`
       SELECT 1
@@ -272,7 +272,7 @@ export class AgentRepository {
 
     statement.run({
       lastHeartbeatAt,
-      agentId
+      agentId,
     });
   }
 
@@ -346,7 +346,7 @@ export class AgentRepository {
       roleDescription: input.roleDescription,
       capabilitiesJson: JSON.stringify(input.capabilities),
       connectionMode: input.connectionMode,
-      lastHeartbeatAt: input.lastHeartbeatAt
+      lastHeartbeatAt: input.lastHeartbeatAt,
     });
 
     const refreshed = this.findById(input.agentId);
@@ -408,16 +408,16 @@ export class AgentRepository {
       ORDER BY s.created_at ASC, a.created_at ASC
     `);
 
-    const rows = (sessionName
-      ? statement.all({ sessionName })
-      : statement.all()) as WindowBindingRow[];
+    const rows = (
+      sessionName ? statement.all({ sessionName }) : statement.all()
+    ) as WindowBindingRow[];
 
     return rows.map((row) => this.mapWindowBindingRow(row));
   }
 
   public findWindowBinding(
     sessionName: string,
-    windowName: string
+    windowName: string,
   ): WindowBinding | null {
     const statement = this.database.prepare(`
       SELECT
@@ -471,7 +471,7 @@ export class AgentRepository {
 
     const row = statement.get({
       sessionName,
-      windowName
+      windowName,
     }) as WindowBindingRow | undefined;
 
     return row ? this.mapWindowBindingRow(row) : null;
@@ -479,7 +479,7 @@ export class AgentRepository {
 
   public updateWindowBindingDefaults(
     agentId: string,
-    input: UpdateWindowBindingDefaultsInput
+    input: UpdateWindowBindingDefaultsInput,
   ): WindowBinding | null {
     const statement = this.database.prepare(`
       UPDATE agents
@@ -491,7 +491,7 @@ export class AgentRepository {
     statement.run({
       agentId,
       intervalSeconds: input.intervalSeconds,
-      maxRounds: input.maxRounds
+      maxRounds: input.maxRounds,
     });
 
     return this.findWindowBindingByAgentId(agentId);
@@ -500,7 +500,7 @@ export class AgentRepository {
   public updateWindowRuntimeState(
     agentId: string,
     input: UpdateWindowRuntimeStateInput,
-    updatedAt: string
+    updatedAt: string,
   ): WindowBinding | null {
     const updates = [
       "runtime_active_flow = @activeFlow",
@@ -527,7 +527,7 @@ export class AgentRepository {
       "runtime_lease_expires_at = @leaseExpiresAt",
       "runtime_updated_at = @updatedAt",
       "last_heartbeat_at = @updatedAt",
-      "status = 'idle'"
+      "status = 'idle'",
     ];
     const statement = this.database.prepare(`
       UPDATE agents
@@ -537,8 +537,7 @@ export class AgentRepository {
 
     statement.run({
       agentId,
-      activeFlow:
-        input.activeFlow === undefined ? null : input.activeFlow,
+      activeFlow: input.activeFlow === undefined ? null : input.activeFlow,
       currentMessageId:
         input.currentMessageId === undefined ? null : input.currentMessageId,
       currentCorrelationId:
@@ -546,22 +545,21 @@ export class AgentRepository {
           ? null
           : input.currentCorrelationId,
       currentMessageKind:
-        input.currentMessageKind === undefined ? null : input.currentMessageKind,
-      waitChainId:
-        input.waitChainId === undefined ? null : input.waitChainId,
+        input.currentMessageKind === undefined
+          ? null
+          : input.currentMessageKind,
+      waitChainId: input.waitChainId === undefined ? null : input.waitChainId,
       waitChainStatus:
         input.waitChainStatus === undefined ? null : input.waitChainStatus,
       lastPollAt: input.lastPollAt === undefined ? null : input.lastPollAt,
-      lastClaimAt:
-        input.lastClaimAt === undefined ? null : input.lastClaimAt,
+      lastClaimAt: input.lastClaimAt === undefined ? null : input.lastClaimAt,
       lastSubmitAt:
         input.lastSubmitAt === undefined ? null : input.lastSubmitAt,
       pendingInboxCount:
         input.pendingInboxCount === undefined ? null : input.pendingInboxCount,
       claimedInboxCount:
         input.claimedInboxCount === undefined ? null : input.claimedInboxCount,
-      lastCommand:
-        input.lastCommand === undefined ? null : input.lastCommand,
+      lastCommand: input.lastCommand === undefined ? null : input.lastCommand,
       lastStatus: input.lastStatus === undefined ? null : input.lastStatus,
       lastWorkflowStep:
         input.lastWorkflowStep === undefined ? null : input.lastWorkflowStep,
@@ -576,7 +574,8 @@ export class AgentRepository {
       state: input.state === undefined ? null : input.state,
       requiredAction:
         input.requiredAction === undefined ? null : input.requiredAction,
-      requiredTool: input.requiredTool === undefined ? null : input.requiredTool,
+      requiredTool:
+        input.requiredTool === undefined ? null : input.requiredTool,
       continuationToken:
         input.continuationToken === undefined ? null : input.continuationToken,
       userVisibleResponseAllowed:
@@ -587,7 +586,7 @@ export class AgentRepository {
             : 0,
       leaseExpiresAt:
         input.leaseExpiresAt === undefined ? null : input.leaseExpiresAt,
-      updatedAt
+      updatedAt,
     });
 
     return this.findWindowBindingByAgentId(agentId);
@@ -595,7 +594,7 @@ export class AgentRepository {
 
   public clearWindowRuntimeState(
     agentId: string,
-    updatedAt: string
+    updatedAt: string,
   ): WindowBinding | null {
     const statement = this.database.prepare(`
       UPDATE agents
@@ -627,7 +626,7 @@ export class AgentRepository {
 
     statement.run({
       agentId,
-      updatedAt
+      updatedAt,
     });
 
     return this.findWindowBindingByAgentId(agentId);
@@ -691,7 +690,7 @@ export class AgentRepository {
     const { capabilitiesJson, ...agent } = row;
     return {
       ...agent,
-      capabilities: JSON.parse(capabilitiesJson) as string[]
+      capabilities: JSON.parse(capabilitiesJson) as string[],
     };
   }
 
@@ -712,7 +711,7 @@ export class AgentRepository {
       connectionMode: row.connectionMode,
       defaults: {
         intervalSeconds: row.defaultWaitIntervalSeconds,
-        maxRounds: row.defaultWaitMaxRounds
+        maxRounds: row.defaultWaitMaxRounds,
       },
       runtimeState: {
         activeFlow: row.runtimeActiveFlow,
@@ -740,10 +739,10 @@ export class AgentRepository {
             ? null
             : row.runtimeUserVisibleResponseAllowed === 1,
         leaseExpiresAt: row.runtimeLeaseExpiresAt,
-        updatedAt: row.runtimeUpdatedAt
+        updatedAt: row.runtimeUpdatedAt,
       },
       createdAt: row.createdAt,
-      lastHeartbeatAt: row.lastHeartbeatAt
+      lastHeartbeatAt: row.lastHeartbeatAt,
     };
   }
 }

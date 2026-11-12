@@ -1,24 +1,26 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type {
-  ConsoleMember,
-  MessageRecord,
-  SessionConsole,
-  SessionSummary,
-  WebAgentRuntime,
-} from "@loopmarshal/protocol";
 import { api } from "@/lib/api-client";
+import {
+  SESSION_FALLBACK_REFETCH_MS,
+  sessionQueryKeys,
+} from "@/lib/session-query-keys";
+import type { SessionSummary, WebAgentRuntime } from "@loopmarshal/protocol";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 
 /* ==================== Query Keys ==================== */
 
 export const qk = {
   sessions: ["sessions"] as const,
-  console: (sid: string | null | undefined) => ["console", sid] as const,
-  messages: (sid: string | null | undefined) => ["messages", sid] as const,
-  runtimes: (sid: string | null | undefined) => ["runtimes", sid] as const,
+  ...sessionQueryKeys,
   models: ["models"] as const,
   knowledgeManifest: ["knowledge", "manifest"] as const,
   knowledgeList: ["knowledge", "list"] as const,
-  knowledgeDoc: (level: string, slug: string) => ["knowledge", "doc", level, slug] as const,
+  knowledgeDoc: (level: string, slug: string) =>
+    ["knowledge", "doc", level, slug] as const,
   knowledgeChanges: ["knowledge", "changes"] as const,
   mcpServers: ["mcp", "servers"] as const,
   preferences: ["preferences"] as const,
@@ -30,6 +32,9 @@ export function useSessionsQuery() {
   return useQuery({
     queryKey: qk.sessions,
     queryFn: () => api.sessions.list(),
+    staleTime: Infinity,
+    refetchInterval: false,
+    refetchOnReconnect: false,
   });
 }
 
@@ -38,16 +43,20 @@ export function useConsoleQuery(sessionId: string | null | undefined) {
     queryKey: qk.console(sessionId),
     queryFn: () => api.sessions.getConsole(sessionId as string),
     enabled: Boolean(sessionId),
-    refetchInterval: 5_000,
+    refetchInterval: SESSION_FALLBACK_REFETCH_MS,
   });
 }
 
-export function useMessagesQuery(sessionId: string | null | undefined) {
+export function useMessagesQuery(
+  sessionId: string | null | undefined,
+  options: { refetchOnMount?: boolean | "always" } = {},
+) {
   return useQuery({
     queryKey: qk.messages(sessionId),
     queryFn: () => api.messages.list(sessionId as string),
     enabled: Boolean(sessionId),
-    refetchInterval: 5_000,
+    refetchInterval: SESSION_FALLBACK_REFETCH_MS,
+    refetchOnMount: options.refetchOnMount,
   });
 }
 
@@ -56,7 +65,7 @@ export function useRuntimesQuery(sessionId: string | null | undefined) {
     queryKey: qk.runtimes(sessionId),
     queryFn: () => api.webRuntimes.list(sessionId as string),
     enabled: Boolean(sessionId),
-    refetchInterval: 5_000,
+    refetchInterval: SESSION_FALLBACK_REFETCH_MS,
   });
 }
 
@@ -67,49 +76,23 @@ export function useModelsQuery() {
   });
 }
 
-/* ==================== Mutations ==================== */
-
-export function useCreateHostSessionMutation() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: { sessionName: string; modelConfigId: string }) => {
-      // 1. Create session + host agent
-      const { agent, session } = await api.sessionWithAgent.create({
-        sessionName: input.sessionName,
-        agentName: "web-host",
-        displayName: "Web Host",
-        modelConfigId: input.modelConfigId,
-        roleDescription: "Coordinate the session from the web workbench.",
-      });
-
-      // 2. Create web runtime for the host
-      const runtime = await api.webRuntimes.create({
-        sessionId: session.id,
-        agentId: agent.id,
-        role: "host",
-        modelConfigId: input.modelConfigId,
-        toolsetId: "host",
-      });
-
-      // 3. Start the runtime
-      let runtimeStarted = true;
-      try {
-        await api.webRuntimes.start(runtime.id);
-      } catch (startErr) {
-        // Runtime start failure is non-fatal — session is created but runtime needs manual start
-        runtimeStarted = false;
-        console.warn("Runtime start failed:", startErr);
-      }
-
-      return { agent, session, runtime, runtimeStarted };
-    },
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: qk.sessions });
-    },
+export function useInsightQuery(
+  sessionId: string | null | undefined,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: qk.insight(sessionId),
+    queryFn: () => api.sessions.getInsight(sessionId!),
+    enabled: Boolean(sessionId) && enabled,
+    refetchInterval: SESSION_FALLBACK_REFETCH_MS,
   });
 }
 
-export function useAddKnowledgeKeeperMutation(sessionId: string | null | undefined) {
+/* ==================== Mutations ==================== */
+
+export function useAddKnowledgeKeeperMutation(
+  sessionId: string | null | undefined,
+) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: { modelConfigId: string }) => {
@@ -120,9 +103,10 @@ export function useAddKnowledgeKeeperMutation(sessionId: string | null | undefin
         agentName: "knowledge-keeper",
         displayName: "Knowledge Keeper",
         modelConfigId: input.modelConfigId,
-        roleDescription: "Maintain project knowledge and user preferences for this session.",
+        roleDescription:
+          "Maintain project knowledge and user preferences for this session.",
       });
-            const runtime = await api.webRuntimes.create({
+      const runtime = await api.webRuntimes.create({
         sessionId,
         agentId: joined.agent.id,
         role: "knowledge_keeper",
@@ -143,36 +127,28 @@ export function useAddKnowledgeKeeperMutation(sessionId: string | null | undefin
   });
 }
 
-export function useEnsureHostRuntimeMutation(sessionId: string | null | undefined) {
+export function useRuntimeCommandMutation(
+  sessionId: string | null | undefined,
+) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { host: ConsoleMember; modelConfigId: string }) => {
-      if (!sessionId) throw new Error("No active session.");
-      return api.webRuntimes.create({
-        sessionId,
-        agentId: input.host.agentId,
-        role: "host",
-        modelConfigId: input.modelConfigId,
-        toolsetId: "host",
-      });
-    },
-    onSuccess: () => invalidateSession(qc, sessionId),
-  });
-}
-
-export function useRuntimeCommandMutation(sessionId: string | null | undefined) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { runtimeId: string; command: "start" | "pause" | "stop" }) => {
-      if (input.command === "start") return api.webRuntimes.start(input.runtimeId);
-      if (input.command === "pause") return api.webRuntimes.pause(input.runtimeId);
+    mutationFn: (input: {
+      runtimeId: string;
+      command: "start" | "pause" | "stop";
+    }) => {
+      if (input.command === "start")
+        return api.webRuntimes.start(input.runtimeId);
+      if (input.command === "pause")
+        return api.webRuntimes.pause(input.runtimeId);
       return api.webRuntimes.stop(input.runtimeId);
     },
     onSuccess: () => invalidateSession(qc, sessionId),
   });
 }
 
-export function useSendHostMessageMutation(sessionId: string | null | undefined) {
+export function useSendHostMessageMutation(
+  sessionId: string | null | undefined,
+) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: { hostAgentId: string; content: string }) => {
@@ -204,43 +180,50 @@ export function useDeleteRuntimeMutation(sessionId: string | null | undefined) {
 export function useUpdateRuntimeMutation(sessionId: string | null | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { runtimeId: string; customDuty?: string | null; customSkillIds?: string[]; modelConfigId?: string }) =>
-      api.webRuntimes.update(input.runtimeId, input),
+    mutationFn: (input: {
+      runtimeId: string;
+      customDuty?: string | null;
+      customSkillIds?: string[];
+      modelConfigId?: string;
+      externalMcpServerIds?: string[];
+    }) => api.webRuntimes.update(input.runtimeId, input),
     onSuccess: () => invalidateSession(qc, sessionId),
   });
 }
 
-export function useWorkflowsQuery() {
+export function useWorkflowsQuery(enabled = true) {
   return useQuery({
     queryKey: ["workflows"] as const,
     queryFn: () => api.workflows.list(),
+    enabled,
   });
 }
 
 /* ==================== Helpers ==================== */
 
-export function getSelectedSessionId(sessions: SessionSummary[], explicit: string | null): string | null {
+export function getSelectedSessionId(
+  sessions: SessionSummary[],
+  explicit: string | null,
+): string | null {
   if (explicit && sessions.some((s) => s.id === explicit)) return explicit;
   return sessions[0]?.id ?? null;
 }
 
 export function getRuntimeForAgent(
   runtimes: WebAgentRuntime[],
-  agentId: string | null | undefined
+  agentId: string | null | undefined,
 ): WebAgentRuntime | null {
   if (!agentId) return null;
   return runtimes.find((r) => r.agentId === agentId) ?? null;
 }
 
 export function invalidateSession(
-  qc: ReturnType<typeof useQueryClient>,
-  sessionId: string | null | undefined
+  qc: QueryClient,
+  sessionId: string | null | undefined,
 ) {
-  void qc.invalidateQueries({ queryKey: qk.sessions });
+  if (!sessionId) return;
   void qc.invalidateQueries({ queryKey: qk.console(sessionId) });
   void qc.invalidateQueries({ queryKey: qk.messages(sessionId) });
   void qc.invalidateQueries({ queryKey: qk.runtimes(sessionId) });
+  void qc.invalidateQueries({ queryKey: qk.insight(sessionId) });
 }
-
-export type WorkbenchConsole = SessionConsole;
-export type WorkbenchMessage = MessageRecord;

@@ -17,6 +17,10 @@ import type { KnowledgeService } from "./knowledge-service.js";
 import type { MessageService } from "./message-service.js";
 import type { ProgressService } from "./progress-service.js";
 import type { SessionService } from "./session-service.js";
+import type {
+  MemberRouteRepository,
+  DeliveryRepository,
+} from "@loopmarshal/store";
 
 const OFFLINE_THRESHOLD_MS = 120_000;
 const MAX_RECENT_MESSAGES = 50;
@@ -24,7 +28,11 @@ const MAX_TASK_THREADS = 100;
 const MAX_BRIEF_TEXT_CHARS = 4_000;
 
 const HOST_TASK_TYPES = new Set<MessageType>(["instruction", "task"]);
-const WORKER_REPORT_TYPES = new Set<MessageType>(["result", "progress", "error"]);
+const WORKER_REPORT_TYPES = new Set<MessageType>([
+  "result",
+  "progress",
+  "error",
+]);
 const HIDDEN_RECENT_MESSAGE_TYPES = new Set<MessageType>(["heartbeat", "ack"]);
 
 const truncate = (value: string): string => {
@@ -58,10 +66,7 @@ const stringifyPayload = (payload: unknown): string => {
   }
 };
 
-const firstStringField = (
-  payload: unknown,
-  keys: string[]
-): string | null => {
+const firstStringField = (payload: unknown, keys: string[]): string | null => {
   const record = asRecord(payload);
   if (!record) {
     return typeof payload === "string" ? payload : null;
@@ -93,7 +98,9 @@ const summarizeMessage = (message: MessageRecord): ConsoleMessageBrief => {
       "status",
       "reason",
       "error",
-    ]) ?? message.failureReason ?? null;
+    ]) ??
+    message.failureReason ??
+    null;
 
   return {
     messageId: message.id,
@@ -107,7 +114,9 @@ const summarizeMessage = (message: MessageRecord): ConsoleMessageBrief => {
   };
 };
 
-const isConsoleMemberRole = (role: Agent["role"]): role is ConsoleMemberRole => {
+const isConsoleMemberRole = (
+  role: Agent["role"],
+): role is ConsoleMemberRole => {
   return role === "host" || role === "worker" || role === "knowledge_keeper";
 };
 
@@ -129,7 +138,9 @@ export class SessionConsoleService {
     private readonly sessionService: SessionService,
     private readonly messageService: MessageService,
     private readonly progressService: ProgressService,
-    private readonly knowledgeService: KnowledgeService
+    private readonly knowledgeService: KnowledgeService,
+    private readonly memberRoutes?: MemberRouteRepository,
+    private readonly deliveries?: DeliveryRepository,
   ) {}
 
   public getSessionConsole(sessionId: string): SessionConsole {
@@ -137,12 +148,13 @@ export class SessionConsoleService {
     const members = this.sessionService
       .listMembers(sessionId)
       .filter((member): member is Agent & { role: ConsoleMemberRole } =>
-        isConsoleMemberRole(member.role)
+        isConsoleMemberRole(member.role),
       );
     const messages = this.messageService.listMessagesBySession(sessionId);
     const queueStats = this.messageService.getSessionQueueStats(sessionId);
     const progressList = this.progressService.list({ sessionId });
-    const knowledgeSnapshot = this.knowledgeService.snapshot();
+    const knowledge = this.knowledgeService.forSession(sessionId);
+    const knowledgeSnapshot = knowledge.snapshot();
 
     return {
       session,
@@ -154,7 +166,7 @@ export class SessionConsoleService {
         .map(summarizeMessage),
       knowledgeSummary: {
         counts: knowledgeSnapshot.manifest.counts,
-        recentChanges: this.knowledgeService.listChanges({ limit: 10 }).map((change) => ({
+        recentChanges: knowledge.listChanges({ limit: 10 }).map((change) => ({
           level: change.level,
           slug: change.slug,
           kind: change.kind,
@@ -171,33 +183,50 @@ export class SessionConsoleService {
     members: Array<Agent & { role: ConsoleMemberRole }>,
     messages: MessageRecord[],
     queueStats: AgentQueueStats[],
-    progressList: Progress[]
+    progressList: Progress[],
   ): ConsoleMember[] {
     const nowMs = Date.now();
     const queueStatsByAgent = new Map(
-      queueStats.map((stats) => [stats.agentId, stats])
+      queueStats.map((stats) => [stats.agentId, stats]),
     );
     const progressByAgent = new Map(
-      progressList.map((progress) => [progress.agentId, progress])
+      progressList.map((progress) => [progress.agentId, progress]),
+    );
+    const activityByAgent = new Map(
+      (members[0]
+        ? (this.deliveries?.activity(members[0].sessionId) ?? [])
+        : []
+      ).map((activity) => [activity.agentId, activity]),
     );
 
     return members.map((member) => {
+      const route = this.memberRoutes?.get(member.id);
+      const activity = activityByAgent.get(member.id);
       const stats = queueStatsByAgent.get(member.id);
       const currentProgress = progressByAgent.get(member.id) ?? null;
       const currentTask = this.findCurrentTask(member, messages);
       const latestReport = this.findLatestReport(member, messages);
-      const status = this.resolveMemberStatus(member, {
-        claimedCount: stats?.claimed ?? 0,
-        currentTask,
-        currentProgress,
-        nowMs,
-      });
+      const status =
+        route?.accessMode === "managed_proxy"
+          ? (activity?.running ?? 0) > 0
+            ? "working"
+            : route.bindingStatus === "ready"
+              ? "waiting"
+              : "offline"
+          : this.resolveMemberStatus(member, {
+              claimedCount: stats?.claimed ?? 0,
+              currentTask,
+              currentProgress,
+              nowMs,
+            });
 
       return {
         agentId: member.id,
         agentName: member.agentName,
         displayName: member.displayName,
         role: member.role,
+        ...(route ? { route } : {}),
+        ...(activity ? { activity } : {}),
         duty: member.roleDescription,
         status,
         lastHeartbeatAt: member.lastHeartbeatAt ?? null,
@@ -217,7 +246,7 @@ export class SessionConsoleService {
       currentTask: MessageRecord | null;
       currentProgress: Progress | null;
       nowMs: number;
-    }
+    },
   ): ConsoleMemberStatus {
     if (isOffline(member, input.nowMs)) {
       return "offline";
@@ -234,7 +263,10 @@ export class SessionConsoleService {
     return "waiting";
   }
 
-  private findCurrentTask(member: Agent, messages: MessageRecord[]): MessageRecord | null {
+  private findCurrentTask(
+    member: Agent,
+    messages: MessageRecord[],
+  ): MessageRecord | null {
     return (
       messages.find((message) => {
         if (message.processingStatus !== "claimed") {
@@ -246,32 +278,43 @@ export class SessionConsoleService {
         if (member.role === "worker" || member.role === "knowledge_keeper") {
           return HOST_TASK_TYPES.has(message.type);
         }
-        return WORKER_REPORT_TYPES.has(message.type) || HOST_TASK_TYPES.has(message.type);
+        return (
+          WORKER_REPORT_TYPES.has(message.type) ||
+          HOST_TASK_TYPES.has(message.type)
+        );
       }) ?? null
     );
   }
 
-  private findLatestReport(member: Agent, messages: MessageRecord[]): MessageRecord | null {
+  private findLatestReport(
+    member: Agent,
+    messages: MessageRecord[],
+  ): MessageRecord | null {
     return (
       messages.find(
         (message) =>
           message.fromAgentId === member.id &&
-          WORKER_REPORT_TYPES.has(message.type)
+          WORKER_REPORT_TYPES.has(message.type),
       ) ?? null
     );
   }
 
   private buildTaskThreads(
     members: Array<Agent & { role: ConsoleMemberRole }>,
-    messages: MessageRecord[]
+    messages: MessageRecord[],
   ): ConsoleTaskThread[] {
     const hostIds = new Set(
-      members.filter((member) => member.role === "host").map((member) => member.id)
+      members
+        .filter((member) => member.role === "host")
+        .map((member) => member.id),
     );
     const workerById = new Map(
       members
-        .filter((member) => member.role === "worker" || member.role === "knowledge_keeper")
-        .map((member) => [member.id, member])
+        .filter(
+          (member) =>
+            member.role === "worker" || member.role === "knowledge_keeper",
+        )
+        .map((member) => [member.id, member]),
     );
     const chronologicalMessages = messages
       .slice()
@@ -281,31 +324,32 @@ export class SessionConsoleService {
         hostIds.has(message.fromAgentId) &&
         !!message.toAgentId &&
         workerById.has(message.toAgentId) &&
-        HOST_TASK_TYPES.has(message.type)
+        HOST_TASK_TYPES.has(message.type),
     );
     const reportMessages = chronologicalMessages.filter(
       (message) =>
         workerById.has(message.fromAgentId) &&
         (!message.toAgentId || hostIds.has(message.toAgentId)) &&
-        WORKER_REPORT_TYPES.has(message.type)
+        WORKER_REPORT_TYPES.has(message.type),
     );
     const usedReportIds = new Set<string>();
 
     return hostTaskMessages
       .map((hostMessage) => {
         const workerId = hostMessage.toAgentId ?? null;
-        const worker = workerId ? workerById.get(workerId) ?? null : null;
+        const worker = workerId ? (workerById.get(workerId) ?? null) : null;
         const workerReport = this.findThreadReport(
           hostMessage,
           reportMessages,
-          usedReportIds
+          usedReportIds,
         );
         if (workerReport) {
           usedReportIds.add(workerReport.id);
         }
 
         return {
-          correlationId: hostMessage.correlationId ?? workerReport?.correlationId ?? null,
+          correlationId:
+            hostMessage.correlationId ?? workerReport?.correlationId ?? null,
           workerAgentId: workerId,
           workerName: worker?.agentName ?? null,
           hostMessage: summarizeMessage(hostMessage),
@@ -314,7 +358,7 @@ export class SessionConsoleService {
         };
       })
       .sort((left, right) =>
-        right.hostMessage.createdAt.localeCompare(left.hostMessage.createdAt)
+        right.hostMessage.createdAt.localeCompare(left.hostMessage.createdAt),
       )
       .slice(0, MAX_TASK_THREADS);
   }
@@ -322,7 +366,7 @@ export class SessionConsoleService {
   private findThreadReport(
     hostMessage: MessageRecord,
     reportMessages: MessageRecord[],
-    usedReportIds: Set<string>
+    usedReportIds: Set<string>,
   ): MessageRecord | null {
     const workerId = hostMessage.toAgentId;
     if (!workerId) {
@@ -336,7 +380,7 @@ export class SessionConsoleService {
           report.fromAgentId === workerId &&
           !!hostMessage.correlationId &&
           report.correlationId === hostMessage.correlationId &&
-          report.createdAt >= hostMessage.createdAt
+          report.createdAt >= hostMessage.createdAt,
       )
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
     if (correlatedReports[0]) {
@@ -348,14 +392,14 @@ export class SessionConsoleService {
         (report) =>
           !usedReportIds.has(report.id) &&
           report.fromAgentId === workerId &&
-          report.createdAt >= hostMessage.createdAt
+          report.createdAt >= hostMessage.createdAt,
       ) ?? null
     );
   }
 
   private resolveTaskThreadStatus(
     hostMessage: MessageRecord,
-    workerReport: MessageRecord | null
+    workerReport: MessageRecord | null,
   ): ConsoleTaskThreadStatus {
     if (
       hostMessage.processingStatus === "failed" ||

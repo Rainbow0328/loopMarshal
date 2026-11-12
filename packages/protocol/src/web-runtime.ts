@@ -5,17 +5,16 @@ export const webAgentRuntimeStatuses = [
   "stopped",
   "running",
   "paused",
-  "error"
+  "error",
 ] as const;
 
-export type WebAgentRuntimeStatus =
-  (typeof webAgentRuntimeStatuses)[number];
+export type WebAgentRuntimeStatus = (typeof webAgentRuntimeStatuses)[number];
 
 export type WebAgentRuntime = {
   id: string;
   sessionId: string;
   agentId: string;
-  role: Extract<AgentRole, "host" | "knowledge_keeper">;
+  role: Extract<AgentRole, "host" | "worker" | "knowledge_keeper">;
   modelConfigId: string;
   agentProfileId: string | null;
   toolsetId: McpToolsetId;
@@ -39,7 +38,7 @@ export type WebAgentRuntime = {
 export type CreateWebAgentRuntimeInput = {
   sessionId: string;
   agentId: string;
-  role: Extract<AgentRole, "host" | "knowledge_keeper">;
+  role: Extract<AgentRole, "host" | "worker" | "knowledge_keeper">;
   modelConfigId: string;
   agentProfileId?: string | null;
   toolsetId: McpToolsetId;

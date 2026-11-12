@@ -26,7 +26,7 @@ const main = async () => {
       displayName: "Smoke Host",
       platform: "codex",
       capabilities: ["planning"],
-      connectionMode: "skill-bridge"
+      connectionMode: "skill-bridge",
     });
 
     const worker = await client.joinSession(host.session.id, {
@@ -36,7 +36,7 @@ const main = async () => {
       role: "worker",
       roleDescription: "Backend implementation worker for smoke testing",
       capabilities: ["backend"],
-      connectionMode: "skill-bridge"
+      connectionMode: "skill-bridge",
     });
 
     const message = await client.sendMessage({
@@ -45,14 +45,14 @@ const main = async () => {
       toAgentId: worker.agent.id,
       type: "instruction",
       payload: {
-        text: "Run smoke validation"
-      }
+        text: "Run smoke validation",
+      },
     });
 
     const claimed = await client.claimNext(worker.agent.id);
     const completedMessage = claimed
       ? await client.completeMessage(claimed.id, {
-          agentId: worker.agent.id
+          agentId: worker.agent.id,
         })
       : null;
 
@@ -62,12 +62,12 @@ const main = async () => {
       description: "Ensure the end-to-end flow succeeds",
       createdByAgentId: host.agent.id,
       assignedToAgentId: worker.agent.id,
-      priority: "normal"
+      priority: "normal",
     });
 
     const completed = await client.completeTask(taskResult.task.id, {
       completedByAgentId: worker.agent.id,
-      summary: "Smoke validation completed"
+      summary: "Smoke validation completed",
     });
 
     const tasks = await client.listTasks(host.session.id);
@@ -79,11 +79,11 @@ const main = async () => {
           claimedStatus: claimed?.processingStatus ?? null,
           completedMessageStatus: completedMessage?.processingStatus ?? null,
           completedStatus: completed.status,
-          taskCount: tasks.length
+          taskCount: tasks.length,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } finally {
     await instance.close();

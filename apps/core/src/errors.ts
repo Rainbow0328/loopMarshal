@@ -30,28 +30,28 @@ export const coreErrors = {
     return new CoreError(
       errorCodes.sessionNotFound,
       `Session "${sessionId}" was not found.`,
-      404
+      404,
     );
   },
   sessionClosed(sessionId: string) {
     return new CoreError(
       errorCodes.sessionClosed,
       `Session "${sessionId}" is not active.`,
-      409
+      409,
     );
   },
   sessionNotEmpty(sessionId: string, memberCount: number) {
     return new CoreError(
       errorCodes.sessionNotEmpty,
       `Session "${sessionId}" still has ${memberCount} member(s). All members must leave before the session can be deleted.`,
-      409
+      409,
     );
   },
   sessionInsightConflict(sessionId: string) {
     return new CoreError(
       errorCodes.sessionInsightConflict,
       `Session insight for "${sessionId}" was updated by another flow. Retry with the latest snapshot.`,
-      409
+      409,
     );
   },
   invalidInput(message: string) {
@@ -61,63 +61,63 @@ export const coreErrors = {
     return new CoreError(
       errorCodes.duplicateSessionName,
       `Session "${sessionName}" already exists.`,
-      409
+      409,
     );
   },
   duplicateAgentName(sessionId: string, agentName: string) {
     return new CoreError(
       errorCodes.duplicateAgentName,
       `Agent "${agentName}" already exists in session "${sessionId}".`,
-      409
+      409,
     );
   },
   agentNotFound(agentId: string) {
     return new CoreError(
       errorCodes.agentNotFound,
       `Agent "${agentId}" was not found.`,
-      404
+      404,
     );
   },
   messageNotFound(messageId: string) {
     return new CoreError(
       errorCodes.messageNotFound,
       `Message "${messageId}" was not found.`,
-      404
+      404,
     );
   },
   knowledgeDocumentNotFound(level: string, slug: string) {
     return new CoreError(
       errorCodes.knowledgeDocumentNotFound,
       `Knowledge document "${level}/${slug}" was not found.`,
-      404
+      404,
     );
   },
   messageDispatchConflict(messageIds: string[]) {
     return new CoreError(
       errorCodes.messageDispatchConflict,
       `One or more superseded messages are no longer pending: ${messageIds.join(", ")}.`,
-      409
+      409,
     );
   },
   messageAlreadyClaimed(messageId: string) {
     return new CoreError(
       errorCodes.messageAlreadyClaimed,
       `Message "${messageId}" has already been claimed.`,
-      409
+      409,
     );
   },
   messageNotClaimedByAgent(messageId: string, agentId: string) {
     return new CoreError(
       errorCodes.messageNotClaimedByAgent,
       `Message "${messageId}" is not claimed by agent "${agentId}".`,
-      409
+      409,
     );
   },
   messageAlreadyFinished(messageId: string) {
     return new CoreError(
       errorCodes.messageAlreadyFinished,
       `Message "${messageId}" has already been finished.`,
-      409
+      409,
     );
   },
   identityBusy(
@@ -126,28 +126,28 @@ export const coreErrors = {
     details?: {
       ownerToken: string;
       leaseUntil: string;
-    }
+    },
   ) {
     return new CoreError(
       errorCodes.identityBusy,
       details
         ? `Identity "${identity}" is already executing a ${flow} flow in another client. owner=${details.ownerToken}, leaseUntil=${details.leaseUntil}.`
         : `Identity "${identity}" is already executing a ${flow} flow in another client.`,
-      409
+      409,
     );
   },
   waitChainSuperseded(identity: string, flow: "host" | "worker") {
     return new CoreError(
       errorCodes.waitChainSuperseded,
       `The latest ${flow} wait chain for identity "${identity}" has superseded this command. Retry the current window flow with a fresh await.`,
-      409
+      409,
     );
   },
   crossSessionAgent(agentId: string, sessionId: string) {
     return new CoreError(
       errorCodes.crossSessionAgent,
       `Agent "${agentId}" does not belong to session "${sessionId}".`,
-      409
+      409,
     );
   },
   permissionDenied(message: string) {
@@ -155,5 +155,5 @@ export const coreErrors = {
   },
   invalidAgentRemoval(message: string) {
     return new CoreError(errorCodes.invalidAgentRemoval, message, 409);
-  }
+  },
 };

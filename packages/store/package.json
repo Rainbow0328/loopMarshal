@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "main": "dist/store/src/index.js",
+  "files": [
+    "dist/**/*"
+  ],
   "types": "dist/store/src/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",

@@ -13,7 +13,7 @@ import type { MessageRecord } from "@loopmarshal/protocol";
  */
 export const getRuntimeStringField = (
   record: Record<string, unknown>,
-  key: string
+  key: string,
 ): string | null => {
   const value = record[key];
   return typeof value === "string" ? value : null;
@@ -24,7 +24,7 @@ export const getRuntimeStringField = (
  */
 export const getRuntimeRecordField = (
   record: Record<string, unknown>,
-  key: string
+  key: string,
 ): Record<string, unknown> | null => {
   const value = record[key];
   return value && typeof value === "object" && !Array.isArray(value)
@@ -43,7 +43,7 @@ export const buildWindowDebugResult = (
   commandTrace?: {
     commandRunId: string;
     tracePath: string;
-  }
+  },
 ) => {
   const {
     intervalSeconds: _ignoredIntervalSeconds,
@@ -59,16 +59,16 @@ export const buildWindowDebugResult = (
       role: profile.role,
       platform: profile.platform,
       identity: profile.identity,
-      agentName: profile.agentName
+      agentName: profile.agentName,
     },
     waitPolicy: {
       ownedByRuntime: true,
       userConfigurable: false,
-      doNotChooseIntervalOrRounds: true
+      doNotChooseIntervalOrRounds: true,
     },
     runtimeState,
     ...(commandTrace ? { commandTrace } : {}),
-    ...sanitizedResult
+    ...sanitizedResult,
   };
 };
 
@@ -79,7 +79,7 @@ export const parseMessagePayloadView = (payload: unknown) => {
   if (!payload || typeof payload !== "object") {
     return {
       content: null,
-      result: null
+      result: null,
     };
   }
 
@@ -89,7 +89,7 @@ export const parseMessagePayloadView = (payload: unknown) => {
     content:
       typeof payloadRecord.content === "string" ? payloadRecord.content : null,
     result:
-      typeof payloadRecord.result === "string" ? payloadRecord.result : null
+      typeof payloadRecord.result === "string" ? payloadRecord.result : null,
   };
 };
 
@@ -97,7 +97,7 @@ export const parseMessagePayloadView = (payload: unknown) => {
  * 从 payload 中提取 Record 对象，非对象返回 null。
  */
 export const extractPayloadRecord = (
-  payload: unknown
+  payload: unknown,
 ): Record<string, unknown> | null => {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return null;
@@ -121,7 +121,9 @@ export type ControlMessageView = {
 /**
  * 从记录构建控制消息视图。
  */
-export const buildControlMessageView = (record: unknown): ControlMessageView | null => {
+export const buildControlMessageView = (
+  record: unknown,
+): ControlMessageView | null => {
   const messageRecord =
     record && typeof record === "object" && !Array.isArray(record)
       ? (record as Record<string, unknown>)
@@ -141,8 +143,9 @@ export const buildControlMessageView = (record: unknown): ControlMessageView | n
     type: getRuntimeStringField(messageRecord, "type"),
     content:
       getRuntimeStringField(messageRecord, "content") ?? payloadView.content,
-    result: getRuntimeStringField(messageRecord, "result") ?? payloadView.result,
-    payload: messageRecord.payload ?? null
+    result:
+      getRuntimeStringField(messageRecord, "result") ?? payloadView.result,
+    payload: messageRecord.payload ?? null,
   };
 };
 
@@ -151,7 +154,7 @@ export const buildControlMessageView = (record: unknown): ControlMessageView | n
  */
 export const appendControlMessageViews = (
   items: ControlMessageView[],
-  candidate: unknown
+  candidate: unknown,
 ) => {
   if (Array.isArray(candidate)) {
     for (const item of candidate) {
@@ -173,7 +176,7 @@ export const appendControlMessageViews = (
  * 对控制消息视图按 messageId 去重。
  */
 export const dedupeControlMessageViews = (
-  items: ControlMessageView[]
+  items: ControlMessageView[],
 ): ControlMessageView[] => {
   const seen = new Set<string>();
   const deduped: ControlMessageView[] = [];
@@ -196,7 +199,7 @@ export const dedupeControlMessageViews = (
  * 从运行时结果推断已领取的消息类型（task 或 report）。
  */
 export const inferClaimedMessageKind = (
-  result: Record<string, unknown>
+  result: Record<string, unknown>,
 ): "task" | "report" | null => {
   const messageKind = getRuntimeStringField(result, "messageKind");
   if (messageKind === "task" || messageKind === "report") {
@@ -230,13 +233,18 @@ export const inferClaimedMessageKind = (
  * 从 MessageRecord 构建运行时消息摘要（简化版）。
  */
 export const summarizeMessage = (
-  message: MessageRecord
-): { messageId: string; type: string; content: string | null; result: string | null } => {
+  message: MessageRecord,
+): {
+  messageId: string;
+  type: string;
+  content: string | null;
+  result: string | null;
+} => {
   const payloadView = parseMessagePayloadView(message.payload);
   return {
     messageId: message.id,
     type: message.type,
     content: payloadView.content,
-    result: payloadView.result
+    result: payloadView.result,
   };
 };

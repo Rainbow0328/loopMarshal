@@ -135,7 +135,7 @@ const IDE_META: Record<SupportedIde, IdeMeta> = {
     installGuide: ["npm install -g @anthropic-ai/claude-code"],
     supportsSystemPrompt: true,
     supportsMcpConfigArg: true,
-    supportsPromptArg: true
+    supportsPromptArg: true,
   },
   codex: {
     label: "Codex CLI",
@@ -144,15 +144,18 @@ const IDE_META: Record<SupportedIde, IdeMeta> = {
     installGuide: ["npm install -g @openai/codex"],
     supportsSystemPrompt: false,
     supportsMcpConfigArg: false,
-    supportsPromptArg: true
+    supportsPromptArg: true,
   },
   cursor: {
     label: "Cursor",
     command: "cursor",
-    installGuide: ["从 https://cursor.sh 下载安装", "Cursor 会在安装时自动添加到 PATH"],
+    installGuide: [
+      "从 https://cursor.sh 下载安装",
+      "Cursor 会在安装时自动添加到 PATH",
+    ],
     supportsSystemPrompt: false,
     supportsMcpConfigArg: false,
-    supportsPromptArg: false
+    supportsPromptArg: false,
   },
   trae: {
     label: "Trae",
@@ -160,7 +163,7 @@ const IDE_META: Record<SupportedIde, IdeMeta> = {
     installGuide: ["从 https://www.trae.ai 下载安装"],
     supportsSystemPrompt: false,
     supportsMcpConfigArg: false,
-    supportsPromptArg: false
+    supportsPromptArg: false,
   },
   opencode: {
     label: "OpenCode",
@@ -169,7 +172,7 @@ const IDE_META: Record<SupportedIde, IdeMeta> = {
     installGuide: ["npm install -g opencode-ai"],
     supportsSystemPrompt: false,
     supportsMcpConfigArg: false,
-    supportsPromptArg: true
+    supportsPromptArg: true,
   },
   gemini: {
     label: "Gemini CLI",
@@ -178,7 +181,7 @@ const IDE_META: Record<SupportedIde, IdeMeta> = {
     installGuide: ["npm install -g @google/gemini-cli"],
     supportsSystemPrompt: false,
     supportsMcpConfigArg: false,
-    supportsPromptArg: true
+    supportsPromptArg: true,
   },
   aider: {
     label: "Aider",
@@ -187,7 +190,7 @@ const IDE_META: Record<SupportedIde, IdeMeta> = {
     installGuide: ["pip install aider-chat", "# 或: pipx install aider-chat"],
     supportsSystemPrompt: false,
     supportsMcpConfigArg: false,
-    supportsPromptArg: true
+    supportsPromptArg: true,
   },
   windsurf: {
     label: "Windsurf",
@@ -195,7 +198,7 @@ const IDE_META: Record<SupportedIde, IdeMeta> = {
     installGuide: ["从 https://codeium.com/windsurf 下载安装"],
     supportsSystemPrompt: false,
     supportsMcpConfigArg: false,
-    supportsPromptArg: false
+    supportsPromptArg: false,
   },
   qoder: {
     label: "Qoder",
@@ -203,24 +206,30 @@ const IDE_META: Record<SupportedIde, IdeMeta> = {
     installGuide: ["从 Qoder 官网下载安装"],
     supportsSystemPrompt: false,
     supportsMcpConfigArg: false,
-    supportsPromptArg: false
+    supportsPromptArg: false,
   },
   github: {
     label: "GitHub Copilot CLI",
     command: "gh",
     npmPackage: "@github/gh-copilot",
-    installGuide: ["npm install -g @github/gh-copilot", "# 或通过 gh extension install"],
+    installGuide: [
+      "npm install -g @github/gh-copilot",
+      "# 或通过 gh extension install",
+    ],
     supportsSystemPrompt: false,
     supportsMcpConfigArg: false,
-    supportsPromptArg: false
+    supportsPromptArg: false,
   },
   cline: {
     label: "Cline (VS Code)",
     command: "code",
-    installGuide: ["安装 VS Code: https://code.visualstudio.com", "安装 Cline 扩展: code --install-extension saoudrizwan.cline"],
+    installGuide: [
+      "安装 VS Code: https://code.visualstudio.com",
+      "安装 Cline 扩展: code --install-extension saoudrizwan.cline",
+    ],
     supportsSystemPrompt: false,
     supportsMcpConfigArg: false,
-    supportsPromptArg: false
+    supportsPromptArg: false,
   },
   crusher: {
     label: "Crusher AI",
@@ -228,15 +237,18 @@ const IDE_META: Record<SupportedIde, IdeMeta> = {
     installGuide: ["npm install -g @crusherai/cli", "# 参考官方文档安装"],
     supportsSystemPrompt: false,
     supportsMcpConfigArg: false,
-    supportsPromptArg: false
+    supportsPromptArg: false,
   },
   lov: {
     label: "Lovable",
     command: "lov",
-    installGuide: ["npm install -g @lovable/cli", "# 或访问 https://lovable.dev"],
+    installGuide: [
+      "npm install -g @lovable/cli",
+      "# 或访问 https://lovable.dev",
+    ],
     supportsSystemPrompt: false,
     supportsMcpConfigArg: false,
-    supportsPromptArg: false
+    supportsPromptArg: false,
   },
   mimo: {
     label: "Xiaomi MiMo",
@@ -245,15 +257,17 @@ const IDE_META: Record<SupportedIde, IdeMeta> = {
     installGuide: ["npm install -g @xiaomi/mimo-cli", "# 或参考小米开发者文档"],
     supportsSystemPrompt: false,
     supportsMcpConfigArg: false,
-    supportsPromptArg: true
-  }
+    supportsPromptArg: true,
+  },
 };
 
 // ---------------------------------------------------------------------------
 // IDE executable resolution
 // ---------------------------------------------------------------------------
 
-const resolveIdeExecutable = (ide: SupportedIde): { command: string; args: string[] } => {
+const resolveIdeExecutable = (
+  ide: SupportedIde,
+): { command: string; args: string[] } => {
   const meta = IDE_META[ide];
   return { command: meta.command, args: [] };
 };
@@ -283,7 +297,14 @@ type InjectSpec = {
   targetDir: string;
   files: Array<{ source: string; target: string }>;
   mcpConfigPath: string | null;
-  mcpConfigGenerator: ((mcpServerCmd: { command: string; args: string[] }, timeoutSeconds: number, role: string, ideLabel: string) => string) | null;
+  mcpConfigGenerator:
+    | ((
+        mcpServerCmd: { command: string; args: string[] },
+        timeoutSeconds: number,
+        role: string,
+        ideLabel: string,
+      ) => string)
+    | null;
   /** Auto-accept / yolo mode config (project-level settings file path + content generator) */
   autoAcceptConfig?: {
     /** Relative path within project (e.g. ".claude/settings.json") or null for global-only */
@@ -311,7 +332,7 @@ const getMcpServerCommand = (): { command: string; args: string[] } => {
   }
   return {
     command: "npx",
-    args: ["loopmarshal", "mcp", "serve"]
+    args: ["loopmarshal", "mcp", "serve"],
   };
 };
 
@@ -378,7 +399,12 @@ const getGlobalMcpConfigPath = (ide: SupportedIde): string | null => {
  */
 const mergeJsonMcpConfig = (
   existingContent: string,
-  loopmarshalEntry: { command: string; args: string[]; env: Record<string, string>; timeout?: number }
+  loopmarshalEntry: {
+    command: string;
+    args: string[];
+    env: Record<string, string>;
+    timeout?: number;
+  },
 ): string => {
   let config: Record<string, unknown>;
   try {
@@ -404,7 +430,12 @@ const mergeJsonMcpConfig = (
  */
 const mergeTomlMcpConfig = (
   existingContent: string,
-  loopmarshalEntry: { command: string; args: string[]; env: Record<string, string>; timeout?: number }
+  loopmarshalEntry: {
+    command: string;
+    args: string[];
+    env: Record<string, string>;
+    timeout?: number;
+  },
 ): string => {
   // For TOML, we replace or append the [mcp_servers.loopmarshal] section.
   // This is a simple approach: remove existing loopmarshal section, then append new one.
@@ -430,7 +461,9 @@ const mergeTomlMcpConfig = (
     `[mcp_servers.loopmarshal]`,
     `command = "${loopmarshalEntry.command}"`,
     `args = ["${loopmarshalEntry.args.join('", "')}"]`,
-    ...(loopmarshalEntry.timeout ? [`tool_timeout_sec = ${loopmarshalEntry.timeout}`] : []),
+    ...(loopmarshalEntry.timeout
+      ? [`tool_timeout_sec = ${loopmarshalEntry.timeout}`]
+      : []),
     `[mcp_servers.loopmarshal.env]`,
     ...Object.entries(loopmarshalEntry.env).map(([k, v]) => `${k} = "${v}"`),
   ].join("\n");
@@ -443,11 +476,22 @@ const mergeTomlMcpConfig = (
 /**
  * Merge auto-accept JSON config into existing config (shallow merge at top level).
  */
-const mergeJsonAutoAccept = (existingContent: string, newContent: string): string => {
+const mergeJsonAutoAccept = (
+  existingContent: string,
+  newContent: string,
+): string => {
   let existing: Record<string, unknown>;
   let next: Record<string, unknown>;
-  try { existing = JSON.parse(existingContent); } catch { existing = {}; }
-  try { next = JSON.parse(newContent); } catch { next = {}; }
+  try {
+    existing = JSON.parse(existingContent);
+  } catch {
+    existing = {};
+  }
+  try {
+    next = JSON.parse(newContent);
+  } catch {
+    next = {};
+  }
   const merged = { ...existing, ...next };
   return JSON.stringify(merged, null, 2) + "\n";
 };
@@ -455,7 +499,10 @@ const mergeJsonAutoAccept = (existingContent: string, newContent: string): strin
 /**
  * Merge auto-accept TOML config into existing config (append if not present).
  */
-const mergeTomlAutoAccept = (existingContent: string, newContent: string): string => {
+const mergeTomlAutoAccept = (
+  existingContent: string,
+  newContent: string,
+): string => {
   const existing = existingContent.trimEnd();
   if (existing) {
     return existing + "\n\n" + newContent;
@@ -472,7 +519,12 @@ const injectMcpConfig = async (
   configPath: string,
   ide: SupportedIde,
   isToml: boolean,
-  loopmarshalEntry: { command: string; args: string[]; env: Record<string, string>; timeout?: number }
+  loopmarshalEntry: {
+    command: string;
+    args: string[];
+    env: Record<string, string>;
+    timeout?: number;
+  },
 ): Promise<boolean> => {
   const dir = dirname(configPath);
   await mkdir(dir, { recursive: true });
@@ -493,7 +545,10 @@ const injectMcpConfig = async (
   return true;
 };
 
-const getInjectSpec = (ide: SupportedIde, role: "host" | "worker" | "knowledge_keeper"): InjectSpec => {
+const getInjectSpec = (
+  ide: SupportedIde,
+  role: "host" | "worker" | "knowledge_keeper",
+): InjectSpec => {
   const mcpServer = getMcpServerCommand();
 
   switch (ide) {
@@ -503,7 +558,7 @@ const getInjectSpec = (ide: SupportedIde, role: "host" | "worker" | "knowledge_k
         targetDir: ".claude/skills",
         files: [
           { source: `${role}/SKILL.md`, target: "SKILL.md" },
-          { source: `${role}/claude/SKILL.md`, target: `SKILL-${role}.md` }
+          { source: `${role}/claude/SKILL.md`, target: `SKILL-${role}.md` },
         ],
         mcpConfigPath: ".claude/mcp.json",
         mcpConfigGenerator: (_cmd, timeoutSeconds, _role, _ideLabel) => {
@@ -516,10 +571,10 @@ const getInjectSpec = (ide: SupportedIde, role: "host" | "worker" | "knowledge_k
                 env: {
                   LOOPMARSHAL_ROLE: role,
                   LOOPMARSHAL_IDE_LABEL: "claude",
-                  CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT: "1"
-                }
-              }
-            }
+                  CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT: "1",
+                },
+              },
+            },
           };
           return `${JSON.stringify(config, null, 2)}\n`;
         },
@@ -528,13 +583,18 @@ const getInjectSpec = (ide: SupportedIde, role: "host" | "worker" | "knowledge_k
           globalPath: null,
           isToml: false,
           merge: true,
-          generator: () => JSON.stringify({
-            permissions: {
-              allow: ["Bash(*)", "Read(*)", "Write(*)", "Edit(*)"],
-              deny: []
-            }
-          }, null, 2) + "\n"
-        }
+          generator: () =>
+            JSON.stringify(
+              {
+                permissions: {
+                  allow: ["Bash(*)", "Read(*)", "Write(*)", "Edit(*)"],
+                  deny: [],
+                },
+              },
+              null,
+              2,
+            ) + "\n",
+        },
       };
 
     // ── Codex CLI ────────────────────────────────────────────────
@@ -543,27 +603,29 @@ const getInjectSpec = (ide: SupportedIde, role: "host" | "worker" | "knowledge_k
         targetDir: ".codex/skills",
         files: [
           { source: `${role}/SKILL.md`, target: "SKILL.md" },
-          { source: `${role}/codex/SKILL.md`, target: `SKILL-${role}.md` }
+          { source: `${role}/codex/SKILL.md`, target: `SKILL-${role}.md` },
         ],
         mcpConfigPath: ".codex/config.toml",
         mcpConfigGenerator: (_cmd, timeoutSeconds, _role, _ideLabel) => {
-          return [
-            `[mcp_servers.loopmarshal]`,
-            `command = "${mcpServer.command}"`,
-            `args = ["${mcpServer.args.join('", "')}"]`,
-            `tool_timeout_sec = ${timeoutSeconds}`,
-            `[mcp_servers.loopmarshal.env]`,
-            `LOOPMARSHAL_ROLE = "${role}"`,
-            `LOOPMARSHAL_IDE_LABEL = "codex"`
-          ].join("\n") + "\n";
+          return (
+            [
+              `[mcp_servers.loopmarshal]`,
+              `command = "${mcpServer.command}"`,
+              `args = ["${mcpServer.args.join('", "')}"]`,
+              `tool_timeout_sec = ${timeoutSeconds}`,
+              `[mcp_servers.loopmarshal.env]`,
+              `LOOPMARSHAL_ROLE = "${role}"`,
+              `LOOPMARSHAL_IDE_LABEL = "codex"`,
+            ].join("\n") + "\n"
+          );
         },
         autoAcceptConfig: {
           projectPath: ".codex/config.toml",
           globalPath: null,
           isToml: true,
           merge: true,
-          generator: () => `[approval]\nfull_auto = true\n`
-        }
+          generator: () => `[approval]\nfull_auto = true\n`,
+        },
       };
 
     // ── Cursor ──────────────────────────────────────────────────
@@ -572,7 +634,10 @@ const getInjectSpec = (ide: SupportedIde, role: "host" | "worker" | "knowledge_k
         targetDir: ".cursor/rules",
         files: [
           { source: `${role}/SKILL.md`, target: `loopmarshal-${role}.md` },
-          { source: `${role}/cursor/SKILL.md`, target: `loopmarshal-${role}-cursor.md` }
+          {
+            source: `${role}/cursor/SKILL.md`,
+            target: `loopmarshal-${role}-cursor.md`,
+          },
         ],
         mcpConfigPath: ".cursor/mcp.json",
         mcpConfigGenerator: (_cmd, _timeout, _role, _ideLabel) => {
@@ -581,9 +646,12 @@ const getInjectSpec = (ide: SupportedIde, role: "host" | "worker" | "knowledge_k
               loopmarshal: {
                 command: mcpServer.command,
                 args: mcpServer.args,
-                env: { LOOPMARSHAL_ROLE: role, LOOPMARSHAL_IDE_LABEL: "cursor" }
-              }
-            }
+                env: {
+                  LOOPMARSHAL_ROLE: role,
+                  LOOPMARSHAL_IDE_LABEL: "cursor",
+                },
+              },
+            },
           };
           return `${JSON.stringify(config, null, 2)}\n`;
         },
@@ -592,10 +660,15 @@ const getInjectSpec = (ide: SupportedIde, role: "host" | "worker" | "knowledge_k
           globalPath: null,
           isToml: false,
           merge: true,
-          generator: () => JSON.stringify({
-            "cursor.aiCodegen.enableAutoApply": true
-          }, null, 2) + "\n"
-        }
+          generator: () =>
+            JSON.stringify(
+              {
+                "cursor.aiCodegen.enableAutoApply": true,
+              },
+              null,
+              2,
+            ) + "\n",
+        },
       };
 
     // ── Trae ────────────────────────────────────────────────────
@@ -604,19 +677,17 @@ const getInjectSpec = (ide: SupportedIde, role: "host" | "worker" | "knowledge_k
         targetDir: ".trae/skills/loopmarshal",
         files: [
           { source: `${role}/SKILL.md`, target: "SKILL.md" },
-          { source: `${role}/trae/SKILL.md`, target: `SKILL-${role}.md` }
+          { source: `${role}/trae/SKILL.md`, target: `SKILL-${role}.md` },
         ],
         mcpConfigPath: null,
-        mcpConfigGenerator: null
+        mcpConfigGenerator: null,
       };
 
     // ── OpenCode ────────────────────────────────────────────────
     case "opencode":
       return {
         targetDir: ".opencode/skills",
-        files: [
-          { source: `${role}/SKILL.md`, target: "SKILL.md" }
-        ],
+        files: [{ source: `${role}/SKILL.md`, target: "SKILL.md" }],
         mcpConfigPath: ".opencode/mcp.json",
         mcpConfigGenerator: (_cmd, timeoutSeconds, _role, _ideLabel) => {
           const config = {
@@ -625,21 +696,22 @@ const getInjectSpec = (ide: SupportedIde, role: "host" | "worker" | "knowledge_k
                 command: mcpServer.command,
                 args: mcpServer.args,
                 timeout: timeoutSeconds * 1000,
-                env: { LOOPMARSHAL_ROLE: role, LOOPMARSHAL_IDE_LABEL: "opencode" }
-              }
-            }
+                env: {
+                  LOOPMARSHAL_ROLE: role,
+                  LOOPMARSHAL_IDE_LABEL: "opencode",
+                },
+              },
+            },
           };
           return `${JSON.stringify(config, null, 2)}\n`;
-        }
+        },
       };
 
     // ── Gemini CLI ──────────────────────────────────────────────
     case "gemini":
       return {
         targetDir: ".gemini/skills",
-        files: [
-          { source: `${role}/SKILL.md`, target: "SKILL.md" }
-        ],
+        files: [{ source: `${role}/SKILL.md`, target: "SKILL.md" }],
         // Gemini CLI uses .gemini/settings.json for MCP config
         mcpConfigPath: ".gemini/settings.json",
         mcpConfigGenerator: (_cmd, _timeout, _role, _ideLabel) => {
@@ -648,21 +720,22 @@ const getInjectSpec = (ide: SupportedIde, role: "host" | "worker" | "knowledge_k
               loopmarshal: {
                 command: mcpServer.command,
                 args: mcpServer.args,
-                env: { LOOPMARSHAL_ROLE: role, LOOPMARSHAL_IDE_LABEL: "gemini" }
-              }
-            }
+                env: {
+                  LOOPMARSHAL_ROLE: role,
+                  LOOPMARSHAL_IDE_LABEL: "gemini",
+                },
+              },
+            },
           };
           return `${JSON.stringify(config, null, 2)}\n`;
-        }
+        },
       };
 
     // ── Aider ───────────────────────────────────────────────────
     case "aider":
       return {
         targetDir: ".aider",
-        files: [
-          { source: `${role}/SKILL.md`, target: "loopmarshal-skill.md" }
-        ],
+        files: [{ source: `${role}/SKILL.md`, target: "loopmarshal-skill.md" }],
         // Aider supports MCP via .aider/mcp.json (requires aider >= 0.60)
         mcpConfigPath: ".aider/mcp.json",
         mcpConfigGenerator: (_cmd, _timeout, _role, _ideLabel) => {
@@ -671,9 +744,9 @@ const getInjectSpec = (ide: SupportedIde, role: "host" | "worker" | "knowledge_k
               loopmarshal: {
                 command: mcpServer.command,
                 args: mcpServer.args,
-                env: { LOOPMARSHAL_ROLE: role, LOOPMARSHAL_IDE_LABEL: "aider" }
-              }
-            }
+                env: { LOOPMARSHAL_ROLE: role, LOOPMARSHAL_IDE_LABEL: "aider" },
+              },
+            },
           };
           return `${JSON.stringify(config, null, 2)}\n`;
         },
@@ -682,8 +755,8 @@ const getInjectSpec = (ide: SupportedIde, role: "host" | "worker" | "knowledge_k
           globalPath: null,
           isToml: false,
           merge: false,
-          generator: () => `yes-always: true\n`
-        }
+          generator: () => `yes-always: true\n`,
+        },
       };
 
     // ── Windsurf ────────────────────────────────────────────────
@@ -691,31 +764,27 @@ const getInjectSpec = (ide: SupportedIde, role: "host" | "worker" | "knowledge_k
       return {
         targetDir: ".windsurf/rules",
         files: [
-          { source: `${role}/SKILL.md`, target: `loopmarshal-${role}.md` }
+          { source: `${role}/SKILL.md`, target: `loopmarshal-${role}.md` },
         ],
         // Windsurf uses .codeium / mcp config via global settings
         mcpConfigPath: null,
-        mcpConfigGenerator: null
+        mcpConfigGenerator: null,
       };
 
     // ── Qoder ──────────────────────────────────────────────────
     case "qoder":
       return {
         targetDir: ".qoder/skills",
-        files: [
-          { source: `${role}/SKILL.md`, target: "SKILL.md" }
-        ],
+        files: [{ source: `${role}/SKILL.md`, target: "SKILL.md" }],
         mcpConfigPath: null,
-        mcpConfigGenerator: null
+        mcpConfigGenerator: null,
       };
 
     // ── GitHub Copilot CLI ─────────────────────────────────────
     case "github":
       return {
         targetDir: ".github/skills",
-        files: [
-          { source: `${role}/SKILL.md`, target: "loopmarshal-skill.md" }
-        ],
+        files: [{ source: `${role}/SKILL.md`, target: "loopmarshal-skill.md" }],
         // GitHub Copilot uses .vscode/settings.json for MCP config
         mcpConfigPath: ".vscode/settings.json",
         mcpConfigGenerator: (_cmd, _timeout, _role, _ideLabel) => {
@@ -725,13 +794,16 @@ const getInjectSpec = (ide: SupportedIde, role: "host" | "worker" | "knowledge_k
                 loopmarshal: {
                   command: mcpServer.command,
                   args: mcpServer.args,
-                  env: { LOOPMARSHAL_ROLE: role, LOOPMARSHAL_IDE_LABEL: "github" }
-                }
-              }
-            }
+                  env: {
+                    LOOPMARSHAL_ROLE: role,
+                    LOOPMARSHAL_IDE_LABEL: "github",
+                  },
+                },
+              },
+            },
           };
           return `${JSON.stringify(config, null, 2)}\n`;
-        }
+        },
       };
 
     // ── Cline (VS Code) ────────────────────────────────────────
@@ -739,7 +811,7 @@ const getInjectSpec = (ide: SupportedIde, role: "host" | "worker" | "knowledge_k
       return {
         targetDir: ".cline/rules",
         files: [
-          { source: `${role}/SKILL.md`, target: `loopmarshal-${role}.md` }
+          { source: `${role}/SKILL.md`, target: `loopmarshal-${role}.md` },
         ],
         // Cline uses .vscode/settings.json for MCP
         mcpConfigPath: ".cline/mcp.json",
@@ -749,43 +821,37 @@ const getInjectSpec = (ide: SupportedIde, role: "host" | "worker" | "knowledge_k
               loopmarshal: {
                 command: mcpServer.command,
                 args: mcpServer.args,
-                env: { LOOPMARSHAL_ROLE: role, LOOPMARSHAL_IDE_LABEL: "cline" }
-              }
-            }
+                env: { LOOPMARSHAL_ROLE: role, LOOPMARSHAL_IDE_LABEL: "cline" },
+              },
+            },
           };
           return `${JSON.stringify(config, null, 2)}\n`;
-        }
+        },
       };
 
     // ── Crusher AI ──────────────────────────────────────────────
     case "crusher":
       return {
         targetDir: ".crusher/skills",
-        files: [
-          { source: `${role}/SKILL.md`, target: "SKILL.md" }
-        ],
+        files: [{ source: `${role}/SKILL.md`, target: "SKILL.md" }],
         mcpConfigPath: null,
-        mcpConfigGenerator: null
+        mcpConfigGenerator: null,
       };
 
     // ── Lovable ─────────────────────────────────────────────────
     case "lov":
       return {
         targetDir: ".lovable",
-        files: [
-          { source: `${role}/SKILL.md`, target: "loopmarshal-skill.md" }
-        ],
+        files: [{ source: `${role}/SKILL.md`, target: "loopmarshal-skill.md" }],
         mcpConfigPath: null,
-        mcpConfigGenerator: null
+        mcpConfigGenerator: null,
       };
 
     // ── Xiaomi MiMo ─────────────────────────────────────────────
     case "mimo":
       return {
         targetDir: ".mimo/skills",
-        files: [
-          { source: `${role}/SKILL.md`, target: "SKILL.md" }
-        ],
+        files: [{ source: `${role}/SKILL.md`, target: "SKILL.md" }],
         mcpConfigPath: ".mimo/mcp.json",
         mcpConfigGenerator: (_cmd, _timeout, _role, _ideLabel) => {
           const config = {
@@ -793,12 +859,12 @@ const getInjectSpec = (ide: SupportedIde, role: "host" | "worker" | "knowledge_k
               loopmarshal: {
                 command: mcpServer.command,
                 args: mcpServer.args,
-                env: { LOOPMARSHAL_ROLE: role, LOOPMARSHAL_IDE_LABEL: "mimo" }
-              }
-            }
+                env: { LOOPMARSHAL_ROLE: role, LOOPMARSHAL_IDE_LABEL: "mimo" },
+              },
+            },
           };
           return `${JSON.stringify(config, null, 2)}\n`;
-        }
+        },
       };
   }
 };
@@ -820,7 +886,7 @@ const buildSetupGuide = (
     duty: string;
     dashboardUrl?: string | null;
     coreAutoStarted?: boolean;
-  }
+  },
 ): SetupGuide => {
   const { ideFound, mcpAutoInjected, firstPrompt, role, sessionName } = options;
   const mcpServer = getMcpServerCommand();
@@ -836,21 +902,21 @@ const buildSetupGuide = (
   if (!mcpAutoInjected) {
     const envLines = [
       `       LOOPMARSHAL_ROLE=${role}`,
-      `       LOOPMARSHAL_IDE_LABEL=${ide}`
+      `       LOOPMARSHAL_IDE_LABEL=${ide}`,
     ];
     const jsonConfig = [
       `{`,
       `  "mcpServers": {`,
       `    "loopmarshal": {`,
       `      "command": "${mcpServer.command}",`,
-      `      "args": ${JSON.stringify(mcpServer.args).replace(/"/g, '"').replace(/,/g, ', ')},`,
+      `      "args": ${JSON.stringify(mcpServer.args).replace(/"/g, '"').replace(/,/g, ", ")},`,
       `      "env": {`,
       `        "LOOPMARSHAL_ROLE": "${role}",`,
       `        "LOOPMARSHAL_IDE_LABEL": "${ide}"`,
       `      }`,
       `    }`,
       `  }`,
-      `}`
+      `}`,
     ].join("\n");
 
     switch (ide) {
@@ -859,7 +925,7 @@ const buildSetupGuide = (
           `Claude Code 的 MCP 配置文件位于: .claude/mcp.json`,
           `请手动创建该文件，内容如下:`,
           ``,
-          jsonConfig
+          jsonConfig,
         );
         break;
 
@@ -873,7 +939,7 @@ const buildSetupGuide = (
           `args = ["${mcpServer.args.join('", "')}"]`,
           `[mcp_servers.loopmarshal.env]`,
           `LOOPMARSHAL_ROLE = "${role}"`,
-          `LOOPMARSHAL_IDE_LABEL = "codex"`
+          `LOOPMARSHAL_IDE_LABEL = "codex"`,
         );
         break;
 
@@ -882,7 +948,7 @@ const buildSetupGuide = (
           `Cursor 的 MCP 配置文件位于: .cursor/mcp.json`,
           `请手动创建该文件，内容如下:`,
           ``,
-          jsonConfig
+          jsonConfig,
         );
         break;
 
@@ -905,7 +971,7 @@ const buildSetupGuide = (
           `或者，如果 Trae 支持项目级配置文件，`,
           `请在项目根目录创建 .trae/mcp.json，内容如下:`,
           ``,
-          jsonConfig
+          jsonConfig,
         );
         break;
 
@@ -914,7 +980,7 @@ const buildSetupGuide = (
           `OpenCode 的 MCP 配置文件位于: .opencode/mcp.json`,
           `请手动创建该文件，内容如下:`,
           ``,
-          jsonConfig
+          jsonConfig,
         );
         break;
 
@@ -923,7 +989,7 @@ const buildSetupGuide = (
           `Gemini CLI 的 MCP 配置文件位于: .gemini/settings.json`,
           `请手动创建或编辑该文件，添加以下内容:`,
           ``,
-          jsonConfig
+          jsonConfig,
         );
         break;
 
@@ -936,7 +1002,7 @@ const buildSetupGuide = (
           ``,
           `注意: MCP 支持需要 aider >= 0.60 版本。`,
           `如果您的 aider 版本较低，请通过以下命令更新:`,
-          `  pip install --upgrade aider-chat`
+          `  pip install --upgrade aider-chat`,
         );
         break;
 
@@ -956,7 +1022,7 @@ const buildSetupGuide = (
           ...envLines,
           `  5. 保存并启用`,
           ``,
-          `Windsurf 的规则文件已注入到 .windsurf/rules/ 目录，会自动加载。`
+          `Windsurf 的规则文件已注入到 .windsurf/rules/ 目录，会自动加载。`,
         );
         break;
 
@@ -973,7 +1039,7 @@ const buildSetupGuide = (
           `     - 参数: ${JSON.stringify(mcpServer.args)}`,
           `     - 环境变量:`,
           ...envLines,
-          `  4. 保存并启用`
+          `  4. 保存并启用`,
         );
         break;
 
@@ -995,7 +1061,7 @@ const buildSetupGuide = (
           `      }`,
           `    }`,
           `  }`,
-          `}`
+          `}`,
         );
         break;
 
@@ -1006,7 +1072,7 @@ const buildSetupGuide = (
           ``,
           jsonConfig,
           ``,
-          `或者通过 VS Code 中 Cline 扩展的设置面板添加 MCP Server。`
+          `或者通过 VS Code 中 Cline 扩展的设置面板添加 MCP Server。`,
         );
         break;
 
@@ -1023,7 +1089,7 @@ const buildSetupGuide = (
           `     - 参数: ${JSON.stringify(mcpServer.args)}`,
           `     - 环境变量:`,
           ...envLines,
-          `  4. 保存并启用`
+          `  4. 保存并启用`,
         );
         break;
 
@@ -1040,7 +1106,7 @@ const buildSetupGuide = (
           `     - 参数: ${JSON.stringify(mcpServer.args)}`,
           `     - 环境变量:`,
           ...envLines,
-          `  4. 保存并启用`
+          `  4. 保存并启用`,
         );
         break;
 
@@ -1049,7 +1115,7 @@ const buildSetupGuide = (
           `MiMo CLI 的 MCP 配置文件位于: .mimo/mcp.json`,
           `请手动创建该文件，内容如下:`,
           ``,
-          jsonConfig
+          jsonConfig,
         );
         break;
     }
@@ -1064,14 +1130,14 @@ const buildSetupGuide = (
       ``,
       `安装后重新执行本命令，或手动启动 ${meta.label} 后发送以下消息:`,
       ``,
-      firstPrompt
+      firstPrompt,
     );
   } else if (!meta.supportsPromptArg && !meta.supportsSystemPrompt) {
     promptManualGuide.push(
       `${meta.label} 不支持通过命令行传入首条消息。`,
       `请打开 ${meta.label} 后，在对话框中手动发送以下消息:`,
       ``,
-      firstPrompt
+      firstPrompt,
     );
   }
 
@@ -1079,7 +1145,7 @@ const buildSetupGuide = (
   if (ide === "trae") {
     notes.push(
       `Skill 文件已注入到 .trae/skills/loopmarshal/ 目录。`,
-      `如果 Trae 不自动加载该目录，请手动将 SKILL.md 内容复制到 Trae 的 Rules 或系统提示词中。`
+      `如果 Trae 不自动加载该目录，请手动将 SKILL.md 内容复制到 Trae 的 Rules 或系统提示词中。`,
     );
   }
 
@@ -1087,7 +1153,7 @@ const buildSetupGuide = (
     notes.push(
       `你是 Worker 角色。请确保 Host 已加入会话 "${sessionName}"。`,
       `如果没有 Host，请在另一个窗口执行:`,
-      `  loopmarshal start-agent <ide> --role host --duty "<职责>" --session ${sessionName}`
+      `  loopmarshal start-agent <ide> --role host --duty "<职责>" --session ${sessionName}`,
     );
   }
 
@@ -1100,7 +1166,7 @@ const buildSetupGuide = (
     promptManualGuide,
     notes,
     dashboardUrl: options.dashboardUrl,
-    coreAutoStarted: options.coreAutoStarted
+    coreAutoStarted: options.coreAutoStarted,
   };
 };
 
@@ -1116,7 +1182,8 @@ const generateFirstPrompt = (options: {
   dashboardUrl?: string | null;
   coreApiUrl?: string | null;
 }): string => {
-  const { sessionName, memberName, role, duty, dashboardUrl, coreApiUrl } = options;
+  const { sessionName, memberName, role, duty, dashboardUrl, coreApiUrl } =
+    options;
 
   const baseInfo = [
     `你已接入 loopmarshal 协作框架。`,
@@ -1132,7 +1199,7 @@ const generateFirstPrompt = (options: {
     `你已通过 API 自动加入会话，无需再调用 attach 工具。`,
     `行为规则已通过 Skill 文件安装到你的 IDE 目录中，请遵守。`,
     ``,
-    `立即执行以下步骤:`
+    `立即执行以下步骤:`,
   ];
 
   if (role === "host") {
@@ -1146,7 +1213,7 @@ const generateFirstPrompt = (options: {
       `  start_worker(ide="claude", duty="前端开发") — 自动继承当前会话和目录`,
       `支持的 IDE: claude, codex, cursor, trae, opencode, gemini, aider, windsurf, qoder, github, cline, crusher, lov, mimo`,
       ``,
-      `如果 MCP 工具不可用，说明 loopmarshal 服务未启动，请引导用户执行: loopmarshal start --daemon`
+      `如果 MCP 工具不可用，说明 loopmarshal 服务未启动，请引导用户执行: loopmarshal start --daemon`,
     );
   } else if (role === "knowledge_keeper") {
     baseInfo.push(
@@ -1155,7 +1222,7 @@ const generateFirstPrompt = (options: {
       `3. 调用 submit 回报维护结果`,
       `4. 继续 await 等待下一个维护任务`,
       ``,
-      `如果 MCP 工具不可用，说明 loopmarshal 服务未启动，请引导用户执行: loopmarshal start --daemon`
+      `如果 MCP 工具不可用，说明 loopmarshal 服务未启动，请引导用户执行: loopmarshal start --daemon`,
     );
   } else {
     baseInfo.push(
@@ -1163,7 +1230,7 @@ const generateFirstPrompt = (options: {
       `2. 收到任务后处理，然后 submit 回报`,
       `3. 继续 await 等待下一个任务`,
       ``,
-      `如果 MCP 工具不可用，说明 loopmarshal 服务未启动，请引导用户执行: loopmarshal start --daemon`
+      `如果 MCP 工具不可用，说明 loopmarshal 服务未启动，请引导用户执行: loopmarshal start --daemon`,
     );
   }
 
@@ -1178,7 +1245,8 @@ const generateSystemPrompt = (options: {
   dashboardUrl?: string | null;
   coreApiUrl?: string | null;
 }): string | null => {
-  const { role, sessionName, memberName, duty, dashboardUrl, coreApiUrl } = options;
+  const { role, sessionName, memberName, duty, dashboardUrl, coreApiUrl } =
+    options;
 
   const coreRules =
     role === "host"
@@ -1194,39 +1262,39 @@ const generateSystemPrompt = (options: {
           `7. 不让 Worker 写入知识库`,
           ``,
           `你拥有 start_worker 工具，可以按需启动新的 AI Worker 加入当前会话。`,
-          `启动的 Worker 会自动继承当前会话名称和工作目录。`
+          `启动的 Worker 会自动继承当前会话名称和工作目录。`,
         ]
       : role === "knowledge_keeper"
-      ? [
-          `你是 loopmarshal 协作框架的 Knowledge Keeper 角色。`,
-          `铁律:`,
-          `1. 只能写入知识库文档，不能写入业务代码`,
-          `2. 不能裁决 Worker 的知识库候选更新`,
-          `3. 不能派发任务给 Worker`,
-          `4. 收到 Host 委托后必须先读取现有知识库，再执行更新`,
-          `5. 每次更新后必须向 Host 回报更新摘要`,
-          `6. 不得将用户原话不加判断直接写入知识库`,
-          `7. 不得将临时实现细节写入 L1/L2`,
-          `8. 不暴露内部 cmd`
-        ]
-      : [
-          `你是 loopmarshal 协作框架的 Worker 角色。`,
-          `铁律:`,
-          `1. 唯一闭环: await -> 处理任务 -> submit -> await`,
-          `2. 拿到任务后必须处理到 submit，中间不输出自然语言`,
-          `3. submit 后不补自然语言，按返回协议继续`,
-          `4. 不做 Host 的编排工作`,
-          `5. 不裁决或写入知识库`,
-          `6. 每次回报必须包含 knowledgeUpdateAssessment`,
-          `7. 不暴露内部 cmd`
-        ];
+        ? [
+            `你是 loopmarshal 协作框架的 Knowledge Keeper 角色。`,
+            `铁律:`,
+            `1. 只能写入知识库文档，不能写入业务代码`,
+            `2. 不能裁决 Worker 的知识库候选更新`,
+            `3. 不能派发任务给 Worker`,
+            `4. 收到 Host 委托后必须先读取现有知识库，再执行更新`,
+            `5. 每次更新后必须向 Host 回报更新摘要`,
+            `6. 不得将用户原话不加判断直接写入知识库`,
+            `7. 不得将临时实现细节写入 L1/L2`,
+            `8. 不暴露内部 cmd`,
+          ]
+        : [
+            `你是 loopmarshal 协作框架的 Worker 角色。`,
+            `铁律:`,
+            `1. 唯一闭环: await -> 处理任务 -> submit -> await`,
+            `2. 拿到任务后必须处理到 submit，中间不输出自然语言`,
+            `3. submit 后不补自然语言，按返回协议继续`,
+            `4. 不做 Host 的编排工作`,
+            `5. 不裁决或写入知识库`,
+            `6. 每次回报必须包含 knowledgeUpdateAssessment`,
+            `7. 不暴露内部 cmd`,
+          ];
 
   coreRules.push(
     ``,
     `会话: ${sessionName} | 窗口名: ${memberName} | 职责: ${duty}`,
     ...(dashboardUrl ? [`后台管理面板: ${dashboardUrl}`] : []),
     ...(coreApiUrl ? [`核心 API 地址: ${coreApiUrl}`] : []),
-    `详细行为规则已通过 Skill 文件加载，请遵守。`
+    `详细行为规则已通过 Skill 文件加载，请遵守。`,
   );
 
   return coreRules.join("\n");
@@ -1248,7 +1316,7 @@ const buildIdeLaunchConfig = (
     systemPrompt: string | null;
     firstPrompt: string;
     mcpConfigPath: string | null;
-  }
+  },
 ): IdeLaunchConfig | null => {
   const { systemPrompt, firstPrompt, mcpConfigPath } = options;
   const meta = IDE_META[ide];
@@ -1333,7 +1401,9 @@ const formatSetupGuide = (guide: SetupGuide): string => {
   }
   if (guide.dashboardUrl) {
     lines.push(`   后台管理面板: ${guide.dashboardUrl}`);
-    lines.push(`   在浏览器中打开上述地址可查看会话状态、成员列表、消息流和知识库`);
+    lines.push(
+      `   在浏览器中打开上述地址可查看会话状态、成员列表、消息流和知识库`,
+    );
   }
   lines.push("");
 
@@ -1371,11 +1441,17 @@ const formatSetupGuide = (guide: SetupGuide): string => {
 // Main function
 // ---------------------------------------------------------------------------
 
-export const startAgent = async (options: StartAgentOptions): Promise<StartAgentResult> => {
+export const startAgent = async (
+  options: StartAgentOptions,
+): Promise<StartAgentResult> => {
   const projectRoot = process.cwd();
 
   // 1. Determine session name and member name
-  const sessionName = options.session || basename(projectRoot).toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  const sessionName =
+    options.session ||
+    basename(projectRoot)
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "-");
   const memberName = options.name || `${options.ide}-${options.role}`;
 
   const result: StartAgentResult = {
@@ -1400,12 +1476,14 @@ export const startAgent = async (options: StartAgentOptions): Promise<StartAgent
       mcpManualGuide: [],
       skillManualGuide: [],
       promptManualGuide: [],
-      notes: []
-    }
+      notes: [],
+    },
   };
 
   // 2. Ensure core service is running (auto-start if needed)
-  const { isCoreReachable, startCore, getDashboardUrl } = await import("./runtime.js");
+  const { isCoreReachable, startCore, getDashboardUrl } = await import(
+    "./runtime.js"
+  );
   let coreRunning = await isCoreReachable();
 
   if (!coreRunning && !options.dryRun) {
@@ -1439,8 +1517,8 @@ export const startAgent = async (options: StartAgentOptions): Promise<StartAgent
     const client = createLoopMarshalClient({
       headers: {
         "x-loopmarshal-client": "cli",
-        "x-loopmarshal-process": String(process.pid)
-      }
+        "x-loopmarshal-process": String(process.pid),
+      },
     });
 
     // 3. Attach to session
@@ -1456,7 +1534,7 @@ export const startAgent = async (options: StartAgentOptions): Promise<StartAgent
             platform: "generic",
             roleDescription: "placeholder",
             capabilities: [],
-            connectionMode: "extension"
+            connectionMode: "extension",
           });
         }
       }
@@ -1464,7 +1542,7 @@ export const startAgent = async (options: StartAgentOptions): Promise<StartAgent
       await client.attachNamedSession(sessionName, {
         agentName: memberName,
         role: options.role,
-        roleDescription: options.duty
+        roleDescription: options.duty,
       });
     } catch (error: unknown) {
       if (error instanceof LoopMarshalSdkError) {
@@ -1521,7 +1599,12 @@ export const startAgent = async (options: StartAgentOptions): Promise<StartAgent
       const ideLabel = options.ide;
 
       // 构建 loopmarshal MCP 条目
-      const loopmarshalEntry: { command: string; args: string[]; env: Record<string, string>; timeout?: number } = {
+      const loopmarshalEntry: {
+        command: string;
+        args: string[];
+        env: Record<string, string>;
+        timeout?: number;
+      } = {
         command: mcpServer.command,
         args: mcpServer.args,
         env: { LOOPMARSHAL_ROLE: role, LOOPMARSHAL_IDE_LABEL: ideLabel },
@@ -1530,7 +1613,8 @@ export const startAgent = async (options: StartAgentOptions): Promise<StartAgent
 
       // Claude Code 特殊环境变量
       if (ideLabel === "claude") {
-        loopmarshalEntry.env.CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT = "1";
+        loopmarshalEntry.env.CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT =
+          "1";
       }
 
       // 注入策略：优先项目级；不支持项目级则 fallback 到全局级
@@ -1538,16 +1622,28 @@ export const startAgent = async (options: StartAgentOptions): Promise<StartAgent
         // 项目级 MCP 配置（合并方式，保留已有配置）
         const isToml = injectSpec.mcpConfigPath.endsWith(".toml");
         const projectMcpPath = join(projectRoot, injectSpec.mcpConfigPath);
-        await injectMcpConfig(projectMcpPath, options.ide, isToml, loopmarshalEntry);
+        await injectMcpConfig(
+          projectMcpPath,
+          options.ide,
+          isToml,
+          loopmarshalEntry,
+        );
         result.mcpConfigPath = injectSpec.mcpConfigPath;
       } else {
         // 不支持项目级 → fallback 到全局级（通过 HOME 环境变量查找）
         const globalMcpPath = getGlobalMcpConfigPath(options.ide);
         if (globalMcpPath) {
           const globalIsToml = globalMcpPath.endsWith(".toml");
-          await injectMcpConfig(globalMcpPath, options.ide, globalIsToml, loopmarshalEntry);
+          await injectMcpConfig(
+            globalMcpPath,
+            options.ide,
+            globalIsToml,
+            loopmarshalEntry,
+          );
           result.mcpConfigPath = globalMcpPath;
-          result.setupGuide.notes.push(`MCP 配置已注入全局路径: ${globalMcpPath}`);
+          result.setupGuide.notes.push(
+            `MCP 配置已注入全局路径: ${globalMcpPath}`,
+          );
         }
       }
     }
@@ -1559,7 +1655,7 @@ export const startAgent = async (options: StartAgentOptions): Promise<StartAgent
     role: options.role,
     duty: options.duty,
     dashboardUrl: result.dashboardUrl,
-    coreApiUrl: result.coreApiUrl
+    coreApiUrl: result.coreApiUrl,
   });
   result.systemPrompt = generateSystemPrompt({
     role: options.role,
@@ -1567,7 +1663,7 @@ export const startAgent = async (options: StartAgentOptions): Promise<StartAgent
     memberName,
     duty: options.duty,
     dashboardUrl: result.dashboardUrl,
-    coreApiUrl: result.coreApiUrl
+    coreApiUrl: result.coreApiUrl,
   });
 
   // 7. Launch IDE
@@ -1582,7 +1678,7 @@ export const startAgent = async (options: StartAgentOptions): Promise<StartAgent
         firstPrompt: result.firstPrompt,
         mcpConfigPath: result.mcpConfigPath
           ? join(projectRoot, result.mcpConfigPath)
-          : null
+          : null,
       });
 
       if (launchConfig) {
@@ -1596,8 +1692,11 @@ export const startAgent = async (options: StartAgentOptions): Promise<StartAgent
           // 批处理文件在执行完后自动删除自身
           const { writeFileSync } = await import("node:fs");
           const { tmpdir } = await import("node:os");
-          const batchPath = join(tmpdir(), `loopmarshal-start-${Date.now()}.cmd`);
-          const escapedArgs = launchConfig.args.map(a => {
+          const batchPath = join(
+            tmpdir(),
+            `loopmarshal-start-${Date.now()}.cmd`,
+          );
+          const escapedArgs = launchConfig.args.map((a) => {
             return a.includes(" ") ? `"${a.replace(/"/g, '""')}"` : a;
           });
           const batchContent = [
@@ -1623,25 +1722,36 @@ export const startAgent = async (options: StartAgentOptions): Promise<StartAgent
           child.unref();
         } else if (isMac) {
           // macOS: 使用 osascript 在新 Terminal.app 窗口启动
-          const escapedArgs = launchConfig.args.map(a => `'${a.replace(/'/g, "'\\''")}'`);
+          const escapedArgs = launchConfig.args.map(
+            (a) => `'${a.replace(/'/g, "'\\''")}'`,
+          );
           const macCmd = `cd "${projectRoot}" && ${launchConfig.command} ${escapedArgs.join(" ")}`;
-          const child = spawn("osascript", ["-e", `tell application "Terminal" to do script "${macCmd.replace(/"/g, '\\"')}"`], {
-            cwd: projectRoot,
-            stdio: "ignore",
-            detached: true,
-          });
+          const child = spawn(
+            "osascript",
+            [
+              "-e",
+              `tell application "Terminal" to do script "${macCmd.replace(/"/g, '\\"')}"`,
+            ],
+            {
+              cwd: projectRoot,
+              stdio: "ignore",
+              detached: true,
+            },
+          );
           result.spawnedPid = child.pid ?? null;
           child.unref();
         } else {
           // Linux: 尝试常见的终端模拟器
-          const escapedArgs = launchConfig.args.map(a => `'${a.replace(/'/g, "'\\''")}'`);
+          const escapedArgs = launchConfig.args.map(
+            (a) => `'${a.replace(/'/g, "'\\''")}'`,
+          );
           const linuxCmd = `cd "${projectRoot}" && ${launchConfig.command} ${escapedArgs.join(" ")}`;
           const terminals = [
             { cmd: "gnome-terminal", args: ["--", "bash", "-c", linuxCmd] },
             { cmd: "konsole", args: ["-e", "bash", "-c", linuxCmd] },
             { cmd: "xterm", args: ["-e", "bash", "-c", linuxCmd] },
           ];
-          const available = terminals.find(t => isCommandAvailable(t.cmd));
+          const available = terminals.find((t) => isCommandAvailable(t.cmd));
           if (available) {
             const child = spawn(available.cmd, available.args, {
               cwd: projectRoot,
@@ -1679,7 +1789,7 @@ export const startAgent = async (options: StartAgentOptions): Promise<StartAgent
     memberName,
     duty: options.duty,
     dashboardUrl: result.dashboardUrl,
-    coreAutoStarted: result.coreAutoStarted
+    coreAutoStarted: result.coreAutoStarted,
   });
 
   return result;
@@ -1706,7 +1816,10 @@ const resolveSkillsDir = (): string => {
   let current = thisDir;
   for (let i = 0; i < 10; i++) {
     const candidate = join(current, "skills");
-    if (existsSync(join(candidate, "host", "SKILL.md")) && existsSync(join(candidate, "knowledge_keeper", "SKILL.md"))) {
+    if (
+      existsSync(join(candidate, "host", "SKILL.md")) &&
+      existsSync(join(candidate, "knowledge_keeper", "SKILL.md"))
+    ) {
       _skillsDir = candidate;
       return candidate;
     }
@@ -1715,15 +1828,20 @@ const resolveSkillsDir = (): string => {
 
   // 3. 从 cwd 搜索（发布包模式或用户在项目根目录执行）
   const fromCwd = join(process.cwd(), "skills");
-  if (existsSync(join(fromCwd, "host", "SKILL.md")) && existsSync(join(fromCwd, "knowledge_keeper", "SKILL.md"))) {
+  if (
+    existsSync(join(fromCwd, "host", "SKILL.md")) &&
+    existsSync(join(fromCwd, "knowledge_keeper", "SKILL.md"))
+  ) {
     _skillsDir = fromCwd;
     return fromCwd;
   }
 
   throw new Error(
     "Could not find skills source directory. " +
-    `Looked by walking up from: ${thisDir}, and from cwd: ${fromCwd}.` +
-    (envSkillsDir ? ` Also checked LOOPMARSHAL_SKILLS_DIR=${envSkillsDir}.` : "")
+      `Looked by walking up from: ${thisDir}, and from cwd: ${fromCwd}.` +
+      (envSkillsDir
+        ? ` Also checked LOOPMARSHAL_SKILLS_DIR=${envSkillsDir}.`
+        : ""),
   );
 };
 
@@ -1748,7 +1866,7 @@ export type SetupAutoAcceptResult = {
 };
 
 export const setupAutoAccept = async (
-  options: SetupAutoAcceptOptions
+  options: SetupAutoAcceptOptions,
 ): Promise<SetupAutoAcceptResult> => {
   // auto-accept 配置不依赖 role，用 "host" 作为占位
   const injectSpec = getInjectSpec(options.ide, "host");
@@ -1785,15 +1903,26 @@ export const setupAutoAccept = async (
 
     if (ac.merge) {
       let existing = "";
-      try { existing = readFileSync(autoAcceptPath, "utf-8"); } catch { /* new file */ }
+      try {
+        existing = readFileSync(autoAcceptPath, "utf-8");
+      } catch {
+        /* new file */
+      }
       const merged = ac.isToml
         ? mergeTomlAutoAccept(existing, autoAcceptContent)
         : mergeJsonAutoAccept(existing, autoAcceptContent);
       await writeFile(autoAcceptPath, merged, "utf-8");
     } else {
       let existing = "";
-      try { existing = readFileSync(autoAcceptPath, "utf-8"); } catch { /* new file */ }
-      const combined = existing.trimEnd() + (existing.trimEnd() ? "\n" : "") + autoAcceptContent;
+      try {
+        existing = readFileSync(autoAcceptPath, "utf-8");
+      } catch {
+        /* new file */
+      }
+      const combined =
+        existing.trimEnd() +
+        (existing.trimEnd() ? "\n" : "") +
+        autoAcceptContent;
       await writeFile(autoAcceptPath, combined, "utf-8");
     }
 

@@ -23,7 +23,11 @@ const smokePort = 42728;
 const smokeBaseUrl = `http://127.0.0.1:${smokePort}`;
 const rootDir = process.cwd();
 const cliEntry = resolve(rootDir, "apps/cli/dist/apps/cli/src/index.js");
-const stateDir = resolve(rootDir, ".loopmarshal-test", "smoke-cli-wait-continuation");
+const stateDir = resolve(
+  rootDir,
+  ".loopmarshal-test",
+  "smoke-cli-wait-continuation",
+);
 
 const assert = (condition, message) => {
   if (!condition) {
@@ -36,9 +40,9 @@ const runCliJson = async ({ args, env, delayedActions = [] }) => {
     cwd: rootDir,
     env: {
       ...process.env,
-      ...env
+      ...env,
     },
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"],
   });
 
   let stdout = "";
@@ -55,7 +59,7 @@ const runCliJson = async ({ args, env, delayedActions = [] }) => {
   const timers = delayedActions.map(({ delayMs, run }) =>
     setTimeout(() => {
       void run();
-    }, delayMs)
+    }, delayMs),
   );
 
   const exitCode = await new Promise((resolveCode, reject) => {
@@ -69,7 +73,7 @@ const runCliJson = async ({ args, env, delayedActions = [] }) => {
 
   if (exitCode !== 0) {
     throw new Error(
-      `CLI command failed (${args.join(" ")}): ${stderr || stdout || exitCode}`
+      `CLI command failed (${args.join(" ")}): ${stderr || stdout || exitCode}`,
     );
   }
 
@@ -79,7 +83,7 @@ const runCliJson = async ({ args, env, delayedActions = [] }) => {
 const internalCommandToArgs = (cmd) => {
   assert(
     typeof cmd === "string" && cmd.startsWith("loopmarshal "),
-    "cmd should be a runnable loopmarshal command string"
+    "cmd should be a runnable loopmarshal command string",
   );
   return cmd.slice("loopmarshal ".length).trim().split(/\s+/);
 };
@@ -91,13 +95,13 @@ const main = async () => {
   const instance = await startCoreServer({
     host: "127.0.0.1",
     port: smokePort,
-    databasePath: ".loopmarshal-test/smoke-cli-wait-continuation.sqlite"
+    databasePath: ".loopmarshal-test/smoke-cli-wait-continuation.sqlite",
   });
 
   try {
     const env = {
       LOOPMARSHAL_BASE_URL: smokeBaseUrl,
-      LOOPMARSHAL_CLI_STATE_DIR: stateDir
+      LOOPMARSHAL_CLI_STATE_DIR: stateDir,
     };
     const client = createLoopMarshalClient({ baseUrl: smokeBaseUrl });
     const sessionName = `member-wait-cont-${Date.now()}`;
@@ -113,9 +117,9 @@ const main = async () => {
         "--role",
         "host",
         "--duty",
-        "主控编排"
+        "主控编排",
       ],
-      env
+      env,
     });
     await runCliJson({
       args: [
@@ -126,25 +130,27 @@ const main = async () => {
         "--role",
         "worker",
         "--duty",
-        "负责执行前端页面与交互相关任务"
+        "负责执行前端页面与交互相关任务",
       ],
-      env
+      env,
     });
 
     const session = await client.getSessionByName(sessionName);
     const members = await client.getMembers(session.id);
     const hostAgent = members.find((member) => member.agentName === hostName);
-    const workerAgent = members.find((member) => member.agentName === workerName);
+    const workerAgent = members.find(
+      (member) => member.agentName === workerName,
+    );
     assert(hostAgent, "host should be registered as a session member");
     assert(workerAgent, "worker should be registered as a session member");
 
     await client.updateWindowBindingDefaults(sessionName, hostName, {
       intervalSeconds: 1,
-      maxRounds: 4
+      maxRounds: 4,
     });
     await client.updateWindowBindingDefaults(sessionName, workerName, {
       intervalSeconds: 1,
-      maxRounds: 4
+      maxRounds: 4,
     });
 
     const firstWorkerWait = await runCliJson({
@@ -161,31 +167,39 @@ const main = async () => {
               type: "instruction",
               payload: {
                 content: "请确认：持续等待已接到任务",
-                result: "pending"
+                result: "pending",
               },
               correlationId: `wait-cont-worker-${Date.now()}`,
-              idempotencyKey: `wait-cont-worker:${Date.now()}`
-            })
-        }
-      ]
+              idempotencyKey: `wait-cont-worker:${Date.now()}`,
+            }),
+        },
+      ],
     });
 
     assert(
       firstWorkerWait.op === "PROCESS_CLAIMED_MESSAGE" &&
         firstWorkerWait.status === "task_claimed" &&
         firstWorkerWait.message?.content === "请确认：持续等待已接到任务",
-      "await should consume internal continuations and return only after claiming the task"
+      "await should consume internal continuations and return only after claiming the task",
     );
 
-    const hostDispatch = await runCliJson({
+    const hostDispatchHandoff = await runCliJson({
       args: [
         "dispatch-many",
         hostName,
         "--session",
         sessionName,
         "--task",
-        `${workerName}::请处理：host dispatch-many 续等链验证`
+        `${workerName}::请处理：host dispatch-many 续等链验证`,
       ],
+      env,
+    });
+    assert(
+      hostDispatchHandoff.op === "EXECUTE_INTERNAL_CMD",
+      "dispatch-many should hand off to the host await command",
+    );
+    const hostDispatch = await runCliJson({
+      args: internalCommandToArgs(hostDispatchHandoff.cmd),
       env,
       delayedActions: [
         {
@@ -198,20 +212,21 @@ const main = async () => {
               type: "result",
               payload: {
                 content: "dispatch-many 持续等待已收到 worker 回报",
-                result: "completed"
+                result: "completed",
               },
               correlationId: `dispatch-wait-host-${Date.now()}`,
-              idempotencyKey: `dispatch-wait-host:${Date.now()}`
-            })
-        }
-      ]
+              idempotencyKey: `dispatch-wait-host:${Date.now()}`,
+            }),
+        },
+      ],
     });
 
     assert(
       hostDispatch.op === "PROCESS_CLAIMED_MESSAGE" &&
         hostDispatch.status === "message_claimed" &&
-        hostDispatch.message?.content === "dispatch-many 持续等待已收到 worker 回报",
-      "dispatch-many should enter await and return only after claiming a worker report"
+        hostDispatch.message?.content ===
+          "dispatch-many 持续等待已收到 worker 回报",
+      "dispatch-many should enter await and return only after claiming a worker report",
     );
 
     console.log(
@@ -221,11 +236,11 @@ const main = async () => {
           firstWorkerWaitOp: firstWorkerWait.op,
           workerWaitStatus: firstWorkerWait.status,
           hostDispatchOp: hostDispatch.op,
-          hostDispatchStatus: hostDispatch.status
+          hostDispatchStatus: hostDispatch.status,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } finally {
     await instance.close();

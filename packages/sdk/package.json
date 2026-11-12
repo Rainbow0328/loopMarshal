@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "main": "dist/sdk/src/index.js",
+  "files": [
+    "dist/**/*"
+  ],
   "types": "dist/sdk/src/index.d.ts",
   "exports": {
     ".": {

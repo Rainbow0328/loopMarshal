@@ -2,17 +2,17 @@
   "name": "loopmarshal",
   "version": "0.1.0",
   "private": false,
-  "description": "Multi-Agent AI coding orchestration CLI — one command to launch and orchestrate multiple AI coding agents via MCP protocol.",
+  "description": "CLI and MCP bridge for project-based coding-agent collaboration, named task routing, and native session proxies.",
   "license": "Apache-2.0",
   "author": "LoopMarshal Team",
-  "homepage": "https://github.com/your-org/loopmarshal",
+  "homepage": "https://github.com/Rainbow0328/loopmarshal",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-org/loopmarshal.git",
+    "url": "https://github.com/Rainbow0328/loopmarshal.git",
     "directory": "apps/cli"
   },
   "bugs": {
-    "url": "https://github.com/your-org/loopmarshal/issues"
+    "url": "https://github.com/Rainbow0328/loopmarshal/issues"
   },
   "keywords": [
     "multi-agent",
@@ -28,7 +28,7 @@
     "local-first"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13.0"
   },
   "type": "module",
   "bin": {

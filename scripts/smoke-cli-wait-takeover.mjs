@@ -23,7 +23,11 @@ const smokePort = 42727;
 const smokeBaseUrl = `http://127.0.0.1:${smokePort}`;
 const rootDir = process.cwd();
 const cliEntry = resolve(rootDir, "apps/cli/dist/apps/cli/src/index.js");
-const stateDir = resolve(rootDir, ".loopmarshal-test", "smoke-cli-wait-takeover");
+const stateDir = resolve(
+  rootDir,
+  ".loopmarshal-test",
+  "smoke-cli-wait-takeover",
+);
 
 const assert = (condition, message) => {
   if (!condition) {
@@ -40,9 +44,9 @@ const runCliJson = async ({ args, env }) => {
     cwd: rootDir,
     env: {
       ...process.env,
-      ...env
+      ...env,
     },
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"],
   });
 
   let stdout = "";
@@ -63,7 +67,7 @@ const runCliJson = async ({ args, env }) => {
 
   if (exitCode !== 0) {
     throw new Error(
-      `CLI command failed (${args.join(" ")}): ${stderr || stdout || exitCode}`
+      `CLI command failed (${args.join(" ")}): ${stderr || stdout || exitCode}`,
     );
   }
 
@@ -77,13 +81,13 @@ const main = async () => {
   const instance = await startCoreServer({
     host: "127.0.0.1",
     port: smokePort,
-    databasePath: ".loopmarshal-test/smoke-cli-wait-takeover.sqlite"
+    databasePath: ".loopmarshal-test/smoke-cli-wait-takeover.sqlite",
   });
 
   try {
     const env = {
       LOOPMARSHAL_BASE_URL: smokeBaseUrl,
-      LOOPMARSHAL_CLI_STATE_DIR: stateDir
+      LOOPMARSHAL_CLI_STATE_DIR: stateDir,
     };
     const client = createLoopMarshalClient({ baseUrl: smokeBaseUrl });
     const sessionName = `member-wait-takeover-${Date.now()}`;
@@ -99,9 +103,9 @@ const main = async () => {
         "--role",
         "host",
         "--duty",
-        "主控编排"
+        "主控编排",
       ],
-      env
+      env,
     });
     await runCliJson({
       args: [
@@ -112,28 +116,30 @@ const main = async () => {
         "--role",
         "worker",
         "--duty",
-        "负责执行等待链接管与前端任务验证"
+        "负责执行等待链接管与前端任务验证",
       ],
-      env
+      env,
     });
 
     const session = await client.getSessionByName(sessionName);
     const members = await client.getMembers(session.id);
     const hostAgent = members.find((member) => member.agentName === hostName);
-    const workerAgent = members.find((member) => member.agentName === workerName);
+    const workerAgent = members.find(
+      (member) => member.agentName === workerName,
+    );
     assert(hostAgent, "host should be registered as a session member");
     assert(workerAgent, "worker should be registered as a session member");
 
     const firstAwaitPromise = runCliJson({
       args: ["await", workerName, "--session", sessionName],
-      env
+      env,
     });
 
     await sleep(1200);
 
     const secondAwaitPromise = runCliJson({
       args: ["await", workerName, "--session", sessionName],
-      env
+      env,
     });
 
     await sleep(2500);
@@ -145,10 +151,10 @@ const main = async () => {
       type: "instruction",
       payload: {
         content: "请确认：新的等待链接管成功",
-        result: "pending"
+        result: "pending",
       },
       correlationId: `wait-takeover-${Date.now()}`,
-      idempotencyKey: `wait-takeover:${Date.now()}`
+      idempotencyKey: `wait-takeover:${Date.now()}`,
     });
 
     const firstAwait = await firstAwaitPromise;
@@ -156,13 +162,13 @@ const main = async () => {
 
     assert(
       firstAwait.op === "END_TURN_SILENTLY",
-      "the superseded wait chain should stop silently instead of failing or claiming work"
+      "the superseded wait chain should stop silently instead of failing or claiming work",
     );
     assert(
       secondAwait.op === "PROCESS_CLAIMED_MESSAGE" &&
         secondAwait.status === "task_claimed" &&
         secondAwait.message?.content === "请确认：新的等待链接管成功",
-      "the newer wait chain should take over and claim the incoming task"
+      "the newer wait chain should take over and claim the incoming task",
     );
 
     console.log(
@@ -171,11 +177,11 @@ const main = async () => {
           sessionName,
           firstAwaitOp: firstAwait.op,
           secondAwaitStatus: secondAwait.status,
-          claimedContent: secondAwait.message?.content ?? null
+          claimedContent: secondAwait.message?.content ?? null,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } finally {
     await instance.close();

@@ -29,20 +29,20 @@ const getClient = () => {
   return createLoopMarshalClient({
     headers: {
       "x-loopmarshal-client": "vscode-extension",
-      "x-loopmarshal-process": String(process.pid)
-    }
+      "x-loopmarshal-process": String(process.pid),
+    },
   });
 };
 
 const getStoredState = (
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
 ): SessionState | undefined => {
   return context.workspaceState.get<SessionState>(stateKey);
 };
 
 const setStoredState = async (
   context: vscode.ExtensionContext,
-  state: SessionState | undefined
+  state: SessionState | undefined,
 ): Promise<void> => {
   await context.workspaceState.update(stateKey, state);
 };
@@ -70,24 +70,24 @@ const toErrorMessage = (error: unknown): string => {
 const promptDisplayName = async (): Promise<string | undefined> => {
   return vscode.window.showInputBox({
     prompt: "Display name for this VS Code client",
-    placeHolder: "VS Code Worker"
+    placeHolder: "VS Code Worker",
   });
 };
 
 const promptAgentName = async (): Promise<string | undefined> => {
   return vscode.window.showInputBox({
     prompt: "Stable agent name for this VS Code client",
-    placeHolder: "vscode-worker"
+    placeHolder: "vscode-worker",
   });
 };
 
 const hostSession = async (
   context: vscode.ExtensionContext,
-  statusBar: vscode.StatusBarItem
+  statusBar: vscode.StatusBarItem,
 ) => {
   const sessionName = await vscode.window.showInputBox({
     prompt: "Session name to host",
-    placeHolder: "school-platform"
+    placeHolder: "school-platform",
   });
   if (!sessionName) {
     return;
@@ -106,11 +106,14 @@ const hostSession = async (
   try {
     const result = await getClient().createSession({
       sessionName,
+      ...(vscode.workspace.workspaceFolders?.[0]
+        ? { projectPath: vscode.workspace.workspaceFolders[0].uri.fsPath }
+        : {}),
       agentName,
       displayName,
       platform: "vscode",
       capabilities: ["docs", "review"],
-      connectionMode: "extension"
+      connectionMode: "extension",
     });
 
     await setStoredState(context, {
@@ -118,12 +121,12 @@ const hostSession = async (
       agentId: result.agent.id,
       agentName: result.agent.agentName,
       role: "host",
-      displayName
+      displayName,
     });
 
     statusBar.text = renderStatusBarText(getStoredState(context));
     void vscode.window.showInformationMessage(
-      `Hosted session "${result.session.name}".`
+      `Hosted session "${result.session.name}".`,
     );
   } catch (error: unknown) {
     void vscode.window.showErrorMessage(toErrorMessage(error));
@@ -132,11 +135,11 @@ const hostSession = async (
 
 const joinSession = async (
   context: vscode.ExtensionContext,
-  statusBar: vscode.StatusBarItem
+  statusBar: vscode.StatusBarItem,
 ) => {
   const sessionId = await vscode.window.showInputBox({
     prompt: "Session ID to join",
-    placeHolder: "paste a session id"
+    placeHolder: "paste a session id",
   });
   if (!sessionId) {
     return;
@@ -159,17 +162,17 @@ const joinSession = async (
       {
         label: "worker",
         description: "Participate as an implementation agent",
-        role: "worker"
+        role: "worker",
       },
       {
         label: "observer",
         description: "Watch the session without executing work",
-        role: "observer"
-      }
+        role: "observer",
+      },
     ],
     {
-      placeHolder: "Select collaboration role"
-    }
+      placeHolder: "Select collaboration role",
+    },
   );
   if (!rolePick) {
     return;
@@ -182,7 +185,7 @@ const joinSession = async (
       platform: "vscode",
       role: rolePick.role,
       capabilities: ["docs", "review"],
-      connectionMode: "extension"
+      connectionMode: "extension",
     });
 
     await setStoredState(context, {
@@ -190,12 +193,12 @@ const joinSession = async (
       agentId: result.agent.id,
       agentName: result.agent.agentName,
       role: result.agent.role,
-      displayName
+      displayName,
     });
 
     statusBar.text = renderStatusBarText(getStoredState(context));
     void vscode.window.showInformationMessage(
-      `Joined session "${result.session.name}" as ${result.agent.role}.`
+      `Joined session "${result.session.name}" as ${result.agent.role}.`,
     );
   } catch (error: unknown) {
     void vscode.window.showErrorMessage(toErrorMessage(error));
@@ -212,8 +215,8 @@ const showStatus = async (context: vscode.ExtensionContext) => {
         `Core: ${coreStatus.status}`,
         localState
           ? `Session: ${localState.sessionId}, Role: ${localState.role}`
-          : "Session: not connected"
-      ].join(" | ")
+          : "Session: not connected",
+      ].join(" | "),
     );
   } catch (error: unknown) {
     void vscode.window.showErrorMessage(toErrorMessage(error));
@@ -224,7 +227,7 @@ const openInbox = async (context: vscode.ExtensionContext) => {
   const localState = getStoredState(context);
   if (!localState) {
     void vscode.window.showWarningMessage(
-      "This VS Code client has not joined an LoopMarshal session."
+      "This VS Code client has not joined an LoopMarshal session.",
     );
     return;
   }
@@ -247,17 +250,17 @@ const openInbox = async (context: vscode.ExtensionContext) => {
                 "```json",
                 JSON.stringify(message.payload, null, 2),
                 "```",
-                ""
+                "",
               ].join("\n");
-            })
+            }),
           ].join("\n");
 
     const document = await vscode.workspace.openTextDocument({
       content,
-      language: "markdown"
+      language: "markdown",
     });
     await vscode.window.showTextDocument(document, {
-      preview: false
+      preview: false,
     });
   } catch (error: unknown) {
     void vscode.window.showErrorMessage(toErrorMessage(error));
@@ -266,17 +269,19 @@ const openInbox = async (context: vscode.ExtensionContext) => {
 
 const leaveSession = async (
   context: vscode.ExtensionContext,
-  statusBar: vscode.StatusBarItem
+  statusBar: vscode.StatusBarItem,
 ) => {
   await setStoredState(context, undefined);
   statusBar.text = renderStatusBarText(undefined);
-  void vscode.window.showInformationMessage("Cleared local LoopMarshal session.");
+  void vscode.window.showInformationMessage(
+    "Cleared local LoopMarshal session.",
+  );
 };
 
 export const activate = (context: vscode.ExtensionContext) => {
   const statusBar = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left,
-    100
+    100,
   );
   statusBar.command = "loopMarshal.showStatus";
   statusBar.text = renderStatusBarText(getStoredState(context));
@@ -298,7 +303,7 @@ export const activate = (context: vscode.ExtensionContext) => {
     }),
     vscode.commands.registerCommand("loopMarshal.leaveSession", async () => {
       await leaveSession(context, statusBar);
-    })
+    }),
   );
 };
 

@@ -1,5 +1,7 @@
+import { projectKnowledgePolicy } from "./project-knowledge-policy.js";
+import { externalToolName } from "./external-tool-name.js";
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,9 +12,13 @@ import type {
   McpToolDefinition,
   McpToolParameterSchema,
   McpToolsetId,
-  MessageType
+  MessageType,
 } from "@loopmarshal/protocol";
-import type { WebAgentRuntimeRepository } from "@loopmarshal/store";
+import type {
+  WebAgentRuntimeRepository,
+  SessionRepository,
+  AgentRepository,
+} from "@loopmarshal/store";
 
 import type { ServerServices } from "../server/create-server.js";
 
@@ -20,44 +26,126 @@ type BuiltinToolEntry = {
   definition: McpToolDefinition;
   handler: (
     args: Record<string, unknown>,
-    services: ServerServices
+    services: ServerServices,
   ) => Promise<unknown>;
   allowedRoles: string[];
 };
 
 const objectSchema = (
   properties: McpToolParameterSchema["properties"],
-  required?: string[]
+  required?: string[],
 ): McpToolParameterSchema => ({
   type: "object",
   properties,
-  ...(required ? { required } : {})
+  ...(required ? { required } : {}),
 });
 
 const builtinTools: BuiltinToolEntry[] = [
   {
     definition: {
+      name: "query_messages",
+      description:
+        "Host only. Read this session's recorded collaboration messages, including Worker and Keeper tasks, replies and errors. Optional exact member name/id or task correlation filter. This never claims or acknowledges messages. Native CLI private history is not included. Newest first; use nextBeforeMessageId to read older pages.",
+      parameters: objectSchema({
+        memberName: {
+          type: "string",
+          description: "Exact member name from session_context (optional).",
+        },
+        memberId: {
+          type: "string",
+          description: "Member id from session_context (optional).",
+        },
+        correlationId: {
+          type: "string",
+          description: "Filter one collaboration task thread.",
+        },
+        beforeMessageId: {
+          type: "string",
+          description: "Cursor returned by the previous page.",
+        },
+        limit: {
+          type: "number",
+          description:
+            "Page size, integer 1–50; default 20. Payloads over 12000 characters are marked truncated.",
+        },
+      }),
+    },
+    allowedRoles: ["host"],
+    handler: async (args, services) =>
+      services.messageService.queryMessages(String(args.sessionId), {
+        ...(typeof args.memberName === "string"
+          ? { memberName: args.memberName }
+          : {}),
+        ...(typeof args.memberId === "string"
+          ? { memberId: args.memberId }
+          : {}),
+        ...(typeof args.correlationId === "string"
+          ? { correlationId: args.correlationId }
+          : {}),
+        ...(typeof args.beforeMessageId === "string"
+          ? { beforeMessageId: args.beforeMessageId }
+          : {}),
+        ...(args.limit !== undefined ? { limit: Number(args.limit) } : {}),
+      }),
+  },
+  {
+    definition: {
+      name: "session_context",
+      description:
+        "Read this member's current project, role, live members and session knowledge index.",
+      parameters: objectSchema({}),
+    },
+    allowedRoles: ["host", "worker", "knowledge_keeper"],
+    handler: async (args, services) => ({
+      session: services.sessionService.getSession(String(args.sessionId)),
+      currentMember: services.sessionService
+        .listMembers(String(args.sessionId))
+        .find((member) => member.id === args.agentId),
+      members: services.sessionService.listMembers(String(args.sessionId)),
+      knowledge: services.knowledgeService.list(),
+    }),
+  },
+  {
+    definition: {
       name: "ai_collab_await_event",
-      description: "Wait for the next collaboration event with state-machine continuation guidance.",
+      description:
+        "Wait for the next collaboration event with state-machine continuation guidance.",
       parameters: objectSchema(
         {
-          sessionName: { type: "string", description: "Session name bound to this window." },
-          windowName: { type: "string", description: "Window/agent name bound to this MCP client." },
+          sessionName: {
+            type: "string",
+            description: "Session name bound to this window.",
+          },
+          windowName: {
+            type: "string",
+            description: "Window/agent name bound to this MCP client.",
+          },
           role: {
             type: "string",
             description: "Optional expected role for this window.",
-            enum: ["host", "worker", "knowledge_keeper"]
+            enum: ["host", "worker", "knowledge_keeper"],
           },
           timeoutSeconds: {
             type: "number",
-            description: "Business wait timeout in seconds; clamped below the MCP client timeout."
+            description:
+              "Business wait timeout in seconds; clamped below the MCP client timeout.",
           },
-          continuationToken: { type: "string", description: "Continuation token returned by the previous wait." },
-          quiet: { type: "boolean", description: "Suppress user-visible summaries while waiting." },
-          returnOnlyOnEvent: { type: "boolean", description: "Return only when work arrives or continuation is required." }
+          continuationToken: {
+            type: "string",
+            description: "Continuation token returned by the previous wait.",
+          },
+          quiet: {
+            type: "boolean",
+            description: "Suppress user-visible summaries while waiting.",
+          },
+          returnOnlyOnEvent: {
+            type: "boolean",
+            description:
+              "Return only when work arrives or continuation is required.",
+          },
         },
-        ["sessionName", "windowName"]
-      )
+        ["sessionName", "windowName"],
+      ),
     },
     allowedRoles: ["host", "worker", "knowledge_keeper"],
     handler: async (args, services) =>
@@ -74,33 +162,46 @@ const builtinTools: BuiltinToolEntry[] = [
         ...(typeof args.quiet === "boolean" ? { quiet: args.quiet } : {}),
         ...(typeof args.returnOnlyOnEvent === "boolean"
           ? { returnOnlyOnEvent: args.returnOnlyOnEvent }
-          : {})
-      })
+          : {}),
+      }),
   },
   {
     definition: {
       name: "ai_collab_submit_and_await_next",
-      description: "Submit a claimed task result and immediately continue waiting for the next event.",
+      description:
+        "Submit a claimed task result and immediately continue waiting for the next event.",
       parameters: objectSchema(
         {
-          sessionName: { type: "string", description: "Session name bound to this window." },
-          windowName: { type: "string", description: "Window/agent name bound to this MCP client." },
+          sessionName: {
+            type: "string",
+            description: "Session name bound to this window.",
+          },
+          windowName: {
+            type: "string",
+            description: "Window/agent name bound to this MCP client.",
+          },
           taskId: { type: "string", description: "Claimed task message id." },
           status: {
             type: "string",
             description: "Task completion status.",
-            enum: ["completed", "failed", "blocked"]
+            enum: ["completed", "failed", "blocked"],
           },
           result: { type: "object", description: "Structured task result." },
-          failureReason: { type: "string", description: "Failure or blocked reason." },
+          failureReason: {
+            type: "string",
+            description: "Failure or blocked reason.",
+          },
           timeoutSeconds: {
             type: "number",
-            description: "Business wait timeout in seconds after submission."
+            description: "Business wait timeout in seconds after submission.",
           },
-          continuationToken: { type: "string", description: "Continuation token returned by the previous wait." }
+          continuationToken: {
+            type: "string",
+            description: "Continuation token returned by the previous wait.",
+          },
         },
-        ["sessionName", "windowName", "taskId", "status"]
-      )
+        ["sessionName", "windowName", "taskId", "status"],
+      ),
     },
     allowedRoles: ["worker", "knowledge_keeper"],
     handler: async (args, services) =>
@@ -121,33 +222,49 @@ const builtinTools: BuiltinToolEntry[] = [
           : {}),
         ...(args.continuationToken
           ? { continuationToken: String(args.continuationToken) }
-          : {})
-      })
+          : {}),
+      }),
   },
   {
     definition: {
       name: "ai_collab_report_and_await_next",
-      description: "Resolve a claimed host report/message and immediately continue waiting for the next event.",
+      description:
+        "Resolve a claimed host report/message and immediately continue waiting for the next event.",
       parameters: objectSchema(
         {
-          sessionName: { type: "string", description: "Session name bound to this window." },
-          windowName: { type: "string", description: "Window/agent name bound to this MCP client." },
-          messageId: { type: "string", description: "Claimed report/message id." },
+          sessionName: {
+            type: "string",
+            description: "Session name bound to this window.",
+          },
+          windowName: {
+            type: "string",
+            description: "Window/agent name bound to this MCP client.",
+          },
+          messageId: {
+            type: "string",
+            description: "Claimed report/message id.",
+          },
           action: {
             type: "string",
             description: "Resolution action.",
-            enum: ["completed", "failed", "delegated"]
+            enum: ["completed", "failed", "delegated"],
           },
-          reply: { type: "object", description: "Optional structured reply/result." },
+          reply: {
+            type: "object",
+            description: "Optional structured reply/result.",
+          },
           failureReason: { type: "string", description: "Failure reason." },
           timeoutSeconds: {
             type: "number",
-            description: "Business wait timeout in seconds after resolution."
+            description: "Business wait timeout in seconds after resolution.",
           },
-          continuationToken: { type: "string", description: "Continuation token returned by the previous wait." }
+          continuationToken: {
+            type: "string",
+            description: "Continuation token returned by the previous wait.",
+          },
         },
-        ["sessionName", "windowName", "messageId", "action"]
-      )
+        ["sessionName", "windowName", "messageId", "action"],
+      ),
     },
     allowedRoles: ["host"],
     handler: async (args, services) =>
@@ -155,9 +272,10 @@ const builtinTools: BuiltinToolEntry[] = [
         sessionName: String(args.sessionName),
         windowName: String(args.windowName),
         messageId: String(args.messageId),
-        action: args.action === "failed" || args.action === "delegated"
-          ? args.action
-          : "completed",
+        action:
+          args.action === "failed" || args.action === "delegated"
+            ? args.action
+            : "completed",
         ...(args.reply !== undefined ? { reply: args.reply } : {}),
         ...(args.failureReason
           ? { failureReason: String(args.failureReason) }
@@ -167,27 +285,34 @@ const builtinTools: BuiltinToolEntry[] = [
           : {}),
         ...(args.continuationToken
           ? { continuationToken: String(args.continuationToken) }
-          : {})
-      })
+          : {}),
+      }),
   },
   {
     definition: {
       name: "ai_collab_get_runtime_state",
-      description: "Read the current collaboration state-machine guidance for this window.",
+      description:
+        "Read the current collaboration state-machine guidance for this window.",
       parameters: objectSchema(
         {
-          sessionName: { type: "string", description: "Session name bound to this window." },
-          windowName: { type: "string", description: "Window/agent name bound to this MCP client." }
+          sessionName: {
+            type: "string",
+            description: "Session name bound to this window.",
+          },
+          windowName: {
+            type: "string",
+            description: "Window/agent name bound to this MCP client.",
+          },
         },
-        ["sessionName", "windowName"]
-      )
+        ["sessionName", "windowName"],
+      ),
     },
     allowedRoles: ["host", "worker", "knowledge_keeper"],
     handler: async (args, services) =>
       services.collaborationWaitService.getRuntimeState({
         sessionName: String(args.sessionName),
-        windowName: String(args.windowName)
-      })
+        windowName: String(args.windowName),
+      }),
   },
   {
     definition: {
@@ -197,9 +322,9 @@ const builtinTools: BuiltinToolEntry[] = [
         types: {
           type: "array",
           description: "Message types to claim.",
-          items: { type: "string" }
-        }
-      })
+          items: { type: "string" },
+        },
+      }),
     },
     allowedRoles: ["host", "worker", "knowledge_keeper"],
     handler: async (args, services) => {
@@ -207,9 +332,9 @@ const builtinTools: BuiltinToolEntry[] = [
         ? (args.types as MessageType[])
         : undefined;
       return services.messageService.claimNext(String(args.agentId), {
-        ...(types ? { types } : {})
+        ...(types ? { types } : {}),
       });
-    }
+    },
   },
   {
     definition: {
@@ -218,26 +343,26 @@ const builtinTools: BuiltinToolEntry[] = [
       parameters: objectSchema(
         {
           messageId: { type: "string", description: "Claimed message id." },
-          content: { type: "string", description: "Result content." }
+          content: { type: "string", description: "Result content." },
         },
-        ["messageId", "content"]
-      )
+        ["messageId", "content"],
+      ),
     },
     allowedRoles: ["worker", "knowledge_keeper"],
     handler: async (args, services) => {
       const completed = services.messageService.completeMessage(
         String(args.messageId),
         String(args.agentId),
-        {}
+        {},
       );
       services.messageService.sendMessage({
         sessionId: String(args.sessionId),
         fromAgentId: String(args.agentId),
         type: "result",
-        payload: { content: String(args.content ?? "") }
+        payload: { content: String(args.content ?? "") },
       });
       return completed;
-    }
+    },
   },
   {
     definition: {
@@ -246,10 +371,10 @@ const builtinTools: BuiltinToolEntry[] = [
       parameters: objectSchema(
         {
           messageId: { type: "string", description: "Claimed message id." },
-          reason: { type: "string", description: "Failure reason." }
+          reason: { type: "string", description: "Failure reason." },
         },
-        ["messageId", "reason"]
-      )
+        ["messageId", "reason"],
+      ),
     },
     allowedRoles: ["worker", "knowledge_keeper"],
     handler: async (args, services) =>
@@ -257,8 +382,8 @@ const builtinTools: BuiltinToolEntry[] = [
         String(args.messageId),
         String(args.agentId),
         String(args.reason ?? ""),
-        {}
-      )
+        {},
+      ),
   },
   {
     definition: {
@@ -269,10 +394,10 @@ const builtinTools: BuiltinToolEntry[] = [
           type: { type: "string", description: "Message type." },
           content: { type: "string", description: "Message content." },
           toAgentId: { type: "string", description: "Target agent id." },
-          correlationId: { type: "string", description: "Correlation id." }
+          correlationId: { type: "string", description: "Correlation id." },
         },
-        ["type", "content"]
-      )
+        ["type", "content"],
+      ),
     },
     allowedRoles: ["host", "worker", "knowledge_keeper"],
     handler: async (args, services) =>
@@ -284,42 +409,53 @@ const builtinTools: BuiltinToolEntry[] = [
         ...(args.toAgentId ? { toAgentId: String(args.toAgentId) } : {}),
         ...(args.correlationId
           ? { correlationId: String(args.correlationId) }
-          : {})
-      })
+          : {}),
+      }),
   },
   {
     definition: {
       name: "dispatch_task",
-      description: "Dispatch a task message to a worker. The toAgentId is REQUIRED — tasks without a target worker will be rejected.",
+      description:
+        "Dispatch a task message to a worker. The toAgentId is REQUIRED — tasks without a target worker will be rejected.",
       parameters: objectSchema(
         {
           content: { type: "string", description: "Task content." },
-          toAgentId: { type: "string", description: "Target worker agent ID. REQUIRED — the task will be rejected if this is missing." },
-          correlationId: { type: "string", description: "Correlation id for tracking." }
+          toAgentId: {
+            type: "string",
+            description:
+              "Target worker agent ID. REQUIRED — the task will be rejected if this is missing.",
+          },
+          correlationId: {
+            type: "string",
+            description: "Correlation id for tracking.",
+          },
         },
-        ["content", "toAgentId"]
-      )
+        ["content", "toAgentId"],
+      ),
     },
     allowedRoles: ["host"],
     handler: async (args, services) => {
       if (!args.toAgentId) {
         return {
           success: false,
-          error: "dispatch_task requires a toAgentId. Tasks without a target worker cannot be claimed and will be rejected."
+          error:
+            "dispatch_task requires a toAgentId. Tasks without a target worker cannot be claimed and will be rejected.",
         };
       }
       // 验证目标 Agent 存在且 role === "worker"
-      const targetAgent = services.agentService.getAgent(String(args.toAgentId));
+      const targetAgent = services.agentService.getAgent(
+        String(args.toAgentId),
+      );
       if (!targetAgent) {
         return {
           success: false,
-          error: `dispatch_task target agent not found: ${String(args.toAgentId)}`
+          error: `dispatch_task target agent not found: ${String(args.toAgentId)}`,
         };
       }
       if (targetAgent.role !== "worker") {
         return {
           success: false,
-          error: `dispatch_task target agent must have role "worker", but got role "${targetAgent.role}". Only workers can receive implementation tasks.`
+          error: `dispatch_task target agent must have role "worker", but got role "${targetAgent.role}". Only workers can receive implementation tasks.`,
         };
       }
       return services.messageService.sendMessage({
@@ -330,29 +466,30 @@ const builtinTools: BuiltinToolEntry[] = [
         payload: String(args.content ?? ""),
         ...(args.correlationId
           ? { correlationId: String(args.correlationId) }
-          : {})
+          : {}),
       });
-    }
+    },
   },
   {
     definition: {
       name: "resolve_message",
-      description: "Complete a claimed host message.",
+      description:
+        "Complete a claimed Host message. For client user input, send the summary back to the client chat without creating another Host task.",
       parameters: objectSchema(
         {
           messageId: { type: "string", description: "Claimed message id." },
-          summary: { type: "string", description: "Resolution summary." }
+          summary: { type: "string", description: "Resolution summary." },
         },
-        ["messageId", "summary"]
-      )
+        ["messageId", "summary"],
+      ),
     },
     allowedRoles: ["host"],
     handler: async (args, services) =>
-      services.messageService.completeMessage(
+      services.messageService.resolveHostMessage(
         String(args.messageId),
         String(args.agentId),
-        {}
-      )
+        String(args.summary ?? ""),
+      ),
   },
   {
     definition: {
@@ -363,19 +500,19 @@ const builtinTools: BuiltinToolEntry[] = [
           level: {
             type: "string",
             description: "Knowledge level.",
-            enum: ["l1", "l2", "l3"]
+            enum: ["l1", "l2", "l3"],
           },
-          slug: { type: "string", description: "Document slug." }
+          slug: { type: "string", description: "Document slug." },
         },
-        ["level", "slug"]
-      )
+        ["level", "slug"],
+      ),
     },
     allowedRoles: ["host", "worker", "knowledge_keeper"],
     handler: async (args, services) =>
       services.knowledgeService.get(
         String(args.level) as KnowledgeLevel,
-        String(args.slug)
-      )
+        String(args.slug),
+      ),
   },
   {
     definition: {
@@ -385,93 +522,124 @@ const builtinTools: BuiltinToolEntry[] = [
         level: {
           type: "string",
           description: "Knowledge level.",
-          enum: ["l1", "l2", "l3"]
+          enum: ["l1", "l2", "l3"],
         },
-        query: { type: "string", description: "Search query." }
-      })
+        query: { type: "string", description: "Search query." },
+      }),
     },
     allowedRoles: ["host", "worker", "knowledge_keeper"],
     handler: async (args, services) =>
       services.knowledgeService.list({
         ...(args.level ? { level: String(args.level) as KnowledgeLevel } : {}),
-        ...(args.query ? { query: String(args.query) } : {})
-      })
+        ...(args.query ? { query: String(args.query) } : {}),
+      }),
   },
   {
     definition: {
       name: "knowledge_update",
-      description: "Create or update a knowledge document.",
+      description: `Create or update verified project knowledge. ${projectKnowledgePolicy}`,
       parameters: objectSchema(
         {
           level: {
             type: "string",
             description: "Knowledge level.",
-            enum: ["l1", "l2", "l3"]
+            enum: ["l1", "l2", "l3"],
           },
           slug: { type: "string", description: "Document slug." },
           title: { type: "string", description: "Document title." },
           content: { type: "string", description: "Markdown content." },
-          summary: { type: "string", description: "Short summary." }
+          summary: { type: "string", description: "Short summary." },
         },
-        ["level", "slug", "title", "content"]
-      )
+        ["level", "slug", "title", "content"],
+      ),
     },
-    allowedRoles: ["knowledge_keeper"],
+    allowedRoles: ["host", "knowledge_keeper"],
     handler: async (args, services) => {
       // 运行时参数校验：不依赖 JSON Schema，防止 String(undefined) 和无效 enum
       const VALID_LEVELS = ["l1", "l2", "l3"] as const;
-      const normalizedLevel = typeof args.level === "string" ? args.level.trim().toLowerCase() : "";
-      if (!VALID_LEVELS.includes(normalizedLevel as typeof VALID_LEVELS[number])) {
-        return { success: false as const, error: `Invalid level: expected one of l1/l2/l3, got "${String(args.level)}"`, result: null };
+      const normalizedLevel =
+        typeof args.level === "string" ? args.level.trim().toLowerCase() : "";
+      if (
+        !VALID_LEVELS.includes(normalizedLevel as (typeof VALID_LEVELS)[number])
+      ) {
+        return {
+          success: false as const,
+          error: `Invalid level: expected one of l1/l2/l3, got "${String(args.level)}"`,
+          result: null,
+        };
       }
       if (typeof args.slug !== "string" || args.slug.trim().length === 0) {
-        return { success: false as const, error: "Missing or empty slug", result: null };
+        return {
+          success: false as const,
+          error: "Missing or empty slug",
+          result: null,
+        };
       }
       if (typeof args.title !== "string" || args.title.trim().length === 0) {
-        return { success: false as const, error: "Missing or empty title", result: null };
+        return {
+          success: false as const,
+          error: "Missing or empty title",
+          result: null,
+        };
       }
-      if (typeof args.content !== "string" || args.content.trim().length === 0) {
-        return { success: false as const, error: "Missing or empty content", result: null };
+      if (
+        typeof args.content !== "string" ||
+        args.content.trim().length === 0
+      ) {
+        return {
+          success: false as const,
+          error: "Missing or empty content",
+          result: null,
+        };
       }
       return services.knowledgeService.upsert({
         level: normalizedLevel as KnowledgeLevel,
         slug: args.slug.trim().toLowerCase(),
         title: args.title,
         content: args.content,
-        ...(typeof args.summary === "string" && args.summary.length > 0 ? { summary: args.summary } : {}),
+        ...(typeof args.summary === "string" && args.summary.length > 0
+          ? { summary: args.summary }
+          : {}),
         sourceKind: "host_update",
-        sourceAgentId: String(args.agentId)
+        sourceAgentId: String(args.agentId),
       });
-    }
+    },
   },
   {
     definition: {
       name: "user_preferences_list",
       description: "List global user preferences that apply across projects.",
       parameters: objectSchema({
-        category: { type: "string", description: "Optional preference category." },
-        query: { type: "string", description: "Optional search query." }
-      })
+        category: {
+          type: "string",
+          description: "Optional preference category.",
+        },
+        query: { type: "string", description: "Optional search query." },
+      }),
     },
     allowedRoles: ["host", "knowledge_keeper"],
     handler: async (args, services) =>
       services.userPreferencesService.list({
         ...(args.category ? { category: String(args.category) } : {}),
-        ...(args.query ? { query: String(args.query) } : {})
-      })
+        ...(args.query ? { query: String(args.query) } : {}),
+      }),
   },
   {
     definition: {
       name: "user_preference_update",
-      description: "Create or update a global user preference. Use this only for durable user habits that should apply across projects.",
+      description:
+        "Create or update a global user preference. Use this only for durable user habits that should apply across projects.",
       parameters: objectSchema(
         {
           key: { type: "string", description: "Stable preference key." },
           value: { type: "string", description: "Preference content." },
-          category: { type: "string", description: "Optional preference category." }
+          category: {
+            type: "string",
+            description: "Optional preference category.",
+          },
         },
-        ["key", "value"]
-      )
+        ["key", "value"],
+      ),
     },
     allowedRoles: ["knowledge_keeper"],
     handler: async (args, services) =>
@@ -479,8 +647,8 @@ const builtinTools: BuiltinToolEntry[] = [
         key: String(args.key),
         value: String(args.value),
         ...(args.category ? { category: String(args.category) } : {}),
-        source: "agent"
-      })
+        source: "agent",
+      }),
   },
   {
     definition: {
@@ -491,9 +659,9 @@ const builtinTools: BuiltinToolEntry[] = [
         projectSummary: { type: "string", description: "Project summary." },
         activePlanSummary: {
           type: "string",
-          description: "Active plan summary."
-        }
-      })
+          description: "Active plan summary.",
+        },
+      }),
     },
     allowedRoles: ["host"],
     handler: async (args, services) =>
@@ -506,20 +674,20 @@ const builtinTools: BuiltinToolEntry[] = [
           : {}),
         ...(args.activePlanSummary
           ? { activePlanSummary: String(args.activePlanSummary) }
-          : {})
-      })
+          : {}),
+      }),
   },
   {
     definition: {
       name: "heartbeat",
       description: "Return a heartbeat timestamp.",
-      parameters: objectSchema({})
+      parameters: objectSchema({}),
     },
     allowedRoles: ["host", "worker", "knowledge_keeper"],
     handler: async (args) => ({
       agentId: String(args.agentId),
-      heartbeatAt: new Date().toISOString()
-    })
+      heartbeatAt: new Date().toISOString(),
+    }),
   },
   {
     definition: {
@@ -527,13 +695,13 @@ const builtinTools: BuiltinToolEntry[] = [
       description: "Read a text file allowed by filesystem policy.",
       parameters: objectSchema(
         { path: { type: "string", description: "File path." } },
-        ["path"]
-      )
+        ["path"],
+      ),
     },
     allowedRoles: ["host", "worker", "knowledge_keeper"],
     handler: async (args, services) => {
       const policy = normalizePolicy(
-        services.mcpToolService.getAgentPermissionPolicy(String(args.agentId))
+        services.mcpToolService.getAgentPermissionPolicy(String(args.agentId)),
       );
       if (!policy.filesystem.read) {
         throw new Error("filesystem.read permission is disabled.");
@@ -541,14 +709,15 @@ const builtinTools: BuiltinToolEntry[] = [
       const target = resolveAllowedPath(
         String(args.path),
         policy.filesystem,
-        process.cwd()
+        services.sessionService?.getSession(String(args.sessionId))
+          .projectPath ?? process.cwd(),
       );
       const fileStat = await stat(target);
       if (!fileStat.isFile()) {
         throw new Error(`Path is not a file: ${target}`);
       }
       return { path: target, content: await readFile(target, "utf8") };
-    }
+    },
   },
   {
     definition: {
@@ -557,15 +726,15 @@ const builtinTools: BuiltinToolEntry[] = [
       parameters: objectSchema(
         {
           path: { type: "string", description: "File path." },
-          content: { type: "string", description: "File content." }
+          content: { type: "string", description: "File content." },
         },
-        ["path", "content"]
-      )
+        ["path", "content"],
+      ),
     },
     allowedRoles: ["host", "worker", "knowledge_keeper"],
     handler: async (args, services) => {
       const policy = normalizePolicy(
-        services.mcpToolService.getAgentPermissionPolicy(String(args.agentId))
+        services.mcpToolService.getAgentPermissionPolicy(String(args.agentId)),
       );
       if (!policy.filesystem.write) {
         throw new Error("filesystem.write permission is disabled.");
@@ -573,25 +742,26 @@ const builtinTools: BuiltinToolEntry[] = [
       const target = resolveAllowedPath(
         String(args.path),
         policy.filesystem,
-        process.cwd()
+        services.sessionService?.getSession(String(args.sessionId))
+          .projectPath ?? process.cwd(),
       );
       await mkdir(path.dirname(target), { recursive: true });
       await writeFile(target, String(args.content ?? ""), "utf8");
       return { path: target, written: true };
-    }
+    },
   },
   {
     definition: {
       name: "file_list",
       description: "List a directory allowed by filesystem policy.",
       parameters: objectSchema({
-        path: { type: "string", description: "Directory path." }
-      })
+        path: { type: "string", description: "Directory path." },
+      }),
     },
     allowedRoles: ["host", "worker", "knowledge_keeper"],
     handler: async (args, services) => {
       const policy = normalizePolicy(
-        services.mcpToolService.getAgentPermissionPolicy(String(args.agentId))
+        services.mcpToolService.getAgentPermissionPolicy(String(args.agentId)),
       );
       if (!policy.filesystem.read) {
         throw new Error("filesystem.read permission is disabled.");
@@ -599,7 +769,8 @@ const builtinTools: BuiltinToolEntry[] = [
       const target = resolveAllowedPath(
         String(args.path ?? "."),
         policy.filesystem,
-        process.cwd()
+        services.sessionService?.getSession(String(args.sessionId))
+          .projectPath ?? process.cwd(),
       );
       const dirStat = await stat(target);
       if (!dirStat.isDirectory()) {
@@ -612,9 +783,9 @@ const builtinTools: BuiltinToolEntry[] = [
           ? "directory"
           : entry.isFile()
             ? "file"
-            : "other"
+            : "other",
       }));
-    }
+    },
   },
   {
     definition: {
@@ -626,18 +797,18 @@ const builtinTools: BuiltinToolEntry[] = [
           args: {
             type: "array",
             description: "Arguments.",
-            items: { type: "string" }
+            items: { type: "string" },
           },
           cwd: { type: "string", description: "Working directory." },
-          timeoutSeconds: { type: "number", description: "Timeout seconds." }
+          timeoutSeconds: { type: "number", description: "Timeout seconds." },
         },
-        ["command"]
-      )
+        ["command"],
+      ),
     },
     allowedRoles: ["host", "worker", "knowledge_keeper"],
     handler: async (args, services) => {
       const policy = normalizePolicy(
-        services.mcpToolService.getAgentPermissionPolicy(String(args.agentId))
+        services.mcpToolService.getAgentPermissionPolicy(String(args.agentId)),
       );
       if (!policy.command.enabled) {
         throw new Error("command.enabled permission is disabled.");
@@ -652,7 +823,7 @@ const builtinTools: BuiltinToolEntry[] = [
       const prefix = [command, ...commandArgs].join(" ").trim();
       if (
         !policy.command.allowedPrefixes.some(
-          (allowed) => prefix === allowed || prefix.startsWith(`${allowed} `)
+          (allowed) => prefix === allowed || prefix.startsWith(`${allowed} `),
         )
       ) {
         throw new Error(`Command is not allowed by allowedPrefixes: ${prefix}`);
@@ -660,14 +831,18 @@ const builtinTools: BuiltinToolEntry[] = [
       const cwd = resolveAllowedPath(
         String(args.cwd ?? policy.command.workingDirectory ?? "."),
         policy.filesystem,
-        process.cwd()
+        services.sessionService?.getSession(String(args.sessionId))
+          .projectPath ?? process.cwd(),
       );
       const timeoutSeconds = Math.max(
         1,
-        Math.min(Number(args.timeoutSeconds ?? 120), policy.command.timeoutSeconds)
+        Math.min(
+          Number(args.timeoutSeconds ?? 120),
+          policy.command.timeoutSeconds,
+        ),
       );
       return runCommand(command, commandArgs, cwd, timeoutSeconds);
-    }
+    },
   },
   {
     definition: {
@@ -682,13 +857,35 @@ const builtinTools: BuiltinToolEntry[] = [
           ide: {
             type: "string",
             description: "AI tool/IDE to launch as worker",
-            enum: ["claude", "codex", "cursor", "trae", "opencode", "gemini", "aider", "windsurf", "qoder", "github", "cline", "crusher", "lov", "mimo"]
+            enum: [
+              "claude",
+              "codex",
+              "cursor",
+              "trae",
+              "opencode",
+              "gemini",
+              "aider",
+              "windsurf",
+              "qoder",
+              "github",
+              "cline",
+              "crusher",
+              "lov",
+              "mimo",
+            ],
           },
-          duty: { type: "string", description: "Stable long-term responsibility for this worker." },
-          name: { type: "string", description: "Optional member name for the worker (defaults to <ide>-worker)." }
+          duty: {
+            type: "string",
+            description: "Stable long-term responsibility for this worker.",
+          },
+          name: {
+            type: "string",
+            description:
+              "Optional member name for the worker (defaults to <ide>-worker).",
+          },
         },
-        ["ide", "duty"]
-      )
+        ["ide", "duty"],
+      ),
     },
     allowedRoles: ["host"],
     handler: async (args, services) => {
@@ -697,17 +894,23 @@ const builtinTools: BuiltinToolEntry[] = [
       const workerName = (args.name as string) || `${ide}-worker`;
 
       // Resolve session name from the agent's session
-      const session = services.sessionService.getSession(String(args.sessionId));
+      const session = services.sessionService.getSession(
+        String(args.sessionId),
+      );
       const sessionName = session.name;
 
       // Build the start-agent command args
       const cliArgs = [
         "start-agent",
         ide,
-        "--role", "worker",
-        "--duty", duty,
-        "--name", workerName,
-        "--session", sessionName
+        "--role",
+        "worker",
+        "--duty",
+        duty,
+        "--name",
+        workerName,
+        "--session",
+        sessionName,
       ];
 
       // Try to find loopmarshal CLI binary
@@ -715,20 +918,20 @@ const builtinTools: BuiltinToolEntry[] = [
       if (!cliBinPath) {
         throw new Error(
           "loopmarshal CLI not found. Cannot start worker. " +
-          "Ensure loopmarshal is installed globally or the core service has access to the CLI."
+            "Ensure loopmarshal is installed globally or the core service has access to the CLI.",
         );
       }
 
       const result = await runCommand(
         process.execPath,
         [cliBinPath, ...cliArgs],
-        process.cwd(),
-        120
+        session.projectPath ?? process.cwd(),
+        120,
       );
 
       if (result.exitCode !== 0) {
         throw new Error(
-          `Failed to start ${ide} worker (exit ${result.exitCode}): ${result.stderr.trim() || result.stdout.trim()}`
+          `Failed to start ${ide} worker (exit ${result.exitCode}): ${result.stderr.trim() || result.stdout.trim()}`,
         );
       }
 
@@ -746,14 +949,15 @@ const builtinTools: BuiltinToolEntry[] = [
         duty,
         workerName,
         sessionName,
-        details
+        details,
       };
-    }
-  }
+    },
+  },
 ];
 
 const toolsetDefinitions: Record<McpToolsetId, string[]> = {
   worker: [
+    "session_context",
     "ai_collab_await_event",
     "ai_collab_submit_and_await_next",
     "ai_collab_get_runtime_state",
@@ -763,9 +967,11 @@ const toolsetDefinitions: Record<McpToolsetId, string[]> = {
     "send_message",
     "knowledge_read",
     "knowledge_list",
-    "heartbeat"
+    "heartbeat",
   ],
   host: [
+    "query_messages",
+    "session_context",
     "ai_collab_await_event",
     "ai_collab_report_and_await_next",
     "ai_collab_get_runtime_state",
@@ -773,14 +979,18 @@ const toolsetDefinitions: Record<McpToolsetId, string[]> = {
     "send_message",
     "knowledge_read",
     "knowledge_list",
+    "knowledge_update",
+    "file_read",
+    "file_list",
     "user_preferences_list",
     "heartbeat",
     "dispatch_task",
     "resolve_message",
     "update_insight",
-    "start_worker"
+    "start_worker",
   ],
   knowledge_keeper: [
+    "session_context",
     "ai_collab_await_event",
     "ai_collab_submit_and_await_next",
     "ai_collab_get_runtime_state",
@@ -797,9 +1007,10 @@ const toolsetDefinitions: Record<McpToolsetId, string[]> = {
     "file_read",
     "file_write",
     "file_list",
-    "command_run"
+    "command_run",
   ],
   developer: [
+    "session_context",
     "ai_collab_await_event",
     "ai_collab_submit_and_await_next",
     "ai_collab_get_runtime_state",
@@ -813,23 +1024,28 @@ const toolsetDefinitions: Record<McpToolsetId, string[]> = {
     "file_read",
     "file_write",
     "file_list",
-    "command_run"
-  ]
+    "command_run",
+  ],
 };
 
 export class McpToolService {
   private readonly toolsByName = new Map(
-    builtinTools.map((tool) => [tool.definition.name, tool])
+    builtinTools.map((tool) => [tool.definition.name, tool]),
   );
 
   public constructor(
     private readonly webRuntimes?: WebAgentRuntimeRepository,
-    private readonly policyOverrides: Map<string, AgentPermissionPolicy> = new Map()
+    private readonly policyOverrides: Map<
+      string,
+      AgentPermissionPolicy
+    > = new Map(),
+    private readonly sessions?: SessionRepository,
+    private readonly agents?: AgentRepository,
   ) {}
 
   public setAgentPermissionPolicy(
     agentId: string,
-    policy: AgentPermissionPolicy
+    policy: AgentPermissionPolicy,
   ): void {
     this.policyOverrides.set(agentId, policy);
   }
@@ -860,16 +1076,32 @@ export class McpToolService {
     args: Record<string, unknown>,
     agentId: string,
     sessionId: string,
-    services: ServerServices
+    services: ServerServices,
   ): Promise<{ success: boolean; result: unknown; error?: string }> {
+    const agent = services.sessionService
+      ?.listMembers?.(sessionId)
+      .find((member) => member.id === agentId);
+    if (services.sessionService && !agent)
+      return {
+        success: false,
+        result: null,
+        error: "Agent does not belong to this session.",
+      };
+    services = {
+      ...services,
+      knowledgeService:
+        services.knowledgeService?.forSession?.(sessionId) ??
+        services.knowledgeService,
+    };
     const entry = this.toolsByName.get(toolName);
     if (entry) {
-      const role = this.webRuntimes?.findByAgentId(agentId)?.role;
+      const role =
+        agent?.role ?? this.webRuntimes?.findByAgentId(agentId)?.role;
       if (role && !entry.allowedRoles.includes(role)) {
         return {
           success: false,
           result: null,
-          error: `Tool '${toolName}' is not allowed for role '${role}'.`
+          error: `Tool '${toolName}' is not allowed for role '${role}'.`,
         };
       }
 
@@ -881,18 +1113,22 @@ export class McpToolService {
       try {
         const result = await entry.handler(
           { ...args, agentId, sessionId },
-          services
+          services,
         );
         // If handler returned an explicit success: false, propagate it
         if (result && typeof result === "object" && "success" in result) {
-          return result as { success: boolean; result: unknown; error?: string };
+          return result as {
+            success: boolean;
+            result: unknown;
+            error?: string;
+          };
         }
         return { success: true, result };
       } catch (error: unknown) {
         return {
           success: false,
           result: null,
-          error: error instanceof Error ? error.message : "Unknown error"
+          error: error instanceof Error ? error.message : "Unknown error",
         };
       }
     }
@@ -902,9 +1138,24 @@ export class McpToolService {
       return {
         success: false,
         result: null,
-        error: `Tool '${toolName}' not found.`
+        error: `Tool '${toolName}' not found.`,
       };
     }
+    const runtime = this.webRuntimes?.findByAgentId(agentId);
+    if (runtime && toolName.startsWith("ext_")) {
+      for (const id of runtime.externalMcpServerIds) {
+        const tool = (await externalMcpService.listTools(id)).find(
+          (item) => externalToolName(id, item.name) === toolName,
+        );
+        if (tool) return externalMcpService.callTool(id, tool.name, args);
+      }
+    }
+    if (runtime)
+      return {
+        success: false,
+        result: null,
+        error: "This external MCP tool was not selected for this agent.",
+      };
     return externalMcpService.callToolByName(toolName, args);
   }
 
@@ -914,11 +1165,28 @@ export class McpToolService {
       return override;
     }
     const runtime = this.webRuntimes?.findByAgentId(agentId);
-    return getDefaultPermissionPolicy(runtime?.role ?? null);
+    const agent = this.agents?.findById(agentId);
+    const role = runtime?.role ?? agent?.role;
+    const policy = getDefaultPermissionPolicy(role ?? null);
+    const projectPath = agent
+      ? this.sessions?.findById(agent.sessionId)?.projectPath
+      : null;
+    if (projectPath)
+      policy.filesystem = {
+        read: true,
+        write: role === "worker",
+        allowedPaths: [projectPath],
+        deniedPaths: [path.join(projectPath, ".git")],
+      };
+    return policy;
   }
 
   private checkPermission(toolName: string, agentId: string): string | null {
     const policy = normalizePolicy(this.getAgentPermissionPolicy(agentId));
+    if (toolName === "query_messages" && !policy.messages.read)
+      return "Tool 'query_messages' denied: messages.read permission is disabled.";
+    if (toolName === "resolve_message" && !policy.messages.send)
+      return "Tool 'resolve_message' denied: messages.send permission is disabled.";
     if (
       ["knowledge_read", "knowledge_list"].includes(toolName) &&
       !policy.knowledge.read
@@ -937,7 +1205,7 @@ export class McpToolService {
         "fail_task",
         "resolve_message",
         "ai_collab_submit_and_await_next",
-        "ai_collab_report_and_await_next"
+        "ai_collab_report_and_await_next",
       ].includes(toolName) &&
       !policy.messages.complete
     ) {
@@ -949,7 +1217,10 @@ export class McpToolService {
     if (toolName === "dispatch_task" && !policy.messages.dispatchTask) {
       return `Tool '${toolName}' denied: messages.dispatchTask permission is disabled.`;
     }
-    if (["file_read", "file_list"].includes(toolName) && !policy.filesystem.read) {
+    if (
+      ["file_read", "file_list"].includes(toolName) &&
+      !policy.filesystem.read
+    ) {
       return `Tool '${toolName}' denied: filesystem.read permission is disabled.`;
     }
     if (toolName === "file_write" && !policy.filesystem.write) {
@@ -988,7 +1259,7 @@ type NormalizedPolicy = {
 };
 
 function getDefaultPermissionPolicy(
-  role: string | null | undefined
+  role: string | null | undefined,
 ): AgentPermissionPolicy {
   const base: AgentPermissionPolicy = {
     knowledge: { read: true, write: false, delete: false },
@@ -997,13 +1268,13 @@ function getDefaultPermissionPolicy(
       send: true,
       claim: true,
       complete: true,
-      dispatchTask: false
+      dispatchTask: false,
     },
     filesystem: {
       read: false,
       write: false,
       allowedPaths: [],
-      deniedPaths: []
+      deniedPaths: [],
     },
     command: {
       enabled: false,
@@ -1011,20 +1282,21 @@ function getDefaultPermissionPolicy(
       requireApproval: true,
       allowedPrefixes: [],
       workingDirectory: null,
-      timeoutSeconds: 120
-    }
+      timeoutSeconds: 120,
+    },
   };
 
   if (role === "host") {
     return {
       ...base,
-      messages: { ...base.messages, dispatchTask: true }
+      knowledge: { read: true, write: true, delete: false },
+      messages: { ...base.messages, dispatchTask: true },
     };
   }
   if (role === "knowledge_keeper") {
     return {
       ...base,
-      knowledge: { read: true, write: true, delete: false }
+      knowledge: { read: true, write: true, delete: false },
     };
   }
   return base;
@@ -1035,20 +1307,20 @@ function normalizePolicy(policy: AgentPermissionPolicy): NormalizedPolicy {
     knowledge: {
       read: policy.knowledge?.read ?? true,
       write: policy.knowledge?.write ?? false,
-      delete: policy.knowledge?.delete ?? false
+      delete: policy.knowledge?.delete ?? false,
     },
     messages: {
       read: policy.messages?.read ?? true,
       send: policy.messages?.send ?? true,
       claim: policy.messages?.claim ?? true,
       complete: policy.messages?.complete ?? true,
-      dispatchTask: policy.messages?.dispatchTask ?? false
+      dispatchTask: policy.messages?.dispatchTask ?? false,
     },
     filesystem: {
       read: policy.filesystem?.read ?? false,
       write: policy.filesystem?.write ?? false,
       allowedPaths: policy.filesystem?.allowedPaths ?? [],
-      deniedPaths: policy.filesystem?.deniedPaths ?? []
+      deniedPaths: policy.filesystem?.deniedPaths ?? [],
     },
     command: {
       enabled: policy.command?.enabled ?? false,
@@ -1056,33 +1328,50 @@ function normalizePolicy(policy: AgentPermissionPolicy): NormalizedPolicy {
       requireApproval: policy.command?.requireApproval ?? true,
       allowedPrefixes: policy.command?.allowedPrefixes ?? [],
       workingDirectory: policy.command?.workingDirectory ?? null,
-      timeoutSeconds: policy.command?.timeoutSeconds ?? 120
-    }
+      timeoutSeconds: policy.command?.timeoutSeconds ?? 120,
+    },
   };
 }
 
 function resolveAllowedPath(
   inputPath: string,
   policy: NormalizedPolicy["filesystem"],
-  workspaceRoot: string
+  workspaceRoot: string,
 ): string {
   if (!inputPath || inputPath.includes("\0")) {
     throw new Error("Invalid path.");
   }
   const target = path.resolve(workspaceRoot, inputPath);
+  const canonicalize = (value: string): string => {
+    let parent = value;
+    while (!existsSync(parent) && path.dirname(parent) !== parent)
+      parent = path.dirname(parent);
+    return path.resolve(realpathSync(parent), path.relative(parent, value));
+  };
+  const canonicalTarget = canonicalize(target);
   const allowedRoots = policy.allowedPaths.map((item) =>
-    path.resolve(workspaceRoot, item)
+    path.resolve(workspaceRoot, item),
   );
   if (
     allowedRoots.length === 0 ||
-    !allowedRoots.some((root) => isPathInside(target, root))
+    !allowedRoots.some(
+      (root) =>
+        isPathInside(target, root) &&
+        isPathInside(canonicalTarget, canonicalize(root)),
+    )
   ) {
     throw new Error(`Path is outside allowedPaths: ${target}`);
   }
   const deniedRoots = policy.deniedPaths.map((item) =>
-    path.resolve(workspaceRoot, item)
+    path.resolve(workspaceRoot, item),
   );
-  if (deniedRoots.some((root) => isPathInside(target, root))) {
+  if (
+    deniedRoots.some(
+      (root) =>
+        isPathInside(target, root) ||
+        isPathInside(canonicalTarget, canonicalize(root)),
+    )
+  ) {
     throw new Error(`Path is inside deniedPaths: ${target}`);
   }
   return target;
@@ -1092,7 +1381,9 @@ function isPathInside(target: string, root: string): boolean {
   const relative = path.relative(root, target);
   return (
     relative === "" ||
-    (Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative))
+    (Boolean(relative) &&
+      !relative.startsWith("..") &&
+      !path.isAbsolute(relative))
   );
 }
 
@@ -1106,16 +1397,74 @@ function resolveLoopMarshalCliPath(): string | null {
   //    apps/core/dist/services/mcp-tool-service.js → ../../../apps/cli/dist/src/index.js
   const here = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
-    path.resolve(here, "..", "..", "..", "apps", "cli", "dist", "src", "index.js"),
-    path.resolve(here, "..", "..", "..", "..", "apps", "cli", "dist", "src", "index.js"),
+    path.resolve(
+      here,
+      "..",
+      "..",
+      "..",
+      "apps",
+      "cli",
+      "dist",
+      "src",
+      "index.js",
+    ),
+    path.resolve(
+      here,
+      "..",
+      "..",
+      "..",
+      "..",
+      "apps",
+      "cli",
+      "dist",
+      "src",
+      "index.js",
+    ),
     // 2. Look in node_modules (published package mode)
-    path.resolve(here, "..", "..", "..", "..", "node_modules", "loopmarshal", "dist", "src", "index.js"),
+    path.resolve(
+      here,
+      "..",
+      "..",
+      "..",
+      "..",
+      "node_modules",
+      "loopmarshal",
+      "dist",
+      "src",
+      "index.js",
+    ),
     // 3. Global install path (Windows)
-    path.resolve(process.env.APPDATA || "", "npm", "node_modules", "loopmarshal", "dist", "src", "index.js"),
+    path.resolve(
+      process.env.APPDATA || "",
+      "npm",
+      "node_modules",
+      "loopmarshal",
+      "dist",
+      "src",
+      "index.js",
+    ),
     // 4. Global install path (Unix)
-    path.resolve("/usr", "local", "lib", "node_modules", "loopmarshal", "dist", "src", "index.js"),
+    path.resolve(
+      "/usr",
+      "local",
+      "lib",
+      "node_modules",
+      "loopmarshal",
+      "dist",
+      "src",
+      "index.js",
+    ),
     // 5. Windows global install (alternative)
-    path.resolve("C:", "Program Files", "nodejs", "node_modules", "loopmarshal", "dist", "src", "index.js"),
+    path.resolve(
+      "C:",
+      "Program Files",
+      "nodejs",
+      "node_modules",
+      "loopmarshal",
+      "dist",
+      "src",
+      "index.js",
+    ),
   ];
 
   for (const candidate of candidates) {
@@ -1131,7 +1480,7 @@ function runCommand(
   command: string,
   args: string[],
   cwd: string,
-  timeoutSeconds: number
+  timeoutSeconds: number,
 ): Promise<{
   command: string;
   args: string[];
@@ -1144,7 +1493,7 @@ function runCommand(
     const child = spawn(command, args, {
       cwd,
       shell: false,
-      windowsHide: true
+      windowsHide: true,
     });
     let stdout = "";
     let stderr = "";
@@ -1171,7 +1520,7 @@ function runCommand(
         cwd,
         exitCode,
         stdout: stdout.slice(0, 100_000),
-        stderr: stderr.slice(0, 100_000)
+        stderr: stderr.slice(0, 100_000),
       });
     });
   });

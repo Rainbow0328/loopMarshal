@@ -23,7 +23,7 @@ import type {
   KnowledgeExtractionResult,
   KnowledgeLevel,
   KnowledgePatch,
-  UpsertKnowledgeInput
+  UpsertKnowledgeInput,
 } from "@loopmarshal/protocol";
 
 const DEFAULT_CONTENT_PLACEHOLDER =
@@ -36,7 +36,7 @@ const STABLE_L2_SLUGS = new Set([
   "error-handling",
   "performance",
   "observability",
-  "security"
+  "security",
 ]);
 
 const clampConfidence = (value: number | undefined): number => {
@@ -83,7 +83,9 @@ const summarizeContent = (content: string): string | null => {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .filter((line) => !/^(title|summary|tags|slug|module|level)\s*:/i.test(line));
+    .filter(
+      (line) => !/^(title|summary|tags|slug|module|level)\s*:/i.test(line),
+    );
 
   if (lines.length === 0) {
     return null;
@@ -115,13 +117,13 @@ const toCandidate = (patch: KnowledgePatch): UpsertKnowledgeInput => {
     ownerAgentId: patch.source.sourceAgentId,
     sourceKind: patch.source.type,
     sourceAgentId: patch.source.sourceAgentId,
-    changeSummary: patch.summary
+    changeSummary: patch.summary,
   };
 };
 
 export class KnowledgeExtractionService {
   public extractFromWorkerReport(
-    input: ExtractFromWorkerReportInput
+    input: ExtractFromWorkerReportInput,
   ): KnowledgeExtractionResult {
     const trimmed = input.reportContent.trim();
     if (!trimmed) {
@@ -131,12 +133,16 @@ export class KnowledgeExtractionService {
         patches: [],
         conflicts: [],
         warnings: ["Worker report content is empty."],
-        candidates: []
+        candidates: [],
       };
     }
 
     const level = input.targetHint?.level ?? inferLevelFromText(trimmed);
-    const inferredSlug = this.inferWorkerReportSlug(trimmed, level, input.sourceAgentId);
+    const inferredSlug = this.inferWorkerReportSlug(
+      trimmed,
+      level,
+      input.sourceAgentId,
+    );
     const slug = normalizeSlug(input.targetHint?.slug ?? inferredSlug);
     const title =
       input.targetHint?.title ??
@@ -149,8 +155,10 @@ export class KnowledgeExtractionService {
         reason: "missing_slug",
         patches: [],
         conflicts: [],
-        warnings: ["Could not infer a stable knowledge slug from the worker report."],
-        candidates: []
+        warnings: [
+          "Could not infer a stable knowledge slug from the worker report.",
+        ],
+        candidates: [],
       };
     }
 
@@ -159,7 +167,7 @@ export class KnowledgeExtractionService {
     const taggedLevel = this.extractTaggedValue(trimmed, "level");
     if (taggedLevel && taggedLevel.toLowerCase() !== level) {
       warnings.push(
-        `Requested level "${taggedLevel}" was normalized to "${level}".`
+        `Requested level "${taggedLevel}" was normalized to "${level}".`,
       );
     }
     if (level === "l2" && !STABLE_L2_SLUGS.has(slug)) {
@@ -168,11 +176,13 @@ export class KnowledgeExtractionService {
         message: `L2 slug "${slug}" is not in the stable contract set.`,
         targetLevel: level,
         targetSlug: slug,
-        requiresReview: true
+        requiresReview: true,
       });
     }
     if (level === "l1") {
-      warnings.push("L1 extraction remains review-only and must be approved by knowledge-keeper.");
+      warnings.push(
+        "L1 extraction remains review-only and must be approved by knowledge-keeper.",
+      );
     }
 
     const patch = this.buildKnowledgePatch({
@@ -181,35 +191,41 @@ export class KnowledgeExtractionService {
       title,
       content: trimmed,
       summary:
-        this.extractTaggedValue(trimmed, "summary") ?? summarizeContent(trimmed),
+        this.extractTaggedValue(trimmed, "summary") ??
+        summarizeContent(trimmed),
       tags: this.extractTags(trimmed, level),
       confidence: this.computeWorkerConfidence(trimmed, {
-        hasTargetHint: Boolean(input.targetHint?.level || input.targetHint?.slug),
-        conflictCount: conflicts.length
+        hasTargetHint: Boolean(
+          input.targetHint?.level || input.targetHint?.slug,
+        ),
+        conflictCount: conflicts.length,
       }),
       requiresReview: true,
       source: {
         type: "worker_report",
         sourceAgentId: input.sourceAgentId,
         messageId: input.messageId,
-        correlationId: input.correlationId
-      }
+        correlationId: input.correlationId,
+      },
     });
 
     return {
       accepted: true,
-      reason: conflicts.length > 0 ? "patch_built_with_conflicts" : "patch_built",
+      reason:
+        conflicts.length > 0 ? "patch_built_with_conflicts" : "patch_built",
       patches: [patch],
       conflicts,
       warnings,
-      candidates: [toCandidate(patch)]
+      candidates: [toCandidate(patch)],
     };
   }
 
   public extractFromCodePaths(
-    input: ExtractFromCodePathsInput
+    input: ExtractFromCodePathsInput,
   ): KnowledgeExtractionResult {
-    const uniquePaths = [...new Set(input.codePaths.map((path) => path.trim()).filter(Boolean))];
+    const uniquePaths = [
+      ...new Set(input.codePaths.map((path) => path.trim()).filter(Boolean)),
+    ];
     if (uniquePaths.length === 0) {
       return {
         accepted: false,
@@ -217,12 +233,12 @@ export class KnowledgeExtractionService {
         patches: [],
         conflicts: [],
         warnings: ["No code paths were supplied for extraction."],
-        candidates: []
+        candidates: [],
       };
     }
 
     const slug = normalizeSlug(
-      input.moduleName ?? basename(uniquePaths[0] ?? "", ".ts") ?? "module"
+      input.moduleName ?? basename(uniquePaths[0] ?? "", ".ts") ?? "module",
     );
     const dominantLevel = this.inferLevelFromCodePaths(uniquePaths);
     const content = [
@@ -230,21 +246,25 @@ export class KnowledgeExtractionService {
       "",
       "Observed paths:",
       ...uniquePaths.map((path) => `- ${path}`),
-      ...(input.note ? ["", "Note:", input.note] : [])
+      ...(input.note ? ["", "Note:", input.note] : []),
     ].join("\n");
     const warnings =
       dominantLevel === "l2" && !STABLE_L2_SLUGS.has(slug)
-        ? [`Inferred L2 target "${slug}" is outside the stable L2 contract set.`]
+        ? [
+            `Inferred L2 target "${slug}" is outside the stable L2 contract set.`,
+          ]
         : [];
     const conflicts =
       dominantLevel === "l2" && !STABLE_L2_SLUGS.has(slug)
-        ? [{
-            code: "UNKNOWN_L2_SLUG",
-            message: `Inferred L2 slug "${slug}" is not in the stable contract set.`,
-            targetLevel: dominantLevel,
-            targetSlug: slug,
-            requiresReview: true
-          }]
+        ? [
+            {
+              code: "UNKNOWN_L2_SLUG",
+              message: `Inferred L2 slug "${slug}" is not in the stable contract set.`,
+              targetLevel: dominantLevel,
+              targetSlug: slug,
+              requiresReview: true,
+            },
+          ]
         : [];
 
     const patch = this.buildKnowledgePatch({
@@ -254,14 +274,18 @@ export class KnowledgeExtractionService {
       content,
       summary: `Observed ${uniquePaths.length} code path(s) for ${slug}.`,
       tags: this.deriveTagsFromPaths(uniquePaths, dominantLevel),
-      confidence: this.computeCodePathConfidence(uniquePaths, dominantLevel, conflicts.length),
+      confidence: this.computeCodePathConfidence(
+        uniquePaths,
+        dominantLevel,
+        conflicts.length,
+      ),
       requiresReview: true,
       source: {
         type: "system",
         sourceAgentId: input.sourceAgentId ?? null,
         codePaths: uniquePaths,
-        note: input.note
-      }
+        note: input.note,
+      },
     });
 
     return {
@@ -273,7 +297,7 @@ export class KnowledgeExtractionService {
       patches: [patch],
       conflicts,
       warnings,
-      candidates: [toCandidate(patch)]
+      candidates: [toCandidate(patch)],
     };
   }
 
@@ -286,15 +310,19 @@ export class KnowledgeExtractionService {
       title: input.title.trim() || input.slug,
       content: input.content.trim() || DEFAULT_CONTENT_PLACEHOLDER,
       summary: input.summary ?? null,
-      tags: [...new Set((input.tags ?? []).map((tag) => tag.trim()).filter(Boolean))],
+      tags: [
+        ...new Set((input.tags ?? []).map((tag) => tag.trim()).filter(Boolean)),
+      ],
       confidence: clampConfidence(input.confidence),
       requiresReview: input.requiresReview ?? true,
-      source: input.source
+      source: input.source,
     };
   }
 
   private extractTaggedValue(content: string, key: string): string | null {
-    const match = content.match(new RegExp(`(?:^|\\n)${key}\\s*:\\s*(.+)`, "i"));
+    const match = content.match(
+      new RegExp(`(?:^|\\n)${key}\\s*:\\s*(.+)`, "i"),
+    );
     return match?.[1]?.trim() ?? null;
   }
 
@@ -318,7 +346,7 @@ export class KnowledgeExtractionService {
   private inferWorkerReportSlug(
     content: string,
     level: KnowledgeLevel,
-    fallbackAgentId: string
+    fallbackAgentId: string,
   ): string {
     const taggedSlug =
       this.extractTaggedValue(content, "slug") ??
@@ -344,14 +372,20 @@ export class KnowledgeExtractionService {
 
   private inferLevelFromCodePaths(paths: string[]): KnowledgeLevel {
     const normalized = paths.map((path) => path.toLowerCase());
-    if (normalized.some((path) => path.includes("/rule/") || path.includes("\\rule\\"))) {
+    if (
+      normalized.some(
+        (path) => path.includes("/rule/") || path.includes("\\rule\\"),
+      )
+    ) {
       return "l1";
     }
     if (
       normalized.some((path) =>
-        ["protocol", "sdk", "shared", "store"].some((segment) =>
-          path.includes(`/packages/${segment}/`) || path.includes(`\\packages\\${segment}\\`)
-        )
+        ["protocol", "sdk", "shared", "store"].some(
+          (segment) =>
+            path.includes(`/packages/${segment}/`) ||
+            path.includes(`\\packages\\${segment}\\`),
+        ),
       )
     ) {
       return "l2";
@@ -359,7 +393,10 @@ export class KnowledgeExtractionService {
     return "l3";
   }
 
-  private deriveTagsFromPaths(paths: string[], level: KnowledgeLevel): string[] {
+  private deriveTagsFromPaths(
+    paths: string[],
+    level: KnowledgeLevel,
+  ): string[] {
     const tags = new Set<string>(["code-paths", "draft", level]);
     for (const path of paths) {
       if (path.includes("protocol")) tags.add("protocol");
@@ -375,7 +412,7 @@ export class KnowledgeExtractionService {
     input: {
       hasTargetHint: boolean;
       conflictCount: number;
-    }
+    },
   ): number {
     let confidence = 0.45;
     if (input.hasTargetHint) confidence += 0.2;
@@ -389,7 +426,7 @@ export class KnowledgeExtractionService {
   private computeCodePathConfidence(
     paths: string[],
     level: KnowledgeLevel,
-    conflictCount: number
+    conflictCount: number,
   ): number {
     let confidence = level === "l3" ? 0.55 : 0.5;
     if (paths.length >= 2) confidence += 0.05;

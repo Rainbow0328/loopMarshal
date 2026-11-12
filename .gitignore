@@ -16,6 +16,8 @@ coverage/
 *.db-wal
 *.sqlite-shm
 *.sqlite-wal
+*.management-token
+*.pre-migration-*.bak
 .loopmarshal/
 .loopmarshal-test
 
@@ -71,6 +73,10 @@ DEV.md
 # Runtime data
 .knowledge/
 release/
+apps/desktop/staging/
+apps/desktop/build/icon.png
+apps/desktop/build/icon.ico
+apps/desktop/build/icon-name.nsh
 skills-src/
 
 # Lockfile (project uses pnpm)
@@ -96,6 +102,12 @@ apps/web/docs/
 LOOPMARSHAL-需求与修复文档.md
 post-技术社区.md
 promo*.md
+DESKTOP_AGENT_CONSOLE_SPEC.md
+FRONTEND_DESIGN.md
+ARCHITECTURE.md
+NATIVE_SESSION_PROXY_ACCEPTANCE.md
+DESKTOP_COLLABORATION_ACCEPTANCE.md
+apps/desktop/design/
 
 # OS generated
 Thumbs.db
@@ -103,6 +115,7 @@ ehthumbs.db
 Desktop.ini
 
 # Temp files
+native-config-backups/
 *.tmp
 *.temp
 *.swp

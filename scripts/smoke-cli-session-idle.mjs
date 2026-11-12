@@ -24,7 +24,11 @@ const smokePort = 42779;
 const smokeBaseUrl = `http://127.0.0.1:${smokePort}`;
 const rootDir = process.cwd();
 const cliEntry = resolve(rootDir, "apps/cli/dist/apps/cli/src/index.js");
-const stateDir = resolve(rootDir, ".loopmarshal-test", "smoke-cli-session-idle");
+const stateDir = resolve(
+  rootDir,
+  ".loopmarshal-test",
+  "smoke-cli-session-idle",
+);
 
 const assert = (condition, message) => {
   if (!condition) {
@@ -37,9 +41,9 @@ const runCliJson = async ({ args, env }) => {
     cwd: rootDir,
     env: {
       ...process.env,
-      ...env
+      ...env,
     },
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"],
   });
 
   let stdout = "";
@@ -60,7 +64,7 @@ const runCliJson = async ({ args, env }) => {
 
   if (exitCode !== 0) {
     throw new Error(
-      `CLI command failed (${args.join(" ")}): ${stderr || stdout || exitCode}`
+      `CLI command failed (${args.join(" ")}): ${stderr || stdout || exitCode}`,
     );
   }
 
@@ -78,13 +82,13 @@ const main = async () => {
   const instance = await startCoreServer({
     host: "127.0.0.1",
     port: smokePort,
-    databasePath: resolve(stateDir, "session-idle.sqlite")
+    databasePath: resolve(stateDir, "session-idle.sqlite"),
   });
 
   try {
     const env = {
       LOOPMARSHAL_BASE_URL: smokeBaseUrl,
-      LOOPMARSHAL_CLI_STATE_DIR: resolve(stateDir, ".loopmarshal")
+      LOOPMARSHAL_CLI_STATE_DIR: resolve(stateDir, ".loopmarshal"),
     };
     const client = createLoopMarshalClient({ baseUrl: smokeBaseUrl });
     const sessionName = `session-idle-${Date.now()}`;
@@ -100,9 +104,9 @@ const main = async () => {
         "--role",
         "host",
         "--duty",
-        "plan and dispatch"
+        "plan and dispatch",
       ],
-      env
+      env,
     });
     await runCliJson({
       args: [
@@ -113,41 +117,41 @@ const main = async () => {
         "--role",
         "worker",
         "--duty",
-        "execute assigned tasks"
+        "execute assigned tasks",
       ],
-      env
+      env,
     });
 
     await client.updateWindowBindingDefaults(sessionName, hostName, {
       intervalSeconds: 1,
-      maxRounds: 1
+      maxRounds: 1,
     });
     await client.updateWindowBindingDefaults(sessionName, workerName, {
       intervalSeconds: 1,
-      maxRounds: 1
+      maxRounds: 1,
     });
 
     const workerWait = await runCliJson({
       args: ["await", workerName, "--session", sessionName],
-      env
+      env,
     });
     assert(
       workerWait.op === "EXECUTE_INTERNAL_CMD" ||
         workerWait.op === "END_TURN_SILENTLY",
-      "worker wait should enter a waiting state without claiming a task"
+      "worker wait should enter a waiting state without claiming a task",
     );
 
     const hostWait = await runCliJson({
       args: ["await", hostName, "--session", sessionName],
-      env
+      env,
     });
     assert(
       hostWait.op === "PROCESS_SESSION_IDLE",
-      `host await should stop waiting when all workers are idle, got ${hostWait.op}`
+      `host await should stop waiting when all workers are idle, got ${hostWait.op}`,
     );
     assert(
       hostWait.status === "all_workers_waiting",
-      "host idle control result should expose all_workers_waiting status"
+      "host idle control result should expose all_workers_waiting status",
     );
 
     console.log(
@@ -156,11 +160,11 @@ const main = async () => {
           sessionName,
           workerWaitOp: workerWait.op,
           hostWaitOp: hostWait.op,
-          hostWaitStatus: hostWait.status
+          hostWaitStatus: hostWait.status,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } finally {
     await instance.close();

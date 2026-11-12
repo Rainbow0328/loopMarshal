@@ -35,9 +35,9 @@ const runCli = async ({ args, env }) => {
     cwd: rootDir,
     env: {
       ...process.env,
-      ...env
+      ...env,
     },
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"],
   });
 
   let stdout = "";
@@ -60,7 +60,7 @@ const runCli = async ({ args, env }) => {
     exitCode,
     stdout,
     stderr,
-    json: stdout ? JSON.parse(stdout) : null
+    json: stdout ? JSON.parse(stdout) : null,
   };
 };
 
@@ -68,7 +68,7 @@ const runCliJson = async (input) => {
   const result = await runCli(input);
   if (result.exitCode !== 0) {
     throw new Error(
-      `CLI command failed (${input.args.join(" ")}): ${result.stderr || result.stdout || result.exitCode}`
+      `CLI command failed (${input.args.join(" ")}): ${result.stderr || result.stdout || result.exitCode}`,
     );
   }
   return result.json;
@@ -86,13 +86,13 @@ const main = async () => {
   const instance = await startCoreServer({
     host: "127.0.0.1",
     port: smokePort,
-    databasePath: resolve(stateDir, "knowledge.sqlite")
+    databasePath: resolve(stateDir, "knowledge.sqlite"),
   });
 
   try {
     const env = {
       LOOPMARSHAL_BASE_URL: smokeBaseUrl,
-      LOOPMARSHAL_CLI_STATE_DIR: resolve(stateDir, ".loopmarshal")
+      LOOPMARSHAL_CLI_STATE_DIR: resolve(stateDir, ".loopmarshal"),
     };
     const client = createLoopMarshalClient({ baseUrl: smokeBaseUrl });
     const sessionName = `knowledge-${Date.now()}`;
@@ -100,7 +100,8 @@ const main = async () => {
     const workerName = "worker-one";
     const slug = "smoke/session-direction";
     const userFeedbackSlug = "smoke/user-feedback-direction";
-    const content = "Current session direction: host owns knowledge updates; workers may read refs only.";
+    const content =
+      "Current session direction: host owns knowledge updates; workers may read refs only.";
 
     await runCliJson({
       args: [
@@ -111,9 +112,9 @@ const main = async () => {
         "--role",
         "host",
         "--duty",
-        "plan and maintain knowledge"
+        "plan and maintain knowledge",
       ],
-      env
+      env,
     });
     await runCliJson({
       args: [
@@ -124,9 +125,9 @@ const main = async () => {
         "--role",
         "worker",
         "--duty",
-        "execute assigned tasks"
+        "execute assigned tasks",
       ],
-      env
+      env,
     });
 
     const upserted = await runCliJson({
@@ -149,12 +150,18 @@ const main = async () => {
         "--tags",
         "smoke,session",
         "--change-summary",
-        "Create smoke L1 direction"
+        "Create smoke L1 direction",
       ],
-      env
+      env,
     });
-    assert(upserted.op === "KNOWLEDGE_UPSERTED", "host should upsert knowledge");
-    assert(upserted.document?.slug === slug, "upserted document slug should match");
+    assert(
+      upserted.op === "KNOWLEDGE_UPSERTED",
+      "host should upsert knowledge",
+    );
+    assert(
+      upserted.document?.slug === slug,
+      "upserted document slug should match",
+    );
 
     const userFeedbackContent =
       "User feedback corrected the current session direction and must take priority.";
@@ -178,22 +185,25 @@ const main = async () => {
         "--source-kind",
         "user_feedback",
         "--change-summary",
-        "User feedback corrected the L1 direction"
+        "User feedback corrected the L1 direction",
       ],
-      env
+      env,
     });
     assert(
       userFeedbackUpserted.op === "KNOWLEDGE_UPSERTED",
-      "host should upsert user-feedback knowledge"
+      "host should upsert user-feedback knowledge",
     );
 
     const userFeedbackChanges = await client.listKnowledgeChanges({
+      sessionId: (await client.getSessionByName(sessionName)).id,
       slug: userFeedbackSlug,
-      limit: 5
+      limit: 5,
     });
     assert(
-      userFeedbackChanges.some((change) => change.sourceKind === "user_feedback"),
-      "knowledge changes should retain user_feedback as the source kind"
+      userFeedbackChanges.some(
+        (change) => change.sourceKind === "user_feedback",
+      ),
+      "knowledge changes should retain user_feedback as the source kind",
     );
 
     const read = await runCliJson({
@@ -206,14 +216,14 @@ const main = async () => {
         "--ref",
         `L1/${slug}`,
         "--max-chars",
-        "200"
+        "200",
       ],
-      env
+      env,
     });
     assert(read.op === "KNOWLEDGE_READ", "worker should read knowledge");
     assert(
       read.document?.content === content,
-      "worker read should return the host-upserted knowledge content"
+      "worker read should return the host-upserted knowledge content",
     );
 
     const denied = await runCli({
@@ -230,12 +240,15 @@ const main = async () => {
         "--title",
         "Denied",
         "--content",
-        "Workers cannot write knowledge."
+        "Workers cannot write knowledge.",
       ],
-      env
+      env,
     });
     assert(denied.exitCode !== 0, "worker knowledge upsert should be denied");
-    assert(denied.json?.error, "denied worker upsert should return an error payload");
+    assert(
+      denied.json?.error,
+      "denied worker upsert should return an error payload",
+    );
 
     console.log(
       JSON.stringify(
@@ -243,14 +256,14 @@ const main = async () => {
           sessionName,
           upsertOp: upserted.op,
           userFeedbackSourceRecorded: userFeedbackChanges.some(
-            (change) => change.sourceKind === "user_feedback"
+            (change) => change.sourceKind === "user_feedback",
           ),
           readOp: read.op,
-          workerUpsertDenied: denied.exitCode !== 0
+          workerUpsertDenied: denied.exitCode !== 0,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } finally {
     await instance.close();

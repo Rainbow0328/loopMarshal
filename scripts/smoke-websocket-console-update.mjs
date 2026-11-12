@@ -20,7 +20,11 @@ process.env.LOOPMARSHAL_LOG_ROTATION = "false";
 const smokePort = 42782;
 const smokeBaseUrl = `http://127.0.0.1:${smokePort}`;
 const rootDir = process.cwd();
-const stateDir = resolve(rootDir, ".loopmarshal-test", "smoke-websocket-console-update");
+const stateDir = resolve(
+  rootDir,
+  ".loopmarshal-test",
+  "smoke-websocket-console-update",
+);
 
 const assert = (condition, message) => {
   if (!condition) {
@@ -45,14 +49,18 @@ const waitForConnected = (wsClient, timeoutMs = 5_000) => {
   });
 };
 
-const waitForConsoleReasons = (wsClient, expectedReasons, timeoutMs = 5_000) => {
+const waitForConsoleReasons = (
+  wsClient,
+  expectedReasons,
+  timeoutMs = 5_000,
+) => {
   return new Promise((resolvePromise, reject) => {
     const seenReasons = new Set();
     const timer = setTimeout(() => {
       reject(
         new Error(
-          `Timed out waiting for console:update reasons. Seen: ${Array.from(seenReasons).join(", ")}`
-        )
+          `Timed out waiting for console:update reasons. Seen: ${Array.from(seenReasons).join(", ")}`,
+        ),
       );
     }, timeoutMs);
 
@@ -73,12 +81,14 @@ const main = async () => {
 
   process.env.LOOPMARSHAL_KNOWLEDGE_ROOT = resolve(stateDir, ".knowledge");
   const { startCoreServer } = await import("@loopmarshal/core");
-  const { LoopMarshalWebSocketClient, createLoopMarshalClient } = await import("@loopmarshal/sdk");
+  const { LoopMarshalWebSocketClient, createLoopMarshalClient } = await import(
+    "@loopmarshal/sdk"
+  );
 
   const instance = await startCoreServer({
     host: "127.0.0.1",
     port: smokePort,
-    databasePath: resolve(stateDir, "websocket-console-update.sqlite")
+    databasePath: resolve(stateDir, "websocket-console-update.sqlite"),
   });
   let wsClient;
 
@@ -90,13 +100,13 @@ const main = async () => {
       sessionName,
       agentName: "main-host",
       role: "host",
-      roleDescription: "plan and watch the console"
+      roleDescription: "plan and watch the console",
     });
     const worker = await client.attachSession({
       sessionName,
       agentName: "worker-one",
       role: "worker",
-      roleDescription: "execute tasks"
+      roleDescription: "execute tasks",
     });
 
     wsClient = new LoopMarshalWebSocketClient({
@@ -104,7 +114,7 @@ const main = async () => {
       agentId: host.agent.id,
       sessionId: host.session.id,
       heartbeatIntervalMs: 60_000,
-      maxReconnectAttempts: 0
+      maxReconnectAttempts: 0,
     });
 
     const expectedReasons = ["message_sent", "progress_updated"];
@@ -119,8 +129,8 @@ const main = async () => {
       type: "task",
       correlationId: "smoke-ws-console-1",
       payload: {
-        content: "Trigger a console websocket update."
-      }
+        content: "Trigger a console websocket update.",
+      },
     });
 
     await client.upsertProgress({
@@ -130,24 +140,24 @@ const main = async () => {
       status: "in_progress",
       percentage: 25,
       currentStep: "smoke-console-update",
-      message: "Progress update should refresh the console."
+      message: "Progress update should refresh the console.",
     });
 
     const seenReasons = await consoleUpdates;
     assert(
       expectedReasons.every((reason) => seenReasons.has(reason)),
-      "WebSocket should receive console:update for message and progress changes"
+      "WebSocket should receive console:update for message and progress changes",
     );
 
     console.log(
       JSON.stringify(
         {
           sessionName,
-          consoleUpdateReasons: Array.from(seenReasons)
+          consoleUpdateReasons: Array.from(seenReasons),
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } finally {
     wsClient?.disconnect();

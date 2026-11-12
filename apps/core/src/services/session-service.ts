@@ -13,6 +13,8 @@
  * limitations under the License.
  */
 import { randomUUID } from "node:crypto";
+import { realpathSync, statSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 
 import type {
@@ -26,7 +28,7 @@ import type {
   RemoveSessionMemberInput,
   Session,
   SessionJoinResult,
-  SessionSummary
+  SessionSummary,
 } from "@loopmarshal/protocol";
 import {
   AgentRepository,
@@ -35,10 +37,11 @@ import {
   SessionInsightRepository,
   SessionRepository,
   TaskEventRepository,
-  TaskRepository
+  TaskRepository,
 } from "@loopmarshal/store";
+import { inStoreTransaction } from "@loopmarshal/store";
 
-import { coreErrors } from "../errors.js";
+import { CoreError, coreErrors } from "../errors.js";
 
 const now = (): string => {
   return new Date().toISOString();
@@ -54,13 +57,13 @@ const defaultAgentConnectionMode = "skill-bridge" as const;
 
 const normalizeRoleDescription = (
   role: Agent["role"],
-  roleDescription?: string
+  roleDescription?: string,
 ): string | null => {
   const normalized = roleDescription?.trim() ?? "";
   if (role === "worker") {
     if (!normalized) {
       throw coreErrors.invalidInput(
-        "当前 worker 加入必须提供角色说明。请明确说明这个 worker 是干什么用的。"
+        "当前 worker 加入必须提供角色说明。请明确说明这个 worker 是干什么用的。",
       );
     }
 
@@ -92,11 +95,32 @@ export class SessionService {
     private readonly tasks: TaskRepository,
     private readonly taskEvents: TaskEventRepository,
     private readonly sessionInsights: SessionInsightRepository,
-    private readonly identityLeases: IdentityLeaseRepository
+    private readonly identityLeases: IdentityLeaseRepository,
   ) {}
 
   public listSessions(): SessionSummary[] {
     return this.sessions.listAllSummaries();
+  }
+
+  public resolveProjectPath(value: string): string {
+    try {
+      if (!isAbsolute(value)) throw new Error();
+      const path = realpathSync(value);
+      if (!statSync(path).isDirectory()) throw new Error();
+      return path;
+    } catch {
+      throw coreErrors.invalidInput("请选择存在的项目目录（完整本地路径）。");
+    }
+  }
+
+  public sameProjectPath(a: string, b: string): boolean {
+    return process.platform === "win32"
+      ? a.toLowerCase() === b.toLowerCase()
+      : a === b;
+  }
+
+  public transaction<T>(operation: () => T): T {
+    return inStoreTransaction(this.database, operation);
   }
 
   public listMemberHeartbeats(sessionId: string): AgentHeartbeat[] {
@@ -115,7 +139,9 @@ export class SessionService {
       role: h.role as import("@loopmarshal/protocol").AgentRole,
       status: h.status as import("@loopmarshal/protocol").AgentStatus,
       lastHeartbeatAt: h.lastHeartbeatAt,
-      online: h.status !== "offline" && now - new Date(h.lastHeartbeatAt).getTime() < 300000
+      online:
+        h.status !== "offline" &&
+        now - new Date(h.lastHeartbeatAt).getTime() < 300000,
     }));
   }
 
@@ -126,14 +152,18 @@ export class SessionService {
     }
 
     const createdAt = now();
+    const projectPath = input.projectPath
+      ? this.resolveProjectPath(input.projectPath)
+      : null;
     const hostAgentId = randomUUID();
     const session: Session = {
       id: randomUUID(),
       name: input.sessionName,
+      projectPath,
       hostAgentId,
       status: "active",
       createdAt,
-      updatedAt: createdAt
+      updatedAt: createdAt,
     };
 
     const agent: Agent = {
@@ -148,7 +178,7 @@ export class SessionService {
       connectionMode: input.connectionMode,
       status: "online",
       lastHeartbeatAt: createdAt,
-      createdAt
+      createdAt,
     };
 
     this.sessions.insert(session);
@@ -175,11 +205,11 @@ export class SessionService {
     }
     const roleDescription = normalizeRoleDescription(
       input.role,
-      input.roleDescription
+      input.roleDescription,
     );
     const existing = this.agents.findBySessionIdAndAgentName(
       input.sessionId,
-      input.agentName
+      input.agentName,
     );
     if (existing) {
       if (existing.role !== input.role) {
@@ -193,11 +223,11 @@ export class SessionService {
         roleDescription,
         capabilities: input.capabilities,
         connectionMode: input.connectionMode,
-        lastHeartbeatAt: now()
+        lastHeartbeatAt: now(),
       });
       return {
         session,
-        agent: refreshed
+        agent: refreshed,
       };
     }
 
@@ -214,7 +244,7 @@ export class SessionService {
       connectionMode: input.connectionMode,
       status: "idle",
       lastHeartbeatAt: createdAt,
-      createdAt
+      createdAt,
     };
 
     try {
@@ -244,29 +274,33 @@ export class SessionService {
       role: input.role,
       roleDescription: input.roleDescription,
       capabilities: input.capabilities,
-      connectionMode: input.connectionMode
+      connectionMode: input.connectionMode,
     });
   }
 
   public attachSessionByName(
-    input: AttachSessionInput
+    input: AttachSessionInput,
   ): SessionJoinResult & { reusedExistingSession: boolean } {
     if (input.role === "host") {
+      const projectPath = input.projectPath
+        ? this.resolveProjectPath(input.projectPath)
+        : null;
       const existingSession = this.sessions.findOpenByName(input.sessionName);
       if (!existingSession) {
         const created = this.createSession({
           sessionName: input.sessionName,
+          projectPath,
           agentName: input.agentName,
           displayName: defaultAgentDisplayName(input.agentName),
           platform: defaultAgentPlatform,
           roleDescription: input.roleDescription,
           capabilities: defaultAgentCapabilities,
-          connectionMode: defaultAgentConnectionMode
+          connectionMode: defaultAgentConnectionMode,
         });
 
         return {
           ...created,
-          reusedExistingSession: false
+          reusedExistingSession: false,
         };
       }
 
@@ -275,20 +309,36 @@ export class SessionService {
         throw coreErrors.duplicateSessionName(input.sessionName);
       }
 
+      if (
+        projectPath &&
+        existingSession.projectPath &&
+        !this.sameProjectPath(projectPath, existingSession.projectPath)
+      ) {
+        throw coreErrors.invalidInput(
+          "该会话已绑定其他项目，请使用原项目目录或另建会话。",
+        );
+      }
+      if (projectPath && !existingSession.projectPath) {
+        this.sessions.updateProjectPath(existingSession.id, projectPath, now());
+      }
+
       const refreshed = this.agents.refreshExistingAgent({
         agentId: existingHost.id,
         displayName: defaultAgentDisplayName(input.agentName),
         platform: defaultAgentPlatform,
-        roleDescription: normalizeRoleDescription("host", input.roleDescription),
+        roleDescription: normalizeRoleDescription(
+          "host",
+          input.roleDescription,
+        ),
         capabilities: defaultAgentCapabilities,
         connectionMode: defaultAgentConnectionMode,
-        lastHeartbeatAt: now()
+        lastHeartbeatAt: now(),
       });
 
       return {
-        session: existingSession,
+        session: this.sessions.findById(existingSession.id)!,
         agent: refreshed,
-        reusedExistingSession: true
+        reusedExistingSession: true,
       };
     }
 
@@ -300,12 +350,12 @@ export class SessionService {
       role: input.role,
       roleDescription: input.roleDescription,
       capabilities: defaultAgentCapabilities,
-      connectionMode: defaultAgentConnectionMode
+      connectionMode: defaultAgentConnectionMode,
     });
 
     return {
       ...joined,
-      reusedExistingSession: false
+      reusedExistingSession: false,
     };
   }
 
@@ -349,7 +399,9 @@ export class SessionService {
     return this.runInTransaction(() => this.removeAgentRecord(agent));
   }
 
-  public removeSessionMember(input: RemoveSessionMemberInput): LeaveAgentResult {
+  public removeSessionMember(
+    input: RemoveSessionMemberInput,
+  ): LeaveAgentResult {
     const requester = this.agents.findById(input.requesterAgentId);
     if (!requester) {
       throw coreErrors.agentNotFound(input.requesterAgentId);
@@ -361,7 +413,10 @@ export class SessionService {
     }
 
     if (requester.sessionId !== input.sessionId) {
-      throw coreErrors.crossSessionAgent(input.requesterAgentId, input.sessionId);
+      throw coreErrors.crossSessionAgent(
+        input.requesterAgentId,
+        input.sessionId,
+      );
     }
     if (target.sessionId !== input.sessionId) {
       throw coreErrors.crossSessionAgent(input.targetAgentId, input.sessionId);
@@ -370,14 +425,18 @@ export class SessionService {
       throw coreErrors.permissionDenied("只有 host 可以强制移除会话成员。");
     }
     if (target.role === "host") {
-      throw coreErrors.invalidAgentRemoval("不能通过成员移除接口强制移除 host。");
+      throw coreErrors.invalidAgentRemoval(
+        "不能通过成员移除接口强制移除 host。",
+      );
     }
     if (requester.id === target.id) {
-      throw coreErrors.invalidAgentRemoval("host 不能通过成员移除接口移除自己。");
+      throw coreErrors.invalidAgentRemoval(
+        "host 不能通过成员移除接口移除自己。",
+      );
     }
 
     return this.runInTransaction(() =>
-      this.removeAgentRecord(target, requester.id)
+      this.removeAgentRecord(target, requester.id),
     );
   }
 
@@ -388,7 +447,7 @@ export class SessionService {
   };
   public deleteSession(
     sessionId: string,
-    requesterAgentId: string
+    requesterAgentId: string,
   ): {
     sessionId: string;
     sessionName: string;
@@ -396,7 +455,7 @@ export class SessionService {
   };
   public deleteSession(
     sessionId: string,
-    requesterAgentId?: string
+    requesterAgentId?: string,
   ): {
     sessionId: string;
     sessionName: string;
@@ -420,7 +479,9 @@ export class SessionService {
         throw coreErrors.crossSessionAgent(requesterAgentId, sessionId);
       }
       if (requester.role !== "host") {
-        throw coreErrors.permissionDenied("只有 host 可以主动删除仍在运行中的会话。");
+        throw coreErrors.permissionDenied(
+          "只有 host 可以主动删除仍在运行中的会话。",
+        );
       }
     }
 
@@ -431,7 +492,7 @@ export class SessionService {
     return {
       sessionId,
       sessionName: session.name,
-      deleted: true
+      deleted: true,
     };
   }
 
@@ -442,7 +503,7 @@ export class SessionService {
   };
   public deleteSessionByName(
     sessionName: string,
-    requesterAgentId: string
+    requesterAgentId: string,
   ): {
     sessionId: string;
     sessionName: string;
@@ -450,14 +511,15 @@ export class SessionService {
   };
   public deleteSessionByName(
     sessionName: string,
-    requesterAgentId?: string
+    requesterAgentId?: string,
   ): {
     sessionId: string;
     sessionName: string;
     deleted: true;
   } {
     const session =
-      this.sessions.findOpenByName(sessionName) ?? this.sessions.findByName(sessionName);
+      this.sessions.findOpenByName(sessionName) ??
+      this.sessions.findByName(sessionName);
     if (!session) {
       throw coreErrors.sessionNotFound(sessionName);
     }
@@ -469,8 +531,9 @@ export class SessionService {
 
   private removeAgentRecord(
     agent: Agent,
-    removedByAgentId?: string
+    removedByAgentId?: string,
   ): LeaveAgentResult {
+    this.assertNoActiveProxyDeliveries(agent.sessionId, agent.id);
     const session = this.sessions.findById(agent.sessionId);
     if (!session) {
       throw coreErrors.sessionNotFound(agent.sessionId);
@@ -499,11 +562,12 @@ export class SessionService {
       sessionName: session.name,
       sessionDeleted: shouldDeleteSession,
       sessionClosed: shouldDeleteSession,
-      ...(removedByAgentId ? { removedByAgentId } : {})
+      ...(removedByAgentId ? { removedByAgentId } : {}),
     };
   }
 
   private deleteSessionData(session: Session): void {
+    this.assertNoActiveProxyDeliveries(session.id);
     this.taskEvents.deleteBySessionId(session.id);
     this.tasks.deleteBySessionId(session.id);
     this.messages.deleteBySessionId(session.id);
@@ -511,6 +575,25 @@ export class SessionService {
     this.agents.deleteBySessionId(session.id);
     this.identityLeases.deleteBySessionName(session.name);
     this.sessions.deleteById(session.id);
+  }
+
+  private assertNoActiveProxyDeliveries(
+    sessionId: string,
+    agentId?: string,
+  ): void {
+    const active = this.database
+      .prepare(
+        `SELECT 1 FROM message_deliveries WHERE session_id = ?
+      ${agentId ? "AND (target_agent_id = ? OR reply_to_agent_id = ?)" : ""}
+      AND state IN ('queued','delivering','awaiting_result','blocked','unknown') LIMIT 1`,
+      )
+      .get(sessionId, ...(agentId ? [agentId, agentId] : []));
+    if (active)
+      throw new CoreError(
+        "MEMBER_ROUTE_BUSY",
+        "Resolve or cancel proxy deliveries before removing members or sessions.",
+        409,
+      );
   }
 
   private runInTransaction<T>(task: () => T): T {

@@ -30,8 +30,16 @@ describe("AgentContextRepository", () => {
       role: "host",
       conversationSummary: "User wants to build a chat app",
       recentTurns: [
-        { role: "user", content: "Build a chat app", timestamp: "2024-01-01T00:00:00Z" },
-        { role: "assistant", content: "I'll help you build that.", timestamp: "2024-01-01T00:00:01Z" },
+        {
+          role: "user",
+          content: "Build a chat app",
+          timestamp: "2024-01-01T00:00:00Z",
+        },
+        {
+          role: "assistant",
+          content: "I'll help you build that.",
+          timestamp: "2024-01-01T00:00:01Z",
+        },
       ],
       confirmedDecisions: ["Use React for frontend", "Use SQLite for database"],
       unresolvedQuestions: ["Should we use WebSocket or SSE?"],
@@ -45,8 +53,13 @@ describe("AgentContextRepository", () => {
     const loaded = repo.findByRuntimeId("rt-1");
     expect(loaded).not.toBeNull();
     expect(loaded!.conversationSummary).toBe("User wants to build a chat app");
-    expect(loaded!.confirmedDecisions).toEqual(["Use React for frontend", "Use SQLite for database"]);
-    expect(loaded!.unresolvedQuestions).toEqual(["Should we use WebSocket or SSE?"]);
+    expect(loaded!.confirmedDecisions).toEqual([
+      "Use React for frontend",
+      "Use SQLite for database",
+    ]);
+    expect(loaded!.unresolvedQuestions).toEqual([
+      "Should we use WebSocket or SSE?",
+    ]);
     expect(loaded!.recentTurns[0]!.role).toBe("user");
     expect(loaded!.recentTurns[0]!.content).toBe("Build a chat app");
 
@@ -103,7 +116,10 @@ describe("AgentContextRepository", () => {
       const existing = repo.findByRuntimeId("rt-30")!;
       const recentTurns = [...existing.recentTurns];
       recentTurns.push({ role: "user", content: `User message ${i}` });
-      recentTurns.push({ role: "assistant", content: `Assistant response ${i}` });
+      recentTurns.push({
+        role: "assistant",
+        content: `Assistant response ${i}`,
+      });
 
       // Keep only last 10 turns (window management simulation)
       const trimmed = recentTurns.slice(-10);
@@ -151,7 +167,9 @@ describe("AgentContextRepository", () => {
     const loaded = repo2.findByRuntimeId("rt-restart");
 
     expect(loaded).not.toBeNull();
-    expect(loaded!.conversationSummary).toBe("User confirmed architecture at turn 3");
+    expect(loaded!.conversationSummary).toBe(
+      "User confirmed architecture at turn 3",
+    );
     expect(loaded!.confirmedDecisions).toEqual(["Use React", "Use SQLite"]);
     expect(loaded!.unresolvedQuestions).toEqual(["WebSocket vs SSE"]);
 

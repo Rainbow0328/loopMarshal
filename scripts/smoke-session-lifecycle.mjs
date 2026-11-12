@@ -31,10 +31,7 @@ const expectNotFound = async (task, label) => {
   try {
     await task();
   } catch (error) {
-    if (
-      error instanceof LoopMarshalSdkError &&
-      error.statusCode === 404
-    ) {
+    if (error instanceof LoopMarshalSdkError && error.statusCode === 404) {
       return;
     }
 
@@ -50,7 +47,7 @@ const main = async () => {
   const instance = await startCoreServer({
     host: "127.0.0.1",
     port: smokePort,
-    databasePath
+    databasePath,
   });
 
   try {
@@ -63,7 +60,7 @@ const main = async () => {
       displayName: "Host Main",
       platform: "trae",
       capabilities: ["planning"],
-      connectionMode: "skill-bridge"
+      connectionMode: "skill-bridge",
     });
 
     const worker = await client.joinSessionByName({
@@ -72,8 +69,9 @@ const main = async () => {
       displayName: "Worker Alpha",
       platform: "cursor",
       role: "worker",
+      roleDescription: "Implement backend tasks",
       capabilities: ["backend"],
-      connectionMode: "skill-bridge"
+      connectionMode: "skill-bridge",
     });
 
     await client.sendMessage({
@@ -83,41 +81,41 @@ const main = async () => {
       type: "instruction",
       payload: {
         content: "请处理一个临时任务",
-        result: "pending"
+        result: "pending",
       },
-      correlationId: "smoke-lifecycle-1"
+      correlationId: "smoke-lifecycle-1",
     });
 
     const workerInboxBeforeRemoval = await client.getInbox(worker.agent.id);
     assert(
       workerInboxBeforeRemoval.length === 1,
-      "worker should receive one pending message before removal"
+      "worker should receive one pending message before removal",
     );
 
     const removal = await client.removeSessionMember({
       sessionId: host.session.id,
       requesterAgentId: host.agent.id,
-      targetAgentId: worker.agent.id
+      targetAgentId: worker.agent.id,
     });
     assert(
       removal.sessionDeleted === false,
-      "removing one worker should not delete the session while host remains"
+      "removing one worker should not delete the session while host remains",
     );
     assert(
       removal.agentName === "worker-alpha",
-      "removal result should contain the removed agent name"
+      "removal result should contain the removed agent name",
     );
 
     const membersAfterRemoval = await client.getMembers(host.session.id);
     assert(
       membersAfterRemoval.length === 1 &&
         membersAfterRemoval[0].id === host.agent.id,
-      "only host should remain after worker removal"
+      "only host should remain after worker removal",
     );
 
     await expectNotFound(
       () => client.getInbox(worker.agent.id),
-      "removed worker inbox lookup"
+      "removed worker inbox lookup",
     );
 
     const rejoinedWorker = await client.joinSessionByName({
@@ -126,29 +124,30 @@ const main = async () => {
       displayName: "Worker Alpha Rejoined",
       platform: "cursor",
       role: "worker",
+      roleDescription: "Implement backend tasks",
       capabilities: ["backend"],
-      connectionMode: "skill-bridge"
+      connectionMode: "skill-bridge",
     });
     assert(
       rejoinedWorker.agent.agentName === "worker-alpha",
-      "worker should be able to rejoin with the same agent name after removal"
+      "worker should be able to rejoin with the same agent name after removal",
     );
 
     const activeDeletion = await client.deleteSession(host.session.id, {
-      requesterAgentId: host.agent.id
+      requesterAgentId: host.agent.id,
     });
     assert(
       activeDeletion.deleted === true,
-      "host should be able to delete an active session directly"
+      "host should be able to delete an active session directly",
     );
 
     await expectNotFound(
       () => client.getSession(host.session.id),
-      "deleted session lookup by id"
+      "deleted session lookup by id",
     );
     await expectNotFound(
       () => client.getSessionByName(sessionName),
-      "deleted session lookup by name"
+      "deleted session lookup by name",
     );
 
     const recreated = await client.createSession({
@@ -157,11 +156,11 @@ const main = async () => {
       displayName: "Host Main Recreated",
       platform: "trae",
       capabilities: ["planning"],
-      connectionMode: "skill-bridge"
+      connectionMode: "skill-bridge",
     });
     assert(
       recreated.session.name === sessionName,
-      "same session name should be reusable after cleanup"
+      "same session name should be reusable after cleanup",
     );
 
     const leaveSession = await client.createSession({
@@ -170,12 +169,12 @@ const main = async () => {
       displayName: "Host Leave",
       platform: "trae",
       capabilities: ["planning"],
-      connectionMode: "skill-bridge"
+      connectionMode: "skill-bridge",
     });
     const hostLeave = await client.leaveAgent(leaveSession.agent.id);
     assert(
       hostLeave.sessionDeleted === true,
-      "host leaving should still auto-delete the whole session"
+      "host leaving should still auto-delete the whole session",
     );
 
     console.log(
@@ -185,11 +184,11 @@ const main = async () => {
           removedAgentName: removal.agentName,
           activeDeletionSessionId: activeDeletion.sessionId,
           sessionDeletedAfterHostLeave: hostLeave.sessionDeleted,
-          recreatedSessionId: recreated.session.id
+          recreatedSessionId: recreated.session.id,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } finally {
     await instance.close();

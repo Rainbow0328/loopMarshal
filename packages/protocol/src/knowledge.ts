@@ -17,20 +17,41 @@
 export const knowledgeLevels = ["l1", "l2", "l3"] as const;
 export type KnowledgeLevel = (typeof knowledgeLevels)[number];
 
+/** The same hierarchy is shown to users and supplied to managed agents. */
+export const knowledgeLevelDefinitions = {
+  l1: {
+    label: "项目方向",
+    description: "目标、原则与约束",
+    guidance:
+      "Project direction: user-confirmed goals, scope, long-term principles and highest-priority constraints.",
+  },
+  l2: {
+    label: "领域规则",
+    description: "模块、协议与边界",
+    guidance:
+      "Domain rules: module responsibilities, business rules, state transitions and cross-module boundaries.",
+  },
+  l3: {
+    label: "字段对齐",
+    description: "字段、参数与数据契约",
+    guidance:
+      "Detail alignment: fields, parameters, data structures, request/response contracts, errors and module implementation details.",
+  },
+} as const satisfies Record<
+  KnowledgeLevel,
+  { label: string; description: string; guidance: string }
+>;
+
 export const knowledgeSourceKinds = [
   "manual",
   "worker_report",
   "host_update",
   "system",
-  "user_feedback"
+  "user_feedback",
 ] as const;
 export type KnowledgeSourceKind = (typeof knowledgeSourceKinds)[number];
 
-export const knowledgeChangeKinds = [
-  "created",
-  "updated",
-  "deleted"
-] as const;
+export const knowledgeChangeKinds = ["created", "updated", "deleted"] as const;
 export type KnowledgeChangeKind = (typeof knowledgeChangeKinds)[number];
 
 export type KnowledgeDocumentFrontmatter = {
@@ -79,12 +100,14 @@ export type KnowledgeChangeRecord = {
 export type KnowledgeListItem = Omit<KnowledgeDocument, "content">;
 
 export type ListKnowledgeInput = {
+  sessionId?: string | undefined;
   level?: KnowledgeLevel | undefined;
   tag?: string | undefined;
   query?: string | undefined;
 };
 
 export type UpsertKnowledgeInput = {
+  sessionId?: string | undefined;
   level: KnowledgeLevel;
   slug: string;
   title: string;
@@ -98,6 +121,7 @@ export type UpsertKnowledgeInput = {
 };
 
 export type DeleteKnowledgeInput = {
+  sessionId?: string | undefined;
   level: KnowledgeLevel;
   slug: string;
   sourceKind?: KnowledgeSourceKind | undefined;
@@ -106,6 +130,7 @@ export type DeleteKnowledgeInput = {
 };
 
 export type ListKnowledgeChangesInput = {
+  sessionId?: string | undefined;
   level?: KnowledgeLevel | undefined;
   slug?: string | undefined;
   limit?: number | undefined;
@@ -124,7 +149,7 @@ export const knowledgePatchActions = [
   "create",
   "update",
   "conflict_marked",
-  "skip"
+  "skip",
 ] as const;
 export type KnowledgePatchAction = (typeof knowledgePatchActions)[number];
 
@@ -160,14 +185,14 @@ export const knowledgePatchStatuses = [
   "validation_failed",
   "conflict_marked",
   "rejected",
-  "persistence_failed"
+  "persistence_failed",
 ] as const;
 export type KnowledgePatchStatus = (typeof knowledgePatchStatuses)[number];
 
 export const knowledgePatchValidationStatuses = [
   "pending",
   "passed",
-  "failed"
+  "failed",
 ] as const;
 export type KnowledgePatchValidationStatus =
   (typeof knowledgePatchValidationStatuses)[number];
@@ -176,7 +201,7 @@ export const knowledgePatchReviewDecisions = [
   "pending",
   "approved",
   "rejected",
-  "conflict_marked"
+  "conflict_marked",
 ] as const;
 export type KnowledgePatchReviewDecision =
   (typeof knowledgePatchReviewDecisions)[number];
@@ -184,7 +209,7 @@ export type KnowledgePatchReviewDecision =
 export const knowledgePersistenceResults = [
   "pending",
   "succeeded",
-  "failed"
+  "failed",
 ] as const;
 export type KnowledgePersistenceResult =
   (typeof knowledgePersistenceResults)[number];
@@ -266,6 +291,7 @@ export type UpsertKnowledgePersistenceRecordInput = {
 };
 
 export type ListKnowledgePatchRecordsInput = {
+  sessionId?: string | undefined;
   status?: KnowledgePatchStatus | undefined;
 };
 
@@ -274,6 +300,7 @@ export type ListKnowledgePatchLifecycleInput = {
 };
 
 export type AdjudicateKnowledgePatchInput = {
+  sessionId?: string | undefined;
   patchId: string;
   decision: Extract<
     KnowledgePatchReviewDecision,
@@ -299,11 +326,13 @@ export type ExtractFromWorkerReportInput = {
   correlationId?: string | undefined;
   sourceAgentId: string;
   reportContent: string;
-  targetHint?: {
-    level?: KnowledgeLevel | undefined;
-    slug?: string | undefined;
-    title?: string | undefined;
-  } | undefined;
+  targetHint?:
+    | {
+        level?: KnowledgeLevel | undefined;
+        slug?: string | undefined;
+        title?: string | undefined;
+      }
+    | undefined;
 };
 
 export type ExtractFromCodePathsInput = {
@@ -320,7 +349,9 @@ export type BuildKnowledgePatchInput = {
   content: string;
   summary?: string | null | undefined;
   tags?: string[] | undefined;
-  action?: Extract<KnowledgePatchAction, "create" | "update" | "skip"> | undefined;
+  action?:
+    | Extract<KnowledgePatchAction, "create" | "update" | "skip">
+    | undefined;
   confidence?: number | undefined;
   requiresReview?: boolean | undefined;
   source: KnowledgePatchSource;

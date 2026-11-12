@@ -1,9 +1,25 @@
-import { useEffect, useState, useCallback } from "react";
 import type { ReactNode } from "react";
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
+import { Icon } from "./Icon";
 
 /* ==================== Badge ==================== */
 
-export type BadgeVariant = "success" | "warning" | "error" | "info" | "accent" | "neutral";
+export type BadgeVariant =
+  | "success"
+  | "warning"
+  | "error"
+  | "info"
+  | "accent"
+  | "neutral";
 
 export function Badge({
   variant = "neutral",
@@ -25,17 +41,54 @@ export function Badge({
 /* ==================== Status Badge ==================== */
 
 const STATUS_MAP: Record<string, BadgeVariant> = {
-  active: "success", online: "success", completed: "success", processed: "success", running: "success",
-  working: "accent", claimed: "accent", in_progress: "accent",
-  waiting: "warning", pending: "warning", idle: "warning", paused: "warning", stopped: "warning",
-  error: "error", failed: "error", offline: "error",
+  active: "success",
+  online: "success",
+  completed: "success",
+  processed: "success",
+  running: "success",
+  working: "accent",
+  claimed: "accent",
+  in_progress: "accent",
+  waiting: "warning",
+  pending: "warning",
+  idle: "warning",
+  paused: "warning",
+  stopped: "warning",
+  error: "error",
+  failed: "error",
+  offline: "error",
 };
 
-export function StatusBadge({ status, label }: { status: string; label?: string }) {
+const STATUS_LABEL: Record<string, string> = {
+  active: "在线",
+  online: "在线",
+  completed: "已完成",
+  processed: "已处理",
+  running: "运行中",
+  working: "工作中",
+  claimed: "处理中",
+  in_progress: "执行中",
+  waiting: "等待中",
+  pending: "待处理",
+  idle: "空闲",
+  paused: "已暂停",
+  stopped: "已停止",
+  error: "异常",
+  failed: "失败",
+  offline: "离线",
+};
+
+export function StatusBadge({
+  status,
+  label,
+}: {
+  status: string;
+  label?: string;
+}) {
   const variant = STATUS_MAP[status] ?? "neutral";
   return (
     <Badge variant={variant} dot>
-      {label ?? status}
+      {label && label !== status ? label : (STATUS_LABEL[status] ?? status)}
     </Badge>
   );
 }
@@ -66,6 +119,20 @@ export function RoleBadge({ role }: { role: string }) {
 
 /* ==================== Dialog / Modal ==================== */
 
+const dialogStack: HTMLElement[] = [];
+function updateDialogLayers() {
+  dialogStack.forEach((element, index) => {
+    const backdrop = element.parentElement;
+    if (backdrop) {
+      backdrop.inert = index !== dialogStack.length - 1;
+      backdrop.style.zIndex = String(1000 + index);
+    }
+  });
+  document
+    .querySelector<HTMLElement>(".app-shell")
+    ?.toggleAttribute("inert", dialogStack.length > 0);
+}
+
 export function Dialog({
   open,
   onClose,
@@ -79,54 +146,95 @@ export function Dialog({
   children: ReactNode;
   width?: number;
 }) {
+  const id = useId();
+  const panel = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
   useEffect(() => {
     if (!open) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose]);
-
+    const previous = document.activeElement as HTMLElement | null;
+    const element = panel.current;
+    if (!element) return;
+    dialogStack.push(element);
+    updateDialogLayers();
+    const timer = window.setTimeout(() => panel.current?.focus(), 0);
+    const handler = (event: KeyboardEvent) => {
+      if (dialogStack[dialogStack.length - 1] !== panel.current) return;
+      if (event.key === "Escape") {
+        event.stopImmediatePropagation();
+        close.current();
+      }
+      if (event.key === "Tab") {
+        const controls = Array.from(
+          panel.current?.querySelectorAll<HTMLElement>(
+            'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]',
+          ) ?? [],
+        ).filter((element) => element.getClientRects().length > 0);
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (!first) {
+          event.preventDefault();
+          return;
+        }
+        if (
+          event.shiftKey &&
+          (document.activeElement === first ||
+            document.activeElement === panel.current)
+        ) {
+          event.preventDefault();
+          last?.focus();
+        } else if (
+          !event.shiftKey &&
+          (document.activeElement === last ||
+            !panel.current?.contains(document.activeElement))
+        ) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", handler, true);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("keydown", handler, true);
+      const index = dialogStack.indexOf(element);
+      if (index >= 0) dialogStack.splice(index, 1);
+      updateDialogLayers();
+      if (previous?.isConnected && !previous.closest("[inert]"))
+        previous.focus();
+    };
+  }, [open]);
   if (!open) return null;
-
-  return (
+  return createPortal(
     <div
       className="modal-backdrop"
-      style={{
-        position: "fixed", inset: 0, zIndex: 1000,
-        background: "rgba(0,0,0,0.4)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        backdropFilter: "blur(2px)",
-        animation: "fadeIn var(--t-base) ease-out",
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
       }}
-      onClick={onClose}
     >
       <div
-        className="card animate-slide-up"
-        style={{
-          width: "90%", maxWidth: width,
-          maxHeight: "85vh", overflow: "hidden",
-          display: "flex", flexDirection: "column",
-          boxShadow: "var(--shadow-xl)",
-        }}
-        onClick={(e) => e.stopPropagation()}
+        className="dialog-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={id}
+        tabIndex={-1}
+        ref={panel}
+        style={{ maxWidth: width }}
       >
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "var(--sp-4) var(--sp-5)",
-          borderBottom: "1px solid var(--c-border-subtle)",
-        }}>
-          <h2 style={{ fontSize: "var(--fs-md)", fontWeight: 600 }}>{title}</h2>
-          <button className="btn btn-ghost btn-icon" onClick={onClose} aria-label="关闭">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M18 6L6 18M6 6l12 12" />
-            </svg>
+        <div className="dialog-header">
+          <h2 id={id}>{title}</h2>
+          <button
+            className="btn btn-ghost btn-icon"
+            onClick={onClose}
+            aria-label="关闭"
+          >
+            <Icon name="close" size={18} />
           </button>
         </div>
-        <div style={{ padding: "var(--sp-5)", overflowY: "auto" }}>
-          {children}
-        </div>
+        <div className="dialog-body">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -143,24 +251,42 @@ export function Field({
   hint?: string;
   children: ReactNode;
 }) {
+  const id = useId();
+  let linked = false;
+  const connect = (nodes: ReactNode): ReactNode =>
+    Children.map(nodes, (node) => {
+      if (!isValidElement<Record<string, unknown>>(node) || linked) return node;
+      if (["input", "select", "textarea"].includes(String(node.type))) {
+        linked = true;
+        return cloneElement(node, {
+          id: node.props.id ?? id,
+          ...(!node.props["aria-label"] ? { "aria-label": label } : {}),
+          ...(hint ? { "aria-describedby": `${id}-hint` } : {}),
+        });
+      }
+      return typeof node.type === "string" && node.props.children
+        ? cloneElement(node, {
+            children: connect(node.props.children as ReactNode),
+          })
+        : node;
+    });
   return (
-    <label style={{ display: "block" }}>
-      <div style={{
-        display: "flex", alignItems: "center", gap: "var(--sp-1)",
-        marginBottom: "var(--sp-1)",
-        fontSize: "var(--fs-sm)", fontWeight: 500,
-        color: "var(--c-text-secondary)",
-      }}>
+    <div className="field">
+      <label id={`${id}-label`} htmlFor={id} className="field-label">
         {label}
-        {required && <span style={{ color: "var(--c-error)" }}>*</span>}
-      </div>
-      {children}
+        {required && (
+          <span className="field-required" aria-hidden="true">
+            *
+          </span>
+        )}
+      </label>
+      {connect(children)}
       {hint && (
-        <div style={{ marginTop: "var(--sp-1)", fontSize: "var(--fs-xs)", color: "var(--c-text-tertiary)" }}>
+        <div id={`${id}-hint`} className="field-hint">
           {hint}
         </div>
       )}
-    </label>
+    </div>
   );
 }
 
@@ -187,14 +313,32 @@ export function ConfirmDialog({
 }) {
   return (
     <Dialog open={open} onClose={onClose} title={title} width={400}>
-      <p style={{ fontSize: "var(--fs-sm)", color: "var(--c-text-secondary)", lineHeight: 1.6 }}>
+      <p
+        style={{
+          fontSize: "var(--fs-sm)",
+          color: "var(--c-text-secondary)",
+          lineHeight: 1.6,
+        }}
+      >
         {message}
       </p>
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--sp-2)", marginTop: "var(--sp-5)" }}>
-        <button className="btn btn-secondary" onClick={onClose}>{cancelText}</button>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "flex-end",
+          gap: "var(--sp-2)",
+          marginTop: "var(--sp-5)",
+        }}
+      >
+        <button className="btn btn-secondary" onClick={onClose}>
+          {cancelText}
+        </button>
         <button
           className={danger ? "btn btn-danger" : "btn btn-primary"}
-          onClick={() => { onConfirm(); onClose(); }}
+          onClick={() => {
+            onConfirm();
+            onClose();
+          }}
         >
           {confirmText}
         </button>
@@ -218,7 +362,7 @@ export function EmptyState({
 }) {
   return (
     <div className="empty-state">
-      {icon && <div className="empty-state-icon">{icon}</div>}
+      <div className="empty-state-icon">{icon ?? <Icon name="folder" />}</div>
       <div className="empty-state-title">{title}</div>
       {desc && <div className="empty-state-desc">{desc}</div>}
       {action && <div style={{ marginTop: "var(--sp-4)" }}>{action}</div>}
@@ -230,11 +374,17 @@ export function EmptyState({
 
 export function Loading({ text = "加载中…" }: { text?: string }) {
   return (
-    <div style={{
-      display: "flex", alignItems: "center", justifyContent: "center",
-      gap: "var(--sp-2)", padding: "var(--sp-8)",
-      color: "var(--c-text-tertiary)", fontSize: "var(--fs-sm)",
-    }}>
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: "var(--sp-2)",
+        padding: "var(--sp-8)",
+        color: "var(--c-text-tertiary)",
+        fontSize: "var(--fs-sm)",
+      }}
+    >
       <div className="spinner" />
       {text}
     </div>
@@ -243,10 +393,15 @@ export function Loading({ text = "加载中…" }: { text?: string }) {
 
 export function PageLoading() {
   return (
-    <div style={{
-      display: "flex", alignItems: "center", justifyContent: "center",
-      height: "100%", minHeight: 200,
-    }}>
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        height: "100%",
+        minHeight: 200,
+      }}
+    >
       <div className="spinner spinner-lg" />
     </div>
   );
@@ -254,12 +409,18 @@ export function PageLoading() {
 
 /* ==================== Toast ==================== */
 
-type Toast = { id: number; message: string; type: "success" | "error" | "info" | "warning" };
+type Toast = {
+  id: number;
+  message: string;
+  type: "success" | "error" | "info" | "warning";
+};
 let toastCounter = 0;
 const toastListeners: ((toasts: Toast[]) => void)[] = [];
 let toasts: Toast[] = [];
 
-function notifyToasts() { toastListeners.forEach((l) => l([...toasts])); }
+function notifyToasts() {
+  toastListeners.forEach((l) => l([...toasts]));
+}
 
 export function pushToast(message: string, type: Toast["type"] = "info") {
   const id = ++toastCounter;
@@ -275,23 +436,35 @@ export function ToastContainer() {
   const [list, setList] = useState<Toast[]>([]);
   useEffect(() => {
     toastListeners.push(setList);
-    return () => { toastListeners.splice(toastListeners.indexOf(setList), 1); };
+    return () => {
+      toastListeners.splice(toastListeners.indexOf(setList), 1);
+    };
   }, []);
 
   return (
-    <div style={{
-      position: "fixed", bottom: "var(--sp-5)", right: "var(--sp-5)",
-      zIndex: 2000, display: "flex", flexDirection: "column", gap: "var(--sp-2)",
-      pointerEvents: "none",
-    }}>
+    <div
+      style={{
+        position: "fixed",
+        bottom: "var(--sp-5)",
+        right: "var(--sp-5)",
+        zIndex: 2000,
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--sp-2)",
+        pointerEvents: "none",
+      }}
+    >
       {list.map((t) => (
         <div
           key={t.id}
           className="card animate-slide-up"
           style={{
             padding: "var(--sp-3) var(--sp-4)",
-            display: "flex", alignItems: "center", gap: "var(--sp-2)",
-            fontSize: "var(--fs-sm)", fontWeight: 500,
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--sp-2)",
+            fontSize: "var(--fs-sm)",
+            fontWeight: 500,
             boxShadow: "var(--shadow-lg)",
             borderLeft: `3px solid var(--c-${t.type === "success" ? "success" : t.type === "error" ? "error" : t.type === "warning" ? "warning" : "info"})`,
             pointerEvents: "auto",
@@ -300,6 +473,26 @@ export function ToastContainer() {
           {t.message}
         </div>
       ))}
+    </div>
+  );
+}
+
+export function ErrorState({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div role="alert" className="error-state">
+      <Icon name="info" size={18} />
+      <span>{message}</span>
+      {onRetry && (
+        <button className="btn btn-secondary btn-sm" onClick={onRetry}>
+          重试
+        </button>
+      )}
     </div>
   );
 }

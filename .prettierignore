@@ -1,0 +1,10 @@
+node_modules/
+dist/
+release/
+.cache/
+apps/desktop/staging/
+apps/desktop/build/
+apps/desktop/design/
+apps/web/public/
+pnpm-lock.yaml
+*.tsbuildinfo

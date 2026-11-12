@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
-import type { Agent, AgentPermissionPolicy, WebAgentRuntime } from "@loopmarshal/protocol";
+import { describe, expect, it, vi } from "vitest";
+import type {
+  Agent,
+  AgentPermissionPolicy,
+  WebAgentRuntime,
+} from "@loopmarshal/protocol";
 import { McpToolService } from "../services/mcp-tool-service.js";
 import { AgentWorkflowRegistry } from "../services/agent-workflow-registry.js";
 import type { ServerServices } from "../server/create-server.js";
@@ -37,9 +41,16 @@ function createAgent(id: string, role: string): Agent {
   } as unknown as Agent;
 }
 
-function createHostPolicy(overrides: Partial<AgentPermissionPolicy> = {}): AgentPermissionPolicy {
+function createHostPolicy(
+  overrides: Partial<AgentPermissionPolicy> = {},
+): AgentPermissionPolicy {
   return {
-    knowledge: { read: true, write: false, delete: false, ...overrides.knowledge },
+    knowledge: {
+      read: true,
+      write: false,
+      delete: false,
+      ...overrides.knowledge,
+    },
     messages: {
       read: true,
       send: true,
@@ -81,7 +92,7 @@ describe("AgentWorkflowRegistry — LangGraph business flow", () => {
         mcpToolService: toolService,
         agentService: { getAgent: () => null },
         messageService: { sendMessage: () => ({}) },
-      } as never
+      } as never,
     );
 
     expect(result.success).toBe(false);
@@ -102,11 +113,11 @@ describe("AgentWorkflowRegistry — LangGraph business flow", () => {
         mcpToolService: toolService,
         agentService: { getAgent: () => keeperAgent },
         messageService: { sendMessage: () => ({}) },
-      } as never
+      } as never,
     );
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain("role \"worker\"");
+    expect(result.error).toContain('role "worker"');
   });
 
   it("dispatch_task with valid worker target succeeds and includes correlationId", async () => {
@@ -118,16 +129,23 @@ describe("AgentWorkflowRegistry — LangGraph business flow", () => {
 
     const result = await toolService.executeTool(
       "dispatch_task",
-      { content: "do work", toAgentId: "worker-1", correlationId: testCorrelationId },
+      {
+        content: "do work",
+        toAgentId: "worker-1",
+        correlationId: testCorrelationId,
+      },
       "host-1",
       "session-1",
       {
         mcpToolService: toolService,
         agentService: { getAgent: () => workerAgent },
         messageService: {
-          sendMessage: (input: unknown) => { sentMessages.push(input); return input; },
+          sendMessage: (input: unknown) => {
+            sentMessages.push(input);
+            return input;
+          },
         },
-      } as never
+      } as never,
     );
 
     expect(result.success).toBe(true);
@@ -153,7 +171,7 @@ describe("AgentWorkflowRegistry — LangGraph business flow", () => {
         mcpToolService: toolService,
         agentService: { getAgent: () => null },
         messageService: { sendMessage: () => ({}) },
-      } as never
+      } as never,
     );
 
     expect(result.success).toBe(false);
@@ -175,11 +193,11 @@ describe("AgentWorkflowRegistry — LangGraph business flow", () => {
         mcpToolService: toolService,
         agentService: { getAgent: () => hostAgent },
         messageService: { sendMessage: () => ({}) },
-      } as never
+      } as never,
     );
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain("role \"worker\"");
+    expect(result.error).toContain('role "worker"');
   });
 
   it("executeTool: handler returning non-success-false object is treated as success", async () => {
@@ -196,7 +214,7 @@ describe("AgentWorkflowRegistry — LangGraph business flow", () => {
         mcpToolService: toolService,
         agentService: { getAgent: () => workerAgent },
         messageService: { sendMessage: () => ({ id: "msg-1", type: "task" }) },
-      } as never
+      } as never,
     );
 
     expect(result.success).toBe(true);
@@ -278,17 +296,19 @@ describe("AgentWorkflowRegistry — Keeper workflow routing", () => {
   });
 
   it("self_maintenance payload carries targetRevision for revision guard", () => {
-    const payload = JSON.parse(JSON.stringify({
-      kind: "self_maintenance",
-      reason: "unapplied_user_inputs",
-      targetRevision: 5,
-      insightSnapshot: {
-        unappliedUserInputs: [],
-        latestUserDirectiveRevision: 5,
-        appliedUserDirectiveRevision: 3,
-      },
-      content: "test",
-    }));
+    const payload = JSON.parse(
+      JSON.stringify({
+        kind: "self_maintenance",
+        reason: "unapplied_user_inputs",
+        targetRevision: 5,
+        insightSnapshot: {
+          unappliedUserInputs: [],
+          latestUserDirectiveRevision: 5,
+          appliedUserDirectiveRevision: 3,
+        },
+        content: "test",
+      }),
+    );
 
     // route_keeper_message 提取 targetRevision
     expect(payload.targetRevision).toBe(5);
@@ -297,24 +317,26 @@ describe("AgentWorkflowRegistry — Keeper workflow routing", () => {
   });
 
   it("self_maintenance payload carries insightSnapshot with actual content", () => {
-    const payload = JSON.parse(JSON.stringify({
-      kind: "self_maintenance",
-      reason: "directive_out_of_sync",
-      targetRevision: 7,
-      insightSnapshot: {
-        unappliedUserInputs: [
-          { revision: 6, content: "user said X" },
-          { revision: 7, content: "user said Y" },
-        ],
-        latestUserDirectiveRevision: 7,
-        appliedUserDirectiveRevision: 5,
-        objective: "build a chat app",
-        activePlanSummary: "L1: chat, L2: messaging, L3: websocket",
-        currentProjectUnderstanding: "React + Node",
-        projectSummary: "Real-time chat",
-      },
-      content: "Session insight has changed.",
-    }));
+    const payload = JSON.parse(
+      JSON.stringify({
+        kind: "self_maintenance",
+        reason: "directive_out_of_sync",
+        targetRevision: 7,
+        insightSnapshot: {
+          unappliedUserInputs: [
+            { revision: 6, content: "user said X" },
+            { revision: 7, content: "user said Y" },
+          ],
+          latestUserDirectiveRevision: 7,
+          appliedUserDirectiveRevision: 5,
+          objective: "build a chat app",
+          activePlanSummary: "L1: chat, L2: messaging, L3: websocket",
+          currentProjectUnderstanding: "React + Node",
+          projectSummary: "Real-time chat",
+        },
+        content: "Session insight has changed.",
+      }),
+    );
 
     // understand_task 从 insightSnapshot 提取内容给 LLM
     const snap = payload.insightSnapshot;
@@ -331,7 +353,10 @@ describe("AgentWorkflowRegistry — Keeper workflow routing", () => {
     const currentInsight = {
       unappliedUserInputs: [
         { revision: 5, content: "input at revision 5" },
-        { revision: 6, content: "input at revision 6 (new during maintenance)" },
+        {
+          revision: 6,
+          content: "input at revision 6 (new during maintenance)",
+        },
       ],
       latestUserDirectiveRevision: 6, // 用户在维护期间提交了 revision 6
       appliedUserDirectiveRevision: 4,
@@ -341,9 +366,9 @@ describe("AgentWorkflowRegistry — Keeper workflow routing", () => {
     const revisionToApply = targetRevision; // = 5
 
     // 只移除属于 targetRevision 快照的输入（revision <= 5），保留 revision > 5 的
-    const remainingUnapplied = (currentInsight.unappliedUserInputs as Array<{ revision: number }>).filter(
-      (input) => input.revision > revisionToApply
-    );
+    const remainingUnapplied = (
+      currentInsight.unappliedUserInputs as Array<{ revision: number }>
+    ).filter((input) => input.revision > revisionToApply);
 
     expect(remainingUnapplied).toHaveLength(1);
     expect(remainingUnapplied[0]?.revision).toBe(6);
@@ -380,7 +405,10 @@ describe("AgentWorkflowRegistry — Keeper workflow routing", () => {
     const knowledgeUpdateSucceeded = true;
     const targetRevision = 5;
     const insightBefore = {
-      unappliedUserInputs: [{ revision: 5, content: "test input" }] as Array<{ revision: number; content: string }>,
+      unappliedUserInputs: [{ revision: 5, content: "test input" }] as Array<{
+        revision: number;
+        content: string;
+      }>,
       latestUserDirectiveRevision: 5,
       appliedUserDirectiveRevision: 3,
     };
@@ -389,7 +417,7 @@ describe("AgentWorkflowRegistry — Keeper workflow routing", () => {
     if (knowledgeUpdateSucceeded) {
       const revisionToApply = targetRevision;
       const remainingUnapplied = insightBefore.unappliedUserInputs.filter(
-        (input) => input.revision > revisionToApply
+        (input) => input.revision > revisionToApply,
       );
       insightAfter = {
         ...insightAfter,
@@ -433,11 +461,25 @@ function createKeeperRuntime(): WebAgentRuntime {
 }
 
 function createWorkflowServices(options: {
-  llmResponses: Array<{ content: string; toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }> }>;
+  llmResponses: Array<{
+    content: string;
+    toolCalls?: Array<{
+      id: string;
+      name: string;
+      arguments: Record<string, unknown>;
+    }>;
+  }>;
   insightUpdates?: Array<Record<string, unknown>>;
   sentMessages?: Array<Record<string, unknown>>;
-  mcpExecuteResult?: Record<string, { success: boolean; result: unknown; error?: string }>;
-  mcpExecutePerCall?: Array<{ success: boolean; result: unknown; error?: string }>;
+  mcpExecuteResult?: Record<
+    string,
+    { success: boolean; result: unknown; error?: string }
+  >;
+  mcpExecutePerCall?: Array<{
+    success: boolean;
+    result: unknown;
+    error?: string;
+  }>;
   insightOverrides?: Partial<{
     unappliedUserInputs: Array<{ revision: number; content: string }>;
     latestUserDirectiveRevision: number;
@@ -450,9 +492,13 @@ function createWorkflowServices(options: {
   let mcpCallIndex = 0;
 
   const insight = {
-    unappliedUserInputs: options.insightOverrides?.unappliedUserInputs ?? [] as Array<{ revision: number; content: string }>,
-    latestUserDirectiveRevision: options.insightOverrides?.latestUserDirectiveRevision ?? 5,
-    appliedUserDirectiveRevision: options.insightOverrides?.appliedUserDirectiveRevision ?? 3,
+    unappliedUserInputs:
+      options.insightOverrides?.unappliedUserInputs ??
+      ([] as Array<{ revision: number; content: string }>),
+    latestUserDirectiveRevision:
+      options.insightOverrides?.latestUserDirectiveRevision ?? 5,
+    appliedUserDirectiveRevision:
+      options.insightOverrides?.appliedUserDirectiveRevision ?? 3,
     objective: null as string | null,
     activePlanSummary: null as string | null,
     currentProjectUnderstanding: null as string | null,
@@ -461,34 +507,64 @@ function createWorkflowServices(options: {
 
   return {
     llmOverride: (async (_systemPrompt: string, _userContent: string) => {
-      const response = options.llmResponses[llmCallIndex] ?? { content: "fallback" };
+      const response = options.llmResponses[llmCallIndex] ?? {
+        content: "fallback",
+      };
       llmCallIndex++;
       return { content: response.content, toolCalls: response.toolCalls ?? [] };
     }) as ServerServices["llmOverride"],
     webAgentRuntimeService: { get: () => undefined, update: () => undefined },
-    modelConfigService: { getFull: () => ({ id: "model-1", provider: "mock", baseUrl: "http://mock", modelName: "mock" }) },
+    modelConfigService: {
+      getFull: () => ({
+        id: "model-1",
+        provider: "mock",
+        baseUrl: "http://mock",
+        modelName: "mock",
+      }),
+    },
     mcpToolService: {
       getToolsetDefinitions: () => [
-        { name: "knowledge_update", description: "Update knowledge", parameters: { type: "object", properties: {} } },
-        { name: "send_message", description: "Send message", parameters: { type: "object", properties: {} } },
+        {
+          name: "knowledge_update",
+          description: "Update knowledge",
+          parameters: { type: "object", properties: {} },
+        },
+        {
+          name: "send_message",
+          description: "Send message",
+          parameters: { type: "object", properties: {} },
+        },
       ],
       executeTool: (toolName: string, args: Record<string, unknown>) => {
         if (options.mcpExecutePerCall) {
-          const result = options.mcpExecutePerCall[mcpCallIndex] ?? { success: true, result: { level: args.level, slug: args.slug } };
+          const result = options.mcpExecutePerCall[mcpCallIndex] ?? {
+            success: true,
+            result: { level: args.level, slug: args.slug },
+          };
           mcpCallIndex++;
           return Promise.resolve(result);
         }
         if (options.mcpExecuteResult?.[toolName]) {
           return Promise.resolve(options.mcpExecuteResult[toolName]);
         }
-        return Promise.resolve({ success: true, result: { level: args.level, slug: args.slug }, toolName });
+        return Promise.resolve({
+          success: true,
+          result: { level: args.level, slug: args.slug },
+          toolName,
+        });
       },
     },
     sessionService: {
-      listMembers: () => [createAgent("host-1", "host"), createAgent("keeper-1", "knowledge_keeper")],
+      listMembers: () => [
+        createAgent("host-1", "host"),
+        createAgent("keeper-1", "knowledge_keeper"),
+      ],
     },
     messageService: {
-      sendMessage: (input: Record<string, unknown>) => { sentMessages.push(input); return input; },
+      sendMessage: (input: Record<string, unknown>) => {
+        sentMessages.push(input);
+        return input;
+      },
     },
     knowledgeService: {
       upsert: () => undefined,
@@ -533,15 +609,37 @@ describe("AgentWorkflowRegistry — real LangGraph workflow with Fake LLM", () =
       // Call 3: self_check → passed: true
       llmResponses: [
         { content: '[{"level":"l1","slug":"direction"}]', toolCalls: [] },
-        { content: "executing", toolCalls: [{ id: "c1", name: "knowledge_update", arguments: { level: "l1", slug: "direction", content: "test" } }] },
-        { content: '{"passed":true,"uncertainties":[],"conflicts":[]}', toolCalls: [] },
+        {
+          content: "executing",
+          toolCalls: [
+            {
+              id: "c1",
+              name: "knowledge_update",
+              arguments: { level: "l1", slug: "direction", content: "test" },
+            },
+          ],
+        },
+        {
+          content: '{"passed":true,"uncertainties":[],"conflicts":[]}',
+          toolCalls: [],
+        },
       ],
       insightUpdates,
-      mcpExecuteResult: { knowledge_update: { success: true, result: { level: "l1", slug: "direction" } } },
+      mcpExecuteResult: {
+        knowledge_update: {
+          success: true,
+          result: { level: "l1", slug: "direction" },
+        },
+      },
     });
 
     const { result, sentDirectedResult } = await registry.runWorkflow(
-      runtime, services, selfMaintenancePayload, [], "instruction", null
+      runtime,
+      services,
+      selfMaintenancePayload,
+      [],
+      "instruction",
+      null,
     );
 
     expect(sentDirectedResult).toBe(false);
@@ -550,7 +648,9 @@ describe("AgentWorkflowRegistry — real LangGraph workflow with Fake LLM", () =
     expect(parsed.knowledgeUpdateSucceeded).toBe(true);
     expect(parsed.selfCheckPassed).toBe(true);
     expect(insightUpdates.length).toBeGreaterThan(0);
-    expect(insightUpdates[insightUpdates.length - 1]!.appliedUserDirectiveRevision).toBe(5);
+    expect(
+      insightUpdates[insightUpdates.length - 1]!.appliedUserDirectiveRevision,
+    ).toBe(5);
   });
 
   it("knowledge_maintenance: sends report to Host (sentDirectedResult = true)", async () => {
@@ -561,12 +661,27 @@ describe("AgentWorkflowRegistry — real LangGraph workflow with Fake LLM", () =
     const services = createWorkflowServices({
       llmResponses: [
         { content: '[{"level":"l2","slug":"modules"}]', toolCalls: [] },
-        { content: "executing", toolCalls: [{ id: "c1", name: "knowledge_update", arguments: { level: "l2", slug: "modules", content: "test" } }] },
-        { content: '{"passed":true,"uncertainties":[],"conflicts":[]}', toolCalls: [] },
+        {
+          content: "executing",
+          toolCalls: [
+            {
+              id: "c1",
+              name: "knowledge_update",
+              arguments: { level: "l2", slug: "modules", content: "test" },
+            },
+          ],
+        },
+        {
+          content: '{"passed":true,"uncertainties":[],"conflicts":[]}',
+          toolCalls: [],
+        },
       ],
       sentMessages,
       mcpExecuteResult: {
-        knowledge_update: { success: true, result: { level: "l2", slug: "modules" } },
+        knowledge_update: {
+          success: true,
+          result: { level: "l2", slug: "modules" },
+        },
         send_message: { success: true, result: { id: "msg-1" } },
       },
     });
@@ -578,13 +693,130 @@ describe("AgentWorkflowRegistry — real LangGraph workflow with Fake LLM", () =
     });
 
     const { result, sentDirectedResult } = await registry.runWorkflow(
-      runtime, services, hostTaskPayload, [], "task", "keeper-maintain:test-corr"
+      runtime,
+      services,
+      hostTaskPayload,
+      [],
+      "task",
+      "keeper-maintain:test-corr",
     );
 
     expect(sentDirectedResult).toBe(true);
     const parsed = JSON.parse(result);
     expect(parsed.kind).toBe("knowledge_maintenance_report");
     expect(parsed.refs).toContain("l2/modules");
+  });
+
+  it("knowledge_maintenance accepts an explicit no-change result without writing a placeholder document", async () => {
+    const registry = new AgentWorkflowRegistry();
+    const services = createWorkflowServices({
+      llmResponses: [
+        {
+          content:
+            '{"action":"no_change","reason":"The worker report contains no durable project facts beyond the existing documents."}',
+          toolCalls: [],
+        },
+        {
+          content: '{"passed":true,"uncertainties":[],"conflicts":[]}',
+          toolCalls: [],
+        },
+      ],
+    });
+    const execute = vi.spyOn(services.mcpToolService, "executeTool");
+
+    const { result, sentDirectedResult } = await registry.runWorkflow(
+      createKeeperRuntime(),
+      services,
+      JSON.stringify({
+        kind: "knowledge_maintenance",
+        content: "Review this report.",
+      }),
+      [],
+      "task",
+      "no-change:test",
+    );
+
+    expect(sentDirectedResult).toBe(true);
+    expect(JSON.parse(result)).toMatchObject({
+      kind: "knowledge_maintenance_report",
+      refs: [],
+      summaries: expect.stringContaining("no durable project facts"),
+      maintenanceSucceeded: true,
+      noChange: true,
+    });
+    expect(execute.mock.calls.map(([name]) => name)).toEqual(["send_message"]);
+    expect(JSON.parse(String(execute.mock.calls[0]![1].content))).toMatchObject(
+      { noChange: true, maintenanceSucceeded: true },
+    );
+  });
+
+  it.each([true, false])(
+    "self_maintenance no-change clears the trigger only when self-check passes: %s",
+    async (passed) => {
+      const insightUpdates: Array<Record<string, unknown>> = [];
+      const services = createWorkflowServices({
+        llmResponses: [
+          {
+            content:
+              '{"action":"no_change","reason":"Current knowledge already covers these project facts."}',
+          },
+          {
+            content: JSON.stringify({
+              passed,
+              uncertainties: [],
+              conflicts: [],
+            }),
+          },
+        ],
+        insightUpdates,
+      });
+      const execute = vi.spyOn(services.mcpToolService, "executeTool");
+      const { result } = await new AgentWorkflowRegistry().runWorkflow(
+        createKeeperRuntime(),
+        services,
+        selfMaintenancePayload,
+        [],
+        "instruction",
+        null,
+      );
+      expect(execute).not.toHaveBeenCalled();
+      expect(JSON.parse(result)).toMatchObject({
+        noChange: true,
+        selfCheckPassed: passed,
+        revisionApplied: passed,
+      });
+      expect(insightUpdates).toHaveLength(passed ? 1 : 0);
+    },
+  );
+
+  it.each([
+    "[]",
+    '{"action":"no_change","reason":""}',
+    '[{"level":"l1","slug":"valid"},null]',
+  ])("rejects invalid maintenance plans without writing: %s", async (plan) => {
+    const insightUpdates: Array<Record<string, unknown>> = [];
+    const services = createWorkflowServices({
+      llmResponses: [
+        { content: plan },
+        { content: '{"passed":true,"uncertainties":[],"conflicts":[]}' },
+      ],
+      insightUpdates,
+    });
+    const execute = vi.spyOn(services.mcpToolService, "executeTool");
+    const { result } = await new AgentWorkflowRegistry().runWorkflow(
+      createKeeperRuntime(),
+      services,
+      selfMaintenancePayload,
+      [],
+      "instruction",
+      null,
+    );
+    expect(execute).not.toHaveBeenCalled();
+    expect(JSON.parse(result)).toMatchObject({
+      knowledgeUpdateSucceeded: false,
+      revisionApplied: false,
+    });
+    expect(insightUpdates).toHaveLength(0);
   });
 
   it("self_maintenance: true partial failure (1 success, 1 fail) preserves trigger conditions", async () => {
@@ -594,12 +826,29 @@ describe("AgentWorkflowRegistry — real LangGraph workflow with Fake LLM", () =
 
     const services = createWorkflowServices({
       llmResponses: [
-        { content: '[{"level":"l1","slug":"a"},{"level":"l1","slug":"b"}]', toolCalls: [] },
-        { content: "executing", toolCalls: [
-          { id: "c1", name: "knowledge_update", arguments: { level: "l1", slug: "a", content: "test" } },
-          { id: "c2", name: "knowledge_update", arguments: { level: "l1", slug: "b", content: "test" } },
-        ] },
-        { content: '{"passed":true,"uncertainties":[],"conflicts":[]}', toolCalls: [] },
+        {
+          content: '[{"level":"l1","slug":"a"},{"level":"l1","slug":"b"}]',
+          toolCalls: [],
+        },
+        {
+          content: "executing",
+          toolCalls: [
+            {
+              id: "c1",
+              name: "knowledge_update",
+              arguments: { level: "l1", slug: "a", content: "test" },
+            },
+            {
+              id: "c2",
+              name: "knowledge_update",
+              arguments: { level: "l1", slug: "b", content: "test" },
+            },
+          ],
+        },
+        {
+          content: '{"passed":true,"uncertainties":[],"conflicts":[]}',
+          toolCalls: [],
+        },
       ],
       insightUpdates,
       // Call 1 succeeds, Call 2 fails — true partial failure
@@ -610,7 +859,12 @@ describe("AgentWorkflowRegistry — real LangGraph workflow with Fake LLM", () =
     });
 
     const { result, sentDirectedResult } = await registry.runWorkflow(
-      runtime, services, selfMaintenancePayload, [], "instruction", null
+      runtime,
+      services,
+      selfMaintenancePayload,
+      [],
+      "instruction",
+      null,
     );
 
     const parsed = JSON.parse(result);
@@ -627,16 +881,39 @@ describe("AgentWorkflowRegistry — real LangGraph workflow with Fake LLM", () =
     const services = createWorkflowServices({
       llmResponses: [
         { content: '[{"level":"l1","slug":"direction"}]', toolCalls: [] },
-        { content: "executing", toolCalls: [{ id: "c1", name: "knowledge_update", arguments: { level: "l1", slug: "direction", content: "test" } }] },
+        {
+          content: "executing",
+          toolCalls: [
+            {
+              id: "c1",
+              name: "knowledge_update",
+              arguments: { level: "l1", slug: "direction", content: "test" },
+            },
+          ],
+        },
         // Self-check returns passed: false
-        { content: '{"passed":false,"uncertainties":["missing L2"],"conflicts":[]}', toolCalls: [] },
+        {
+          content:
+            '{"passed":false,"uncertainties":["missing L2"],"conflicts":[]}',
+          toolCalls: [],
+        },
       ],
       insightUpdates,
-      mcpExecuteResult: { knowledge_update: { success: true, result: { level: "l1", slug: "direction" } } },
+      mcpExecuteResult: {
+        knowledge_update: {
+          success: true,
+          result: { level: "l1", slug: "direction" },
+        },
+      },
     });
 
     const { result, sentDirectedResult } = await registry.runWorkflow(
-      runtime, services, selfMaintenancePayload, [], "instruction", null
+      runtime,
+      services,
+      selfMaintenancePayload,
+      [],
+      "instruction",
+      null,
     );
 
     const parsed = JSON.parse(result);
@@ -655,13 +932,21 @@ describe("AgentWorkflowRegistry — real LangGraph workflow with Fake LLM", () =
       llmResponses: [
         { content: '[{"level":"l1","slug":"direction"}]', toolCalls: [] },
         { content: "I'm not sure what to do", toolCalls: [] },
-        { content: '{"passed":false,"uncertainties":[],"conflicts":[]}', toolCalls: [] },
+        {
+          content: '{"passed":false,"uncertainties":[],"conflicts":[]}',
+          toolCalls: [],
+        },
       ],
       insightUpdates,
     });
 
     const { result } = await registry.runWorkflow(
-      runtime, services, selfMaintenancePayload, [], "instruction", null
+      runtime,
+      services,
+      selfMaintenancePayload,
+      [],
+      "instruction",
+      null,
     );
 
     const parsed = JSON.parse(result);
@@ -677,20 +962,45 @@ describe("AgentWorkflowRegistry — real LangGraph workflow with Fake LLM", () =
     const services = createWorkflowServices({
       llmResponses: [
         // understand_task plans 3 docs
-        { content: '[{"level":"l1","slug":"a"},{"level":"l2","slug":"b"},{"level":"l3","slug":"c"}]', toolCalls: [] },
+        {
+          content:
+            '[{"level":"l1","slug":"a"},{"level":"l2","slug":"b"},{"level":"l3","slug":"c"}]',
+          toolCalls: [],
+        },
         // execute_update only calls 2 (missing one)
-        { content: "executing", toolCalls: [
-          { id: "c1", name: "knowledge_update", arguments: { level: "l1", slug: "a", content: "test" } },
-          { id: "c2", name: "knowledge_update", arguments: { level: "l2", slug: "b", content: "test" } },
-        ] },
-        { content: '{"passed":true,"uncertainties":[],"conflicts":[]}', toolCalls: [] },
+        {
+          content: "executing",
+          toolCalls: [
+            {
+              id: "c1",
+              name: "knowledge_update",
+              arguments: { level: "l1", slug: "a", content: "test" },
+            },
+            {
+              id: "c2",
+              name: "knowledge_update",
+              arguments: { level: "l2", slug: "b", content: "test" },
+            },
+          ],
+        },
+        {
+          content: '{"passed":true,"uncertainties":[],"conflicts":[]}',
+          toolCalls: [],
+        },
       ],
       insightUpdates,
-      mcpExecuteResult: { knowledge_update: { success: true, result: { level: "l1", slug: "a" } } },
+      mcpExecuteResult: {
+        knowledge_update: { success: true, result: { level: "l1", slug: "a" } },
+      },
     });
 
     const { result } = await registry.runWorkflow(
-      runtime, services, selfMaintenancePayload, [], "instruction", null
+      runtime,
+      services,
+      selfMaintenancePayload,
+      [],
+      "instruction",
+      null,
     );
 
     const parsed = JSON.parse(result);
@@ -707,16 +1017,35 @@ describe("AgentWorkflowRegistry — real LangGraph workflow with Fake LLM", () =
     const services = createWorkflowServices({
       llmResponses: [
         { content: '[{"level":"l1","slug":"direction"}]', toolCalls: [] },
-        { content: "executing", toolCalls: [{ id: "c1", name: "knowledge_update", arguments: { level: "l1", slug: "direction", content: "test" } }] },
-        { content: '{"passed":true,"uncertainties":[],"conflicts":[]}', toolCalls: [] },
+        {
+          content: "executing",
+          toolCalls: [
+            {
+              id: "c1",
+              name: "knowledge_update",
+              arguments: { level: "l1", slug: "direction", content: "test" },
+            },
+          ],
+        },
+        {
+          content: '{"passed":true,"uncertainties":[],"conflicts":[]}',
+          toolCalls: [],
+        },
       ],
       insightUpdates,
       // Tool returns success: true but result has no level/slug
-      mcpExecuteResult: { knowledge_update: { success: true, result: { foo: "bar" } } },
+      mcpExecuteResult: {
+        knowledge_update: { success: true, result: { foo: "bar" } },
+      },
     });
 
     const { result } = await registry.runWorkflow(
-      runtime, services, selfMaintenancePayload, [], "instruction", null
+      runtime,
+      services,
+      selfMaintenancePayload,
+      [],
+      "instruction",
+      null,
     );
 
     const parsed = JSON.parse(result);
@@ -732,16 +1061,36 @@ describe("AgentWorkflowRegistry — real LangGraph workflow with Fake LLM", () =
     const services = createWorkflowServices({
       llmResponses: [
         { content: '[{"level":"l1","slug":"direction"}]', toolCalls: [] },
-        { content: "executing", toolCalls: [{ id: "c1", name: "knowledge_update", arguments: { level: "l1", slug: "direction", content: "test" } }] },
-        { content: '{"passed":true,"uncertainties":[],"conflicts":[]}', toolCalls: [] },
+        {
+          content: "executing",
+          toolCalls: [
+            {
+              id: "c1",
+              name: "knowledge_update",
+              arguments: { level: "l1", slug: "direction", content: "test" },
+            },
+          ],
+        },
+        {
+          content: '{"passed":true,"uncertainties":[],"conflicts":[]}',
+          toolCalls: [],
+        },
       ],
       insightUpdates,
-      mcpExecuteResult: { knowledge_update: { success: true, result: { level: "l1", slug: "direction" } } },
+      mcpExecuteResult: {
+        knowledge_update: {
+          success: true,
+          result: { level: "l1", slug: "direction" },
+        },
+      },
       // Insight has both revision 5 (target) and revision 6 (new during maintenance)
       insightOverrides: {
         unappliedUserInputs: [
           { revision: 5, content: "input at revision 5" },
-          { revision: 6, content: "input at revision 6 (new during maintenance)" },
+          {
+            revision: 6,
+            content: "input at revision 6 (new during maintenance)",
+          },
         ],
         latestUserDirectiveRevision: 6,
         appliedUserDirectiveRevision: 3,
@@ -749,7 +1098,12 @@ describe("AgentWorkflowRegistry — real LangGraph workflow with Fake LLM", () =
     });
 
     const { result } = await registry.runWorkflow(
-      runtime, services, selfMaintenancePayload, [], "instruction", null
+      runtime,
+      services,
+      selfMaintenancePayload,
+      [],
+      "instruction",
+      null,
     );
 
     const parsed = JSON.parse(result);
@@ -758,7 +1112,9 @@ describe("AgentWorkflowRegistry — real LangGraph workflow with Fake LLM", () =
     // revision 6 should be preserved (not cleared)
     expect(insightUpdates.length).toBeGreaterThan(0);
     const lastUpdate = insightUpdates[insightUpdates.length - 1]!;
-    const remaining = lastUpdate.unappliedUserInputs as Array<{ revision: number }>;
+    const remaining = lastUpdate.unappliedUserInputs as Array<{
+      revision: number;
+    }>;
     expect(remaining).toHaveLength(1);
     expect(remaining[0]!.revision).toBe(6);
     // appliedUserDirectiveRevision only advanced to 5 (targetRevision), not 6
@@ -781,7 +1137,8 @@ describe("Session Insight migration: string[] to PendingUserInput[]", () => {
     if (!Array.isArray(parsed)) throw new Error("not array");
 
     const alreadyStructured = parsed.every(
-      (item: unknown) => item !== null && typeof item === "object" && "revision" in item
+      (item: unknown) =>
+        item !== null && typeof item === "object" && "revision" in item,
     );
     expect(alreadyStructured).toBe(false);
 
@@ -801,7 +1158,8 @@ describe("Session Insight migration: string[] to PendingUserInput[]", () => {
     ]);
     const parsed = JSON.parse(alreadyNew);
     const alreadyStructured = parsed.every(
-      (item: unknown) => item !== null && typeof item === "object" && "revision" in item
+      (item: unknown) =>
+        item !== null && typeof item === "object" && "revision" in item,
     );
     expect(alreadyStructured).toBe(true);
     // 不需要迁移
@@ -817,13 +1175,15 @@ describe("Session Insight migration: string[] to PendingUserInput[]", () => {
     // 模拟 parsePendingUserInputArray 逻辑
     const parsed = JSON.parse(migratedJson);
     if (!Array.isArray(parsed)) throw new Error("not array");
-    const result = parsed.filter(
-      (item) =>
-        item !== null &&
-        typeof item === "object" &&
-        typeof item.revision === "number" &&
-        typeof item.content === "string"
-    ).map((item) => ({ revision: item.revision, content: item.content }));
+    const result = parsed
+      .filter(
+        (item) =>
+          item !== null &&
+          typeof item === "object" &&
+          typeof item.revision === "number" &&
+          typeof item.content === "string",
+      )
+      .map((item) => ({ revision: item.revision, content: item.content }));
 
     expect(result).toHaveLength(2);
     expect(result[0]).toEqual({ revision: 7, content: "user input A" });
@@ -859,7 +1219,9 @@ describe("Host review verdict parsing (fail-closed)", () => {
   });
 
   it('verdict: "fail" → does NOT enter implementation', () => {
-    const verdict = parseReviewVerdict('{"verdict":"fail","reasons":["missing L2"]}');
+    const verdict = parseReviewVerdict(
+      '{"verdict":"fail","reasons":["missing L2"]}',
+    );
     expect(verdict).toBe("fail");
   });
 
@@ -882,7 +1244,7 @@ describe("Host review verdict parsing (fail-closed)", () => {
     expect(verdict).toBe("fail");
   });
 
-  it('unknown verdict value → fail-closed', () => {
+  it("unknown verdict value → fail-closed", () => {
     const verdict = parseReviewVerdict('{"verdict":"uncertain"}');
     expect(verdict).toBe("fail");
   });
@@ -971,9 +1333,27 @@ describe("knowledge_update runtime validation", () => {
     const toolService = new McpToolService();
     const policy: AgentPermissionPolicy = {
       knowledge: { read: true, write: true, delete: false },
-      messages: { read: true, send: true, dispatchTask: true, claim: true, complete: true },
-      filesystem: { read: false, write: false, allowedPaths: [], deniedPaths: [] },
-      command: { enabled: false, background: false, allowedPrefixes: [], workingDirectory: null, timeoutSeconds: 30, requireApproval: true },
+      messages: {
+        read: true,
+        send: true,
+        dispatchTask: true,
+        claim: true,
+        complete: true,
+      },
+      filesystem: {
+        read: false,
+        write: false,
+        allowedPaths: [],
+        deniedPaths: [],
+      },
+      command: {
+        enabled: false,
+        background: false,
+        allowedPrefixes: [],
+        workingDirectory: null,
+        timeoutSeconds: 30,
+        requireApproval: true,
+      },
     };
     toolService.setAgentPermissionPolicy("keeper-1", policy);
 
@@ -990,7 +1370,7 @@ describe("knowledge_update runtime validation", () => {
           list: () => [],
           getManifest: () => ({ documents: [] }),
         },
-      } as never
+      } as never,
     );
 
     // The handler normalizes level to "l1" before calling upsert,
@@ -1002,9 +1382,27 @@ describe("knowledge_update runtime validation", () => {
     const toolService = new McpToolService();
     const policy: AgentPermissionPolicy = {
       knowledge: { read: true, write: true, delete: false },
-      messages: { read: true, send: true, dispatchTask: true, claim: true, complete: true },
-      filesystem: { read: false, write: false, allowedPaths: [], deniedPaths: [] },
-      command: { enabled: false, background: false, allowedPrefixes: [], workingDirectory: null, timeoutSeconds: 30, requireApproval: true },
+      messages: {
+        read: true,
+        send: true,
+        dispatchTask: true,
+        claim: true,
+        complete: true,
+      },
+      filesystem: {
+        read: false,
+        write: false,
+        allowedPaths: [],
+        deniedPaths: [],
+      },
+      command: {
+        enabled: false,
+        background: false,
+        allowedPrefixes: [],
+        workingDirectory: null,
+        timeoutSeconds: 30,
+        requireApproval: true,
+      },
     };
     toolService.setAgentPermissionPolicy("keeper-1", policy);
 
@@ -1021,7 +1419,7 @@ describe("knowledge_update runtime validation", () => {
           list: () => [],
           getManifest: () => ({ documents: [] }),
         },
-      } as never
+      } as never,
     );
 
     expect(result.success).toBe(false);
@@ -1032,9 +1430,27 @@ describe("knowledge_update runtime validation", () => {
     const toolService = new McpToolService();
     const policy: AgentPermissionPolicy = {
       knowledge: { read: true, write: true, delete: false },
-      messages: { read: true, send: true, dispatchTask: true, claim: true, complete: true },
-      filesystem: { read: false, write: false, allowedPaths: [], deniedPaths: [] },
-      command: { enabled: false, background: false, allowedPrefixes: [], workingDirectory: null, timeoutSeconds: 30, requireApproval: true },
+      messages: {
+        read: true,
+        send: true,
+        dispatchTask: true,
+        claim: true,
+        complete: true,
+      },
+      filesystem: {
+        read: false,
+        write: false,
+        allowedPaths: [],
+        deniedPaths: [],
+      },
+      command: {
+        enabled: false,
+        background: false,
+        allowedPrefixes: [],
+        workingDirectory: null,
+        timeoutSeconds: 30,
+        requireApproval: true,
+      },
     };
     toolService.setAgentPermissionPolicy("keeper-1", policy);
 
@@ -1051,7 +1467,7 @@ describe("knowledge_update runtime validation", () => {
           list: () => [],
           getManifest: () => ({ documents: [] }),
         },
-      } as never
+      } as never,
     );
 
     expect(result.success).toBe(false);
@@ -1062,9 +1478,27 @@ describe("knowledge_update runtime validation", () => {
     const toolService = new McpToolService();
     const policy: AgentPermissionPolicy = {
       knowledge: { read: true, write: true, delete: false },
-      messages: { read: true, send: true, dispatchTask: true, claim: true, complete: true },
-      filesystem: { read: false, write: false, allowedPaths: [], deniedPaths: [] },
-      command: { enabled: false, background: false, allowedPrefixes: [], workingDirectory: null, timeoutSeconds: 30, requireApproval: true },
+      messages: {
+        read: true,
+        send: true,
+        dispatchTask: true,
+        claim: true,
+        complete: true,
+      },
+      filesystem: {
+        read: false,
+        write: false,
+        allowedPaths: [],
+        deniedPaths: [],
+      },
+      command: {
+        enabled: false,
+        background: false,
+        allowedPrefixes: [],
+        workingDirectory: null,
+        timeoutSeconds: 30,
+        requireApproval: true,
+      },
     };
     toolService.setAgentPermissionPolicy("keeper-1", policy);
 
@@ -1081,7 +1515,7 @@ describe("knowledge_update runtime validation", () => {
           list: () => [],
           getManifest: () => ({ documents: [] }),
         },
-      } as never
+      } as never,
     );
 
     expect(result.success).toBe(false);
@@ -1119,7 +1553,14 @@ function createHostRuntime(): WebAgentRuntime {
 }
 
 function createHostWorkflowServices(options: {
-  llmResponses: Array<{ content: string; toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }> }>;
+  llmResponses: Array<{
+    content: string;
+    toolCalls?: Array<{
+      id: string;
+      name: string;
+      arguments: Record<string, unknown>;
+    }>;
+  }>;
   members?: Agent[];
   insightOverrides?: Record<string, unknown>;
 }): ServerServices {
@@ -1149,35 +1590,64 @@ function createHostWorkflowServices(options: {
 
   const result = {
     llmOverride: (async (_systemPrompt: string, _userContent: string) => {
-      const response = options.llmResponses[llmCallIndex] ?? { content: "fallback" };
+      const response = options.llmResponses[llmCallIndex] ?? {
+        content: "fallback",
+      };
       llmCallIndex++;
       return { content: response.content, toolCalls: response.toolCalls ?? [] };
     }) as ServerServices["llmOverride"],
     webAgentRuntimeService: { get: () => undefined, update: () => undefined },
     modelConfigService: {
       getFull: () => ({
-        id: "model-1", provider: "mock", baseUrl: "http://mock", modelName: "mock",
-        contextWindowTokens: 128000, maxOutputTokens: 4096, contextReserveTokens: 1000,
+        id: "model-1",
+        provider: "mock",
+        baseUrl: "http://mock",
+        modelName: "mock",
+        contextWindowTokens: 128000,
+        maxOutputTokens: 4096,
+        contextReserveTokens: 1000,
       }),
     },
     mcpToolService: {
       getToolsetDefinitions: () => [
-        { name: "dispatch_task", description: "Dispatch task to worker", parameters: { type: "object", properties: {} } },
-        { name: "send_message", description: "Send message", parameters: { type: "object", properties: {} } },
+        {
+          name: "dispatch_task",
+          description: "Dispatch task to worker",
+          parameters: { type: "object", properties: {} },
+        },
+        {
+          name: "send_message",
+          description: "Send message",
+          parameters: { type: "object", properties: {} },
+        },
       ],
       executeTool: (toolName: string, args: Record<string, unknown>) => {
         // dispatch_task validates toAgentId is a worker
         if (toolName === "dispatch_task") {
           const targetAgent = members.find((m) => m.id === args.toAgentId);
-          if (!targetAgent) return Promise.resolve({ success: false, error: "Agent not found" });
-          if (targetAgent.role !== "worker") return Promise.resolve({ success: false, error: `Target must be role "worker"` });
+          if (!targetAgent)
+            return Promise.resolve({
+              success: false,
+              error: "Agent not found",
+            });
+          if (targetAgent.role !== "worker")
+            return Promise.resolve({
+              success: false,
+              error: `Target must be role "worker"`,
+            });
           sentMessages.push({ ...args, type: "task" });
-          return Promise.resolve({ success: true, result: { id: `msg-${Date.now()}`, ...args } });
+          return Promise.resolve({
+            success: true,
+            result: { id: `msg-${Date.now()}`, ...args },
+          });
         }
         // send_message to keeper
         if (toolName === "send_message") {
           sentMessages.push({ ...args, type: args.type ?? "task" });
-          return Promise.resolve({ success: true, result: { id: `msg-${Date.now()}` } });
+          return Promise.resolve({
+            success: true,
+            result: { id: `msg-${Date.now()}` },
+          });
         }
         return Promise.resolve({ success: true, result: args });
       },
@@ -1186,11 +1656,18 @@ function createHostWorkflowServices(options: {
       listMembers: () => members,
     },
     messageService: {
-      sendMessage: (input: Record<string, unknown>) => { sentMessages.push(input); return input; },
+      sendMessage: (input: Record<string, unknown>) => {
+        sentMessages.push(input);
+        return input;
+      },
     },
     knowledgeService: {
       upsert: () => undefined,
-      getManifest: () => ({ rootPath: "/knowledge", counts: { l1: 1, l2: 1, l3: 0 }, updatedAt: new Date().toISOString() }),
+      getManifest: () => ({
+        rootPath: "/knowledge",
+        counts: { l1: 1, l2: 1, l3: 0 },
+        updatedAt: new Date().toISOString(),
+      }),
       list: () => [],
     },
     sessionInsightService: {
@@ -1201,20 +1678,42 @@ function createHostWorkflowServices(options: {
         return insight;
       },
     },
-    agentService: { getAgent: (id: string) => members.find((m) => m.id === id) ?? null },
+    agentService: {
+      getAgent: (id: string) => members.find((m) => m.id === id) ?? null,
+    },
     userPreferencesService: { list: () => [] },
-    workflowDefinitionService: { get: () => { throw new Error("not found"); }, list: () => [] },
+    workflowDefinitionService: {
+      get: () => {
+        throw new Error("not found");
+      },
+      list: () => [],
+    },
     agentContextService: {
       load: () => null,
       initialize: () => ({
-        runtimeId: "host-runtime-1", sessionId: "session-host-1", agentId: "host-1", role: "host",
-        conversationSummary: null, recentTurns: [], confirmedDecisions: [], unresolvedQuestions: [],
-        pendingActions: [], lastProcessedMessageId: null, summaryRevision: 0, updatedAt: new Date().toISOString(),
+        runtimeId: "host-runtime-1",
+        sessionId: "session-host-1",
+        agentId: "host-1",
+        role: "host",
+        conversationSummary: null,
+        recentTurns: [],
+        confirmedDecisions: [],
+        unresolvedQuestions: [],
+        pendingActions: [],
+        lastProcessedMessageId: null,
+        summaryRevision: 0,
+        updatedAt: new Date().toISOString(),
       }),
       appendTurn: () => ({ snapshot: {}, needSummary: false }),
     },
-  } as unknown as ServerServices & { sentMessages: Array<Record<string, unknown>>; insightUpdates: Array<Record<string, unknown>> };
-  const svc = result as unknown as { sentMessages: Array<Record<string, unknown>>; insightUpdates: Array<Record<string, unknown>> };
+  } as unknown as ServerServices & {
+    sentMessages: Array<Record<string, unknown>>;
+    insightUpdates: Array<Record<string, unknown>>;
+  };
+  const svc = result as unknown as {
+    sentMessages: Array<Record<string, unknown>>;
+    insightUpdates: Array<Record<string, unknown>>;
+  };
   svc.sentMessages = sentMessages;
   svc.insightUpdates = insightUpdates;
   return result;
@@ -1231,27 +1730,41 @@ describe("AgentWorkflowRegistry — Host full LangGraph flow", () => {
       // 2. design_architecture → architecture plan
       // (workflow dispatches to Keeper via send_message, then ends current run)
       llmResponses: [
-        { content: "CONFIRMED. The user wants to build a chat app with SQLite.", toolCalls: [] },
-        { content: "L1: Chat app\nL2: messaging, auth\nL3: data models, API routes", toolCalls: [] },
+        {
+          content: "CONFIRMED. The user wants to build a chat app with SQLite.",
+          toolCalls: [],
+        },
+        {
+          content:
+            "L1: Chat app\nL2: messaging, auth\nL3: data models, API routes",
+          toolCalls: [],
+        },
       ],
     }) as ServerServices & { sentMessages: Array<Record<string, unknown>> };
 
     const { result, sentDirectedResult } = await registry.runWorkflow(
-      runtime, services, "Build a chat app with SQLite. Let's start.", [], "task", null
+      runtime,
+      services,
+      "Build a chat app with SQLite. Let's start.",
+      [],
+      "task",
+      null,
     );
 
     expect(result).toBeDefined();
     expect(sentDirectedResult).toBe(false);
 
     // Verify architecture was persisted to session insight
-    const insight = services.sessionInsightService.getSessionInsight("session-host-1") as Record<string, unknown>;
+    const insight = services.sessionInsightService.getSessionInsight(
+      "session-host-1",
+    ) as Record<string, unknown>;
     expect(insight.objective).toContain("chat app");
     expect(insight.activePlanSummary).toContain("L1");
 
     // Verify send_message was called to dispatch to Keeper
     expect(services.sentMessages.length).toBeGreaterThanOrEqual(1);
     const keeperDispatch = services.sentMessages.find(
-      (m: Record<string, unknown>) => m.toAgentId === "keeper-1"
+      (m: Record<string, unknown>) => m.toAgentId === "keeper-1",
     );
     expect(keeperDispatch).toBeDefined();
     expect(keeperDispatch!.type).toBe("task");
@@ -1263,12 +1776,20 @@ describe("AgentWorkflowRegistry — Host full LangGraph flow", () => {
 
     const services = createHostWorkflowServices({
       llmResponses: [
-        { content: "NOT_CONFIRMED. Let me clarify the requirements first.", toolCalls: [] },
+        {
+          content: "NOT_CONFIRMED. Let me clarify the requirements first.",
+          toolCalls: [],
+        },
       ],
     });
 
     const { result } = await registry.runWorkflow(
-      runtime, services, "I want to build something.", [], "task", null
+      runtime,
+      services,
+      "I want to build something.",
+      [],
+      "task",
+      null,
     );
 
     // Should end with the communication response
@@ -1291,22 +1812,39 @@ describe("AgentWorkflowRegistry — Host full LangGraph flow", () => {
       llmResponses: [
         { content: "CONFIRMED. Starting now.", toolCalls: [] },
         { content: "L1: App\nL2: core\nL3: models", toolCalls: [] },
-        { content: '[{"level":"l1","slug":"direction","title":"Direction","content":"Build app"}]', toolCalls: [] },
-        { content: "Dispatching", toolCalls: [
-          { id: "c1", name: "dispatch_task", arguments: { content: "Build core", toAgentId: "worker-1" } },
-        ] },
+        {
+          content:
+            '[{"level":"l1","slug":"direction","title":"Direction","content":"Build app"}]',
+          toolCalls: [],
+        },
+        {
+          content: "Dispatching",
+          toolCalls: [
+            {
+              id: "c1",
+              name: "dispatch_task",
+              arguments: { content: "Build core", toAgentId: "worker-1" },
+            },
+          ],
+        },
       ],
     }) as ServerServices & { sentMessages: Array<Record<string, unknown>> };
 
     const { result } = await registry.runWorkflow(
-      runtime, services, "Let's start.", [], "task", null
+      runtime,
+      services,
+      "Let's start.",
+      [],
+      "task",
+      null,
     );
 
     expect(result).toBeDefined();
 
     // Verify dispatch_task was called to send task to Worker
     const workerDispatch = services.sentMessages.find(
-      (m: Record<string, unknown>) => m.toAgentId === "worker-1" && m.type === "task"
+      (m: Record<string, unknown>) =>
+        m.toAgentId === "worker-1" && m.type === "task",
     );
     expect(workerDispatch).toBeDefined();
     expect(workerDispatch!.content).toContain("Build core");
@@ -1333,22 +1871,39 @@ describe("AgentWorkflowRegistry — Host full LangGraph flow", () => {
       // 1. review_knowledge → verdict: pass
       // 2. dispatch_implementation → dispatch_task
       llmResponses: [
-        { content: '{"verdict":"pass","reasons":["Knowledge base matches architecture"],"missingRefs":[],"conflicts":[]}', toolCalls: [] },
-        { content: "Dispatching tasks to workers", toolCalls: [
-          { id: "c1", name: "dispatch_task", arguments: { content: "Build messaging", toAgentId: "worker-1" } },
-        ] },
+        {
+          content:
+            '{"verdict":"pass","reasons":["Knowledge base matches architecture"],"missingRefs":[],"conflicts":[]}',
+          toolCalls: [],
+        },
+        {
+          content: "Dispatching tasks to workers",
+          toolCalls: [
+            {
+              id: "c1",
+              name: "dispatch_task",
+              arguments: { content: "Build messaging", toAgentId: "worker-1" },
+            },
+          ],
+        },
       ],
     }) as ServerServices & { sentMessages: Array<Record<string, unknown>> };
 
     const { result } = await registry.runWorkflow(
-      runtime, services, keeperReport, [], "result", "keeper-maintain:test-corr"
+      runtime,
+      services,
+      keeperReport,
+      [],
+      "result",
+      "keeper-maintain:test-corr",
     );
 
     expect(result).toBeDefined();
 
     // Verify dispatch_task was called to send task to Worker
     const workerDispatch = services.sentMessages.find(
-      (m: Record<string, unknown>) => m.toAgentId === "worker-1" && m.type === "task"
+      (m: Record<string, unknown>) =>
+        m.toAgentId === "worker-1" && m.type === "task",
     );
     expect(workerDispatch).toBeDefined();
     expect(workerDispatch!.content).toContain("Build messaging");
@@ -1358,17 +1913,26 @@ describe("AgentWorkflowRegistry — Host full LangGraph flow", () => {
     const registry = new AgentWorkflowRegistry();
     const runtime = createHostRuntime();
 
-    const workerReport = "Task completed: messaging module is done. All tests pass.";
+    const workerReport =
+      "Task completed: messaging module is done. All tests pass.";
 
     const services = createHostWorkflowServices({
       // 1. handle_worker_report → Accept
       llmResponses: [
-        { content: "Accept. The messaging module is complete. Great work.", toolCalls: [] },
+        {
+          content: "Accept. The messaging module is complete. Great work.",
+          toolCalls: [],
+        },
       ],
     });
 
     const { result } = await registry.runWorkflow(
-      runtime, services, workerReport, [], "result", "impl:test-corr"
+      runtime,
+      services,
+      workerReport,
+      [],
+      "result",
+      "impl:test-corr",
     );
 
     expect(result).toContain("Accept");

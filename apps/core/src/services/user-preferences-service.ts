@@ -6,7 +6,7 @@ import {
   readdirSync,
   renameSync,
   statSync,
-  writeFileSync
+  writeFileSync,
 } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
@@ -14,7 +14,7 @@ import type {
   ListUserPreferencesInput,
   UpsertUserPreferenceInput,
   UserPreference,
-  UserPreferencesManifest
+  UserPreferencesManifest,
 } from "@loopmarshal/protocol";
 import { coreErrors } from "../errors.js";
 
@@ -45,14 +45,14 @@ export class UserPreferencesService {
     return {
       rootPath: this.filePath,
       count: data.preferences.length,
-      updatedAt: data.updatedAt
+      updatedAt: data.updatedAt,
     };
   }
 
   public list(input: ListUserPreferencesInput = {}): UserPreference[] {
     const query = input.query?.trim().toLowerCase();
-    return this.readFile().preferences
-      .filter((item) => {
+    return this.readFile()
+      .preferences.filter((item) => {
         if (input.category && item.category !== input.category) return false;
         if (!query) return true;
         return getPreferenceSearchText(item).includes(query);
@@ -63,8 +63,10 @@ export class UserPreferencesService {
   public upsert(input: UpsertUserPreferenceInput): UserPreference {
     const key = input.key.trim();
     const value = input.value.trim();
-    if (!key) throw coreErrors.invalidInput("User preference key must not be empty.");
-    if (!value) throw coreErrors.invalidInput("User preference value must not be empty.");
+    if (!key)
+      throw coreErrors.invalidInput("User preference key must not be empty.");
+    if (!value)
+      throw coreErrors.invalidInput("User preference value must not be empty.");
 
     const data = this.readFile();
     const timestamp = now();
@@ -73,14 +75,17 @@ export class UserPreferencesService {
       id: existing?.id ?? randomUUID(),
       key,
       value,
-      category: input.category === undefined ? existing?.category ?? null : input.category,
+      category:
+        input.category === undefined
+          ? (existing?.category ?? null)
+          : input.category,
       source: input.source ?? existing?.source ?? "manual",
       createdAt: existing?.createdAt ?? timestamp,
-      updatedAt: timestamp
+      updatedAt: timestamp,
     };
 
     const preferences = existing
-      ? data.preferences.map((item) => item.key === key ? next : item)
+      ? data.preferences.map((item) => (item.key === key ? next : item))
       : [...data.preferences, next];
     this.writeFile({ preferences, updatedAt: timestamp });
     return next;
@@ -97,14 +102,14 @@ export class UserPreferencesService {
   }
 
   public importFromLegacyKnowledgeRoot(
-    rootPath: string
+    rootPath: string,
   ): ImportLegacyKnowledgePreferencesResult {
     const sourceRoot = resolve(rootPath);
     const result: ImportLegacyKnowledgePreferencesResult = {
       sourceRoot,
       scannedFiles: 0,
       imported: 0,
-      skipped: 0
+      skipped: 0,
     };
     if (!existsSync(sourceRoot)) {
       return result;
@@ -114,13 +119,17 @@ export class UserPreferencesService {
       result.scannedFiles += 1;
       const sections = readPreferenceSections(filePath);
       for (const section of sections) {
-        const key = buildLegacyPreferenceKey(sourceRoot, filePath, section.title);
+        const key = buildLegacyPreferenceKey(
+          sourceRoot,
+          filePath,
+          section.title,
+        );
         if (
           this.insertIfMissing({
             key,
             value: section.content,
             category: "legacy-knowledge",
-            source: "system"
+            source: "system",
           })
         ) {
           result.imported += 1;
@@ -139,10 +148,15 @@ export class UserPreferencesService {
 
   private readFile(): UserPreferencesFile {
     try {
-      const parsed = JSON.parse(readFileSync(this.filePath, "utf8")) as Partial<UserPreferencesFile>;
+      const parsed = JSON.parse(
+        readFileSync(this.filePath, "utf8"),
+      ) as Partial<UserPreferencesFile>;
       return {
-        preferences: Array.isArray(parsed.preferences) ? parsed.preferences : [],
-        updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : now()
+        preferences: Array.isArray(parsed.preferences)
+          ? parsed.preferences
+          : [],
+        updatedAt:
+          typeof parsed.updatedAt === "string" ? parsed.updatedAt : now(),
       };
     } catch {
       if (existsSync(this.filePath)) {
@@ -180,10 +194,10 @@ export class UserPreferencesService {
           category: input.category ?? null,
           source: input.source ?? "system",
           createdAt: timestamp,
-          updatedAt: timestamp
-        }
+          updatedAt: timestamp,
+        },
       ],
-      updatedAt: timestamp
+      updatedAt: timestamp,
     });
     return true;
   }
@@ -230,7 +244,7 @@ function readPreferenceSections(filePath: string): Array<{
     if (typeof document.content !== "string") return [];
     return extractPreferenceSections(
       document.content,
-      String(document.title ?? document.slug ?? "legacy preference")
+      String(document.title ?? document.slug ?? "legacy preference"),
     );
   } catch {
     return [];
@@ -239,7 +253,7 @@ function readPreferenceSections(filePath: string): Array<{
 
 function extractPreferenceSections(
   markdown: string,
-  fallbackTitle: string
+  fallbackTitle: string,
 ): Array<{ title: string; content: string }> {
   const sections: Array<{ title: string; content: string }> = [];
   let currentTitle = fallbackTitle;
@@ -249,7 +263,7 @@ function extractPreferenceSections(
     if (content && isPreferenceContent(`${currentTitle}\n${content}`)) {
       sections.push({
         title: currentTitle,
-        content: `# ${currentTitle}\n\n${content}`
+        content: `# ${currentTitle}\n\n${content}`,
       });
     }
   };
@@ -269,13 +283,15 @@ function extractPreferenceSections(
 }
 
 function isPreferenceContent(value: string): boolean {
-  return /current user preference|user preferences?|用户偏好|用户习惯/i.test(value);
+  return /current user preference|user preferences?|用户偏好|用户习惯/i.test(
+    value,
+  );
 }
 
 function buildLegacyPreferenceKey(
   rootPath: string,
   filePath: string,
-  title: string
+  title: string,
 ): string {
   const source = relative(rootPath, dirname(filePath)).replaceAll("\\", ".");
   return sanitizePreferenceKey(`legacy-knowledge.${source}.${title}`);
@@ -304,7 +320,9 @@ function getPreferenceSearchText(item: UserPreference): string {
     "用户偏好",
     "全局习惯",
     "全局偏好",
-    item.category === "legacy-knowledge" ? "历史知识库 旧知识库 legacy knowledge" : ""
+    item.category === "legacy-knowledge"
+      ? "历史知识库 旧知识库 legacy knowledge"
+      : "",
   ]
     .join("\n")
     .toLowerCase();

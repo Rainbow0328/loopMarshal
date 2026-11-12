@@ -1,25 +1,46 @@
 import type {
-  MessageType,
+  AttachSessionInput,
   KnowledgeLevel,
-  McpToolDefinition,
-  McpCallRequest,
-  UpsertUserPreferenceInput,
+  ListProgressFilter,
   ListUserPreferencesInput,
-  SendMessageInput,
+  McpCallRequest,
+  McpToolDefinition,
   MessageProcessCompleteInput,
   MessageProcessFailInput,
+  MessageType,
+  SendMessageInput,
   UpsertProgressInput,
-  ListProgressFilter,
-  AttachSessionInput,
+  UpsertUserPreferenceInput,
 } from "@loopmarshal/protocol";
 import { createLoopMarshalClient, LoopMarshalClient } from "@loopmarshal/sdk";
 
 let clientInstance: LoopMarshalClient | null = null;
+let managementTokenPromise: Promise<string> | null = null;
+
+async function managementHeaders(): Promise<Record<string, string>> {
+  managementTokenPromise ??= fetch("/api/local-auth")
+    .then(async (response) => {
+      if (!response.ok)
+        throw new Error("无法取得本地管理凭证，请刷新页面或检查 Core 版本。");
+      const result = (await response.json()) as { token?: string };
+      return result.token ?? "";
+    })
+    .catch((error) => {
+      managementTokenPromise = null;
+      throw error;
+    });
+  return { "x-loopmarshal-management-token": await managementTokenPromise };
+}
 
 export const getApiClient = (baseUrl?: string): LoopMarshalClient => {
   if (!clientInstance) {
     clientInstance = createLoopMarshalClient({
-      baseUrl: baseUrl ?? (typeof window !== "undefined" ? window.location.origin : `http://${import.meta.env.VITE_LOOPMARSHAL_HOST ?? "127.0.0.1"}:${import.meta.env.VITE_LOOPMARSHAL_PORT ?? "42688"}`),
+      headers: managementHeaders,
+      baseUrl:
+        baseUrl ??
+        (typeof window !== "undefined"
+          ? window.location.origin
+          : `http://${import.meta.env.VITE_LOOPMARSHAL_HOST ?? "127.0.0.1"}:${import.meta.env.VITE_LOOPMARSHAL_PORT ?? "42688"}`),
     });
   }
   return clientInstance;
@@ -33,15 +54,20 @@ export const api = {
   sessions: {
     list: () => getApiClient().listSessions(),
     get: (sessionId: string) => getApiClient().getSession(sessionId),
-    getByName: (sessionName: string) => getApiClient().getSessionByName(sessionName),
+    getByName: (sessionName: string) =>
+      getApiClient().getSessionByName(sessionName),
     create: (input: AttachSessionInput) => getApiClient().attachSession(input),
     delete: (sessionName: string, requesterAgentId?: string) =>
       getApiClient().deleteSessionByName(sessionName, { requesterAgentId }),
     getMembers: (sessionId: string) => getApiClient().getMembers(sessionId),
-    getQueueStats: (sessionId: string) => getApiClient().getSessionQueueStats(sessionId),
-    getInsight: (sessionId: string) => getApiClient().getSessionInsight(sessionId),
-    getConsole: (sessionId: string) => getApiClient().getSessionConsole(sessionId),
-    listHeartbeats: (sessionId: string) => getApiClient().listHeartbeats(sessionId),
+    getQueueStats: (sessionId: string) =>
+      getApiClient().getSessionQueueStats(sessionId),
+    getInsight: (sessionId: string) =>
+      getApiClient().getSessionInsight(sessionId),
+    getConsole: (sessionId: string) =>
+      getApiClient().getSessionConsole(sessionId),
+    listHeartbeats: (sessionId: string) =>
+      getApiClient().listHeartbeats(sessionId),
   },
 
   agents: {
@@ -67,23 +93,37 @@ export const api = {
   },
 
   progress: {
-    upsert: (input: UpsertProgressInput) => getApiClient().upsertProgress(input),
-    get: (sessionId: string, agentId: string) => getApiClient().getProgress(sessionId, agentId),
-    list: (filter?: ListProgressFilter) => getApiClient().listProgress(filter ?? {}),
+    upsert: (input: UpsertProgressInput) =>
+      getApiClient().upsertProgress(input),
+    get: (sessionId: string, agentId: string) =>
+      getApiClient().getProgress(sessionId, agentId),
+    list: (filter?: ListProgressFilter) =>
+      getApiClient().listProgress(filter ?? {}),
     clear: (sessionId: string) => getApiClient().clearProgress(sessionId),
   },
 
   knowledge: {
-    getManifest: () => getApiClient().getKnowledgeManifest(),
-    list: (input?: { level?: KnowledgeLevel; tag?: string; query?: string }) =>
-      getApiClient().listKnowledge(input ?? {}),
-    get: (level: KnowledgeLevel, slug: string) => getApiClient().getKnowledge(level, slug),
-    listChanges: (input?: { level?: KnowledgeLevel; slug?: string; limit?: number }) =>
-      getApiClient().listKnowledgeChanges(input ?? {}),
+    getManifest: (sessionId?: string) =>
+      getApiClient().getKnowledgeManifest(sessionId),
+    list: (input?: {
+      sessionId?: string;
+      level?: KnowledgeLevel;
+      tag?: string;
+      query?: string;
+    }) => getApiClient().listKnowledge(input ?? {}),
+    get: (level: KnowledgeLevel, slug: string, sessionId?: string) =>
+      getApiClient().getKnowledge(level, slug, sessionId),
+    listChanges: (input?: {
+      sessionId?: string;
+      level?: KnowledgeLevel;
+      slug?: string;
+      limit?: number;
+    }) => getApiClient().listKnowledgeChanges(input ?? {}),
   },
 
   webRuntimes: {
-    list: (sessionId?: string) => getApiClient().listWebAgentRuntimes(sessionId),
+    list: (sessionId?: string) =>
+      getApiClient().listWebAgentRuntimes(sessionId),
     create: (input: {
       sessionId: string;
       agentId: string;
@@ -95,20 +135,28 @@ export const api = {
       customSkillIds?: string[];
     }) => getApiClient().createWebAgentRuntime(input),
     get: (runtimeId: string) => getApiClient().getWebAgentRuntime(runtimeId),
-    update: (runtimeId: string, input: {
-      modelConfigId?: string;
-      customDuty?: string | null;
-      customSkillIds?: string[];
-      status?: string;
-    }) => getApiClient().updateWebAgentRuntime(runtimeId, input),
-    delete: (runtimeId: string) => getApiClient().deleteWebAgentRuntime(runtimeId),
-    start: (runtimeId: string) => getApiClient().startWebAgentRuntime(runtimeId),
-    pause: (runtimeId: string) => getApiClient().pauseWebAgentRuntime(runtimeId),
+    update: (
+      runtimeId: string,
+      input: {
+        modelConfigId?: string;
+        customDuty?: string | null;
+        customSkillIds?: string[];
+        externalMcpServerIds?: string[];
+        status?: string;
+      },
+    ) => getApiClient().updateWebAgentRuntime(runtimeId, input),
+    delete: (runtimeId: string) =>
+      getApiClient().deleteWebAgentRuntime(runtimeId),
+    start: (runtimeId: string) =>
+      getApiClient().startWebAgentRuntime(runtimeId),
+    pause: (runtimeId: string) =>
+      getApiClient().pauseWebAgentRuntime(runtimeId),
     stop: (runtimeId: string) => getApiClient().stopWebAgentRuntime(runtimeId),
   },
 
   userPreferences: {
-    list: (input?: ListUserPreferencesInput) => getApiClient().listUserPreferences(input),
+    list: (input?: ListUserPreferencesInput) =>
+      getApiClient().listUserPreferences(input),
     upsert: (key: string, input: Omit<UpsertUserPreferenceInput, "key">) =>
       getApiClient().upsertUserPreference(key, input),
     delete: (key: string) => getApiClient().deleteUserPreference(key),
@@ -160,16 +208,20 @@ export const api = {
       headers?: Record<string, string> | null;
       enabled?: boolean;
     }) => getApiClient().createMcpServer(input),
-    update: (serverId: string, input: {
-      name?: string;
-      url?: string;
-      description?: string | null;
-      transport?: "sse";
-      headers?: Record<string, string> | null;
-      enabled?: boolean;
-    }) => getApiClient().updateMcpServer(serverId, input),
+    update: (
+      serverId: string,
+      input: {
+        name?: string;
+        url?: string;
+        description?: string | null;
+        transport?: "sse";
+        headers?: Record<string, string> | null;
+        enabled?: boolean;
+      },
+    ) => getApiClient().updateMcpServer(serverId, input),
     delete: (serverId: string) => getApiClient().deleteMcpServer(serverId),
-    listTools: (serverId: string) => getApiClient().listMcpServerTools(serverId),
+    listTools: (serverId: string) =>
+      getApiClient().listMcpServerTools(serverId),
   },
 
   mcp: {

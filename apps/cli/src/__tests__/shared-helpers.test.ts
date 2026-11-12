@@ -3,13 +3,15 @@ import {
   buildIdentity,
   isTruthyEnvValue,
   pickDefinedFields,
-  requireIdentityOption
+  requireIdentityOption,
 } from "../utils/shared-helpers.js";
 
 describe("shared-helpers", () => {
   describe("buildIdentity", () => {
     it("builds identity from session and agent name", () => {
-      expect(buildIdentity("my-session", "worker-1")).toBe("my-session::worker-1");
+      expect(buildIdentity("my-session", "worker-1")).toBe(
+        "my-session::worker-1",
+      );
     });
 
     it("handles empty strings", () => {
@@ -23,11 +25,15 @@ describe("shared-helpers", () => {
     });
 
     it("throws when identity is undefined", () => {
-      expect(() => requireIdentityOption(undefined)).toThrow("必须显式提供 --identity");
+      expect(() => requireIdentityOption(undefined)).toThrow(
+        "必须显式提供 --identity",
+      );
     });
 
     it("throws when identity is empty string", () => {
-      expect(() => requireIdentityOption("")).toThrow("必须显式提供 --identity");
+      expect(() => requireIdentityOption("")).toThrow(
+        "必须显式提供 --identity",
+      );
     });
   });
 

@@ -1,244 +1,396 @@
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import type { KnowledgeLevel } from "@loopmarshal/protocol";
+import { Icon } from "@/components/Icon";
+import { PageHeader } from "@/components/PageHeader";
+import {
+  Badge,
+  Dialog,
+  EmptyState,
+  ErrorState,
+  Loading,
+  pushToast,
+} from "@/components/ui";
+import { formatTimeFull } from "@/features/workbench/text";
+import {
+  getSelectedSessionId,
+  useConsoleQuery,
+  useSessionsQuery,
+} from "@/features/workbench/workbench-queries";
 import { api } from "@/lib/api-client";
 import { renderMarkdown } from "@/lib/markdown";
-import { PageHeader, PageContainer } from "@/components/PageHeader";
-import { Badge, EmptyState, Loading, pushToast } from "@/components/ui";
-import { formatTime, formatTimeFull } from "@/features/workbench/text";
-
-const LEVEL_CONFIG: Record<KnowledgeLevel, { label: string; desc: string; variant: "warning" | "info" | "success" }> = {
-  l1: { label: "L1 · 项目方向", desc: "长期原则、当前方向、需求约束", variant: "warning" },
-  l2: { label: "L2 · 领域规则", desc: "模块边界、协议、状态机", variant: "info" },
-  l3: { label: "L3 · 字段对齐", desc: "字段、接口参数、数据结构", variant: "success" },
+import { useSelectedSession } from "@/lib/selected-session";
+import { SESSION_FALLBACK_REFETCH_MS } from "@/lib/session-query-keys";
+import { useSessionUpdates } from "@/lib/session-updates";
+import {
+  knowledgeLevelDefinitions,
+  type KnowledgeLevel,
+} from "@loopmarshal/protocol";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
+const LEVELS: Record<
+  KnowledgeLevel,
+  {
+    label: string;
+    description: string;
+    variant: "warning" | "info" | "success";
+  }
+> = {
+  l1: {
+    ...knowledgeLevelDefinitions.l1,
+    variant: "warning",
+  },
+  l2: { ...knowledgeLevelDefinitions.l2, variant: "info" },
+  l3: {
+    ...knowledgeLevelDefinitions.l3,
+    variant: "success",
+  },
 };
-
 export function KnowledgePage() {
-  const [selectedLevel, setSelectedLevel] = useState<KnowledgeLevel | null>(null);
-  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
-
-  const manifestQuery = useQuery({
-    queryKey: ["knowledge", "manifest"],
-    queryFn: () => api.knowledge.getManifest(),
+  const [explicitSessionId, setSessionId] = useSelectedSession();
+  const sessionsQuery = useSessionsQuery();
+  const sessions = sessionsQuery.data ?? [];
+  const sessionId = getSelectedSessionId(sessions, explicitSessionId);
+  useSessionUpdates(sessionId);
+  if (sessionsQuery.error)
+    return (
+      <>
+        <PageHeader title="知识库" />
+        <ErrorState
+          message={sessionsQuery.error.message}
+          onRetry={() => {
+            void sessionsQuery.refetch();
+          }}
+        />
+      </>
+    );
+  return (
+    <KnowledgeSessionView
+      key={sessionId ?? "none"}
+      sessionId={sessionId}
+      sessions={sessions}
+      onSelectSession={setSessionId}
+    />
+  );
+}
+function KnowledgeSessionView({
+  sessionId,
+  sessions,
+  onSelectSession,
+}: {
+  sessionId: string | null;
+  sessions: Array<{ id: string; name: string }>;
+  onSelectSession: (id: string | null) => void;
+}) {
+  const qc = useQueryClient();
+  const consoleQuery = useConsoleQuery(sessionId);
+  const keeper = consoleQuery.data?.members.find(
+    (member) => member.role === "knowledge_keeper",
+  );
+  const [selected, setSelected] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [showChanges, setShowChanges] = useState(false);
+  const manifest = useQuery({
+    queryKey: ["knowledge", sessionId, "manifest"],
+    queryFn: () => api.knowledge.getManifest(sessionId!),
+    enabled: Boolean(sessionId),
+    refetchInterval: SESSION_FALLBACK_REFETCH_MS,
   });
-  const listQuery = useQuery({
-    queryKey: ["knowledge", "list"],
-    queryFn: () => api.knowledge.list(),
+  const list = useQuery({
+    queryKey: ["knowledge", sessionId, "list"],
+    queryFn: () => api.knowledge.list({ sessionId: sessionId! }),
+    enabled: Boolean(sessionId),
+    refetchInterval: SESSION_FALLBACK_REFETCH_MS,
   });
-  const changesQuery = useQuery({
-    queryKey: ["knowledge", "changes"],
-    queryFn: () => api.knowledge.listChanges({ limit: 20 }),
+  const changes = useQuery({
+    queryKey: ["knowledge", sessionId, "changes"],
+    queryFn: () =>
+      api.knowledge.listChanges({ sessionId: sessionId!, limit: 30 }),
+    enabled: Boolean(sessionId),
+    refetchInterval: SESSION_FALLBACK_REFETCH_MS,
   });
-  const documentQuery = useQuery({
-    queryKey: ["knowledge", "doc", selectedLevel, selectedSlug],
-    queryFn: () => api.knowledge.get(selectedLevel as KnowledgeLevel, selectedSlug as string),
-    enabled: Boolean(selectedLevel && selectedSlug),
+  const items = list.data ?? [];
+  const filtered = useMemo(
+    () =>
+      items.filter((item) =>
+        `${item.title} ${item.slug}`
+          .toLowerCase()
+          .includes(search.toLowerCase()),
+      ),
+    [items, search],
+  );
+  const active =
+    items.find((item) => `${item.level}/${item.slug}` === selected) ??
+    items[0] ??
+    null;
+  const document = useQuery({
+    queryKey: [
+      "knowledge",
+      sessionId,
+      "doc",
+      active?.level,
+      active?.slug,
+      active?.version,
+    ],
+    queryFn: () => api.knowledge.get(active!.level, active!.slug, sessionId!),
+    enabled: Boolean(sessionId && active),
+    refetchInterval: 5000,
   });
-
-  const items = listQuery.data ?? [];
-  const grouped = useMemo(() => ({
-    l1: items.filter((i) => i.level === "l1"),
-    l2: items.filter((i) => i.level === "l2"),
-    l3: items.filter((i) => i.level === "l3"),
-  }), [items]);
-
-  const activeItem = selectedLevel && selectedSlug
-    ? items.find((i) => i.level === selectedLevel && i.slug === selectedSlug)
-    : items[0] ?? null;
-  const effectiveLevel = selectedLevel ?? activeItem?.level ?? null;
-  const effectiveSlug = selectedSlug ?? activeItem?.slug ?? null;
-  const document = effectiveLevel === selectedLevel && effectiveSlug === selectedSlug ? documentQuery.data : null;
-  const counts = manifestQuery.data?.counts ?? { l1: grouped.l1.length, l2: grouped.l2.length, l3: grouped.l3.length };
-
-  const refreshAll = () => {
-    void manifestQuery.refetch();
-    void listQuery.refetch();
-    void changesQuery.refetch();
-    void documentQuery.refetch();
-    pushToast("已刷新", "info");
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ["sessions"] });
+    void qc.invalidateQueries({ queryKey: ["knowledge", sessionId] });
+    pushToast("知识库已刷新", "info");
   };
-
+  const error = list.error ?? manifest.error ?? document.error;
   return (
     <>
       <PageHeader
         title="知识库"
-        subtitle={`${manifestQuery.data?.rootPath ?? "—"} · ${items.length} 篇文档`}
+        subtitle="保存本会话已核实的项目知识"
         actions={
-          <button className="btn btn-secondary" onClick={refreshAll}>刷新</button>
+          <>
+            <Link to="/" className="btn btn-ghost">
+              <Icon name="arrow" size={15} />
+              返回协作
+            </Link>
+            <button
+              className="btn btn-secondary"
+              onClick={() => setShowChanges(true)}
+            >
+              <Icon name="clock" size={15} />
+              变更记录
+            </button>
+            <button className="btn btn-secondary" onClick={refresh}>
+              <Icon name="refresh" size={15} />
+              刷新
+            </button>
+          </>
         }
       />
-      <PageContainer>
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "280px 1fr 320px",
-          gap: "var(--sp-4)",
-          height: "calc(100vh - var(--header-h) - var(--sp-10))",
-        }}>
-          {/* Document tree */}
-          <div className="card" style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            <div style={{ padding: "var(--sp-3) var(--sp-4)", borderBottom: "1px solid var(--c-border-subtle)" }}>
-              <div style={{ fontSize: "var(--fs-sm)", fontWeight: 600, color: "var(--c-text-primary)" }}>文档列表</div>
+      <div className="knowledge-toolbar">
+        <div className="session-selector">
+          <Icon name="folder" size={16} />
+          <select
+            className="input"
+            aria-label="知识库会话"
+            value={sessionId ?? ""}
+            onChange={(event) => onSelectSession(event.target.value || null)}
+          >
+            {!sessions.length && <option value="">请先新建协作</option>}
+            {sessions.map((session) => (
+              <option key={session.id} value={session.id}>
+                {session.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <span>
+          <Icon name="shield" size={14} />
+          当前会话独立保存
+        </span>
+        <span className="knowledge-count">{items.length} 篇文档</span>
+      </div>
+      {!sessionId ? (
+        <EmptyState
+          title="先选择一个协作会话"
+          desc="知识随会话保存。先新建协作，或打开已有协作。"
+        />
+      ) : (
+        <div className="knowledge-workspace">
+          <aside className="knowledge-index" aria-label="知识文档目录">
+            <div className="knowledge-search">
+              <Icon name="search" size={16} />
+              <input
+                aria-label="搜索知识文档"
+                placeholder="搜索文档…"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
             </div>
-            <div style={{ flex: 1, overflow: "auto", padding: "var(--sp-2)" }}>
-              {listQuery.isLoading ? (
-                <Loading text="加载中…" />
-              ) : items.length === 0 ? (
-                <EmptyState title="知识库为空" desc="AI 在协作过程中会自动写入" />
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)" }}>
-                  {(Object.keys(LEVEL_CONFIG) as KnowledgeLevel[]).map((level) => (
-                    <div key={level}>
-                      <div style={{
-                        display: "flex", alignItems: "center", justifyContent: "space-between",
-                        padding: "0 var(--sp-2) var(--sp-1)",
-                      }}>
-                        <Badge variant={LEVEL_CONFIG[level].variant} dot>
-                          {LEVEL_CONFIG[level].label}
-                        </Badge>
-                        <span style={{ fontSize: "var(--fs-xs)", color: "var(--c-text-tertiary)" }}>{counts[level]}</span>
-                      </div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                        {grouped[level].map((item) => {
-                          const active = effectiveLevel === item.level && effectiveSlug === item.slug;
-                          return (
-                            <button
-                              key={`${item.level}:${item.slug}`}
-                              onClick={() => { setSelectedLevel(item.level); setSelectedSlug(item.slug); }}
-                              style={{
-                                display: "block", width: "100%", textAlign: "left",
-                                padding: "var(--sp-2) var(--sp-3)",
-                                borderRadius: "var(--r-md)",
-                                border: "1px solid transparent",
-                                background: active ? "var(--c-accent-subtle)" : "transparent",
-                                fontSize: "var(--fs-sm)", fontWeight: active ? 600 : 400,
-                                color: active ? "var(--c-accent)" : "var(--c-text-primary)",
-                                transition: "all var(--t-fast)",
-                              }}
-                              onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = "var(--c-bg-hover)"; }}
-                              onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent"; }}
-                            >
-                              <div className="truncate">{item.title}</div>
-                              <div style={{ fontSize: "var(--fs-xs)", color: "var(--c-text-tertiary)" }}>{item.level}/{item.slug}</div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Document content */}
-          <div className="card" style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            <div style={{ padding: "var(--sp-3) var(--sp-4)", borderBottom: "1px solid var(--c-border-subtle)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: "var(--fs-sm)", fontWeight: 600, color: "var(--c-text-primary)" }} className="truncate">
-                  {activeItem?.title ?? "选择文档"}
-                </div>
-                {activeItem && (
-                  <div style={{ fontSize: "var(--fs-xs)", color: "var(--c-text-tertiary)" }}>
-                    {activeItem.level}/{activeItem.slug} · v{activeItem.version} · {formatTime(activeItem.updatedAt)}
+            {list.isLoading ? (
+              <Loading />
+            ) : items.length === 0 ? (
+              <EmptyState
+                title="知识库为空"
+                desc="Host 或知识库维护者核实项目后，会将知识保存在这里。"
+              />
+            ) : filtered.length === 0 ? (
+              <EmptyState
+                title="没有匹配的文档"
+                desc="换一个标题或关键词试试。"
+                action={
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setSearch("")}
+                  >
+                    清除搜索
+                  </button>
+                }
+              />
+            ) : (
+              (Object.keys(LEVELS) as KnowledgeLevel[]).map((level) => (
+                <section className="knowledge-group" key={level}>
+                  <h2>
+                    <span className={`knowledge-level level-${level}`}>
+                      {level.toUpperCase()}
+                    </span>
+                    {LEVELS[level].label}
+                    <small>
+                      {filtered.filter((item) => item.level === level).length}
+                    </small>
+                  </h2>
+                  <div>
+                    {filtered
+                      .filter((item) => item.level === level)
+                      .map((item) => (
+                        <button
+                          key={`${level}/${item.slug}`}
+                          className={`knowledge-doc-link ${active?.level === level && active.slug === item.slug ? "is-active" : ""}`}
+                          onClick={() => setSelected(`${level}/${item.slug}`)}
+                        >
+                          <Icon name="file" size={16} />
+                          <span>
+                            <strong>{item.title}</strong>
+                            <small>{item.slug}</small>
+                          </span>
+                        </button>
+                      ))}
                   </div>
-                )}
-              </div>
-              {activeItem && (
-                <Badge variant={LEVEL_CONFIG[activeItem.level].variant} dot>
-                  {LEVEL_CONFIG[activeItem.level].label}
-                </Badge>
-              )}
+                </section>
+              ))
+            )}
+            <div className="knowledge-index-footer">
+              <Icon name="info" size={14} />
+              <span>
+                {keeper
+                  ? `由 ${keeper.displayName} 与 Host 维护。`
+                  : "由 Host 维护。"}
+                成员执行任务时读取当前会话的最新知识。
+              </span>
             </div>
-            <div style={{ flex: 1, overflow: "auto", padding: "var(--sp-4)" }}>
-              {!activeItem ? (
-                <EmptyState title="未选择文档" desc="从左侧列表中选择一篇文档" />
-              ) : documentQuery.isLoading && selectedSlug ? (
-                <Loading text="加载文档…" />
-              ) : document ? (
-                <article>
-                  {document.summary && (
-                    <div style={{
-                      padding: "var(--sp-3) var(--sp-4)",
-                      marginBottom: "var(--sp-4)",
-                      borderRadius: "var(--r-md)",
-                      background: "var(--c-bg-subtle)",
-                      border: "1px solid var(--c-border-subtle)",
-                      fontSize: "var(--fs-sm)", color: "var(--c-text-secondary)",
-                      lineHeight: 1.6,
-                    }}>
-                        {document.summary}
-                      </div>
+          </aside>
+          <div className="knowledge-reader">
+            {error && <ErrorState message={error.message} onRetry={refresh} />}
+            {!active ? (
+              <EmptyState
+                icon={<Icon name="book" />}
+                title="项目知识，从第一次协作开始积累"
+                desc="项目方向、领域规则和字段契约按层次记录在这里；任务进度与验收记录保留在协作消息中。"
+              />
+            ) : document.isLoading ? (
+              <Loading text="正在读取文档…" />
+            ) : document.data ? (
+              <>
+                <div className="document-topline">
+                  <Badge variant={LEVELS[active.level].variant}>
+                    {active.level.toUpperCase()} / {LEVELS[active.level].label}
+                  </Badge>
+                  <span>版本 {active.version}</span>
+                </div>
+                <article className="knowledge-article">
+                  <header>
+                    <h2>{active.title}</h2>
+                    <p>
+                      <Icon name="clock" size={13} />
+                      更新于 {formatTimeFull(active.updatedAt)}
+                    </p>
+                  </header>
+                  {document.data.summary && (
+                    <div className="document-summary">
+                      {document.data.summary}
+                    </div>
                   )}
-                  {document.tags.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-1)", marginBottom: "var(--sp-4)" }}>
-                      {document.tags.map((tag) => (
-                        <Badge key={tag} variant="neutral">{tag}</Badge>
+                  {document.data.tags.length > 0 && (
+                    <div className="document-tags">
+                      {document.data.tags.map((tag) => (
+                        <Badge key={tag}>{tag}</Badge>
                       ))}
                     </div>
                   )}
                   <div
                     className="markdown-body"
-                    style={{
-                      color: "var(--c-text-primary)",
-                      lineHeight: 1.7,
+                    dangerouslySetInnerHTML={{
+                      __html: renderMarkdown(
+                        document.data.content || "暂无文档内容",
+                      ),
                     }}
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(document.content || "无文档内容") }}
                   />
                 </article>
-              ) : (
-                <EmptyState title="点击文档重新加载" desc="文档内容加载失败" />
-              )}
-            </div>
-          </div>
-
-          {/* Recent changes */}
-          <div className="card" style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            <div style={{ padding: "var(--sp-3) var(--sp-4)", borderBottom: "1px solid var(--c-border-subtle)" }}>
-              <div style={{ fontSize: "var(--fs-sm)", fontWeight: 600, color: "var(--c-text-primary)" }}>
-                近期变更
-              </div>
-              <div style={{ fontSize: "var(--fs-xs)", color: "var(--c-text-tertiary)" }}>
-                {changesQuery.data?.length ?? 0} 条记录
-              </div>
-            </div>
-            <div style={{ flex: 1, overflow: "auto", padding: "var(--sp-2)" }}>
-              {changesQuery.isLoading ? (
-                <Loading text="加载中…" />
-              ) : (changesQuery.data ?? []).length === 0 ? (
-                <EmptyState title="暂无变更" />
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-2)" }}>
-                  {(changesQuery.data ?? []).map((change) => (
-                    <div key={`${change.level}:${change.slug}:${change.createdAt}`} style={{
-                      padding: "var(--sp-3)",
-                      borderRadius: "var(--r-md)",
-                      border: "1px solid var(--c-border-subtle)",
-                      background: "var(--c-bg-elevated)",
-                    }}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--sp-1)" }}>
-                        <span style={{ fontSize: "var(--fs-sm)", fontWeight: 600, color: "var(--c-text-primary)" }} className="truncate">
-                          {change.level}/{change.slug}
-                        </span>
-                        <Badge variant={change.kind === "created" ? "success" : change.kind === "deleted" ? "error" : "info"}>
-                          {change.kind}
-                        </Badge>
-                      </div>
-                      <div style={{ fontSize: "var(--fs-xs)", color: "var(--c-text-tertiary)" }}>
-                        {formatTimeFull(change.createdAt)}
-                      </div>
-                      {change.summary && (
-                        <div style={{ fontSize: "var(--fs-xs)", color: "var(--c-text-secondary)", marginTop: "var(--sp-1)" }}>
-                          {change.summary}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                <details className="document-location">
+                  <summary>文档位置与范围</summary>
+                  <code>
+                    {manifest.data?.rootPath}/{active.level}/{active.slug}
+                  </code>
+                  <p>该文档仅用于当前协作会话。</p>
+                </details>
+              </>
+            ) : (
+              <EmptyState
+                title="文档尚未读取成功"
+                action={
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      void document.refetch();
+                    }}
+                  >
+                    重新读取
+                  </button>
+                }
+              />
+            )}
           </div>
         </div>
-      </PageContainer>
+      )}
+      <Dialog
+        open={showChanges}
+        onClose={() => setShowChanges(false)}
+        title="知识库变更记录"
+        width={680}
+      >
+        <p className="muted-copy">仅显示当前会话最近的知识变更。</p>
+        {changes.error && (
+          <ErrorState
+            message={changes.error.message}
+            onRetry={() => {
+              void changes.refetch();
+            }}
+          />
+        )}
+        {changes.isLoading ? (
+          <Loading />
+        ) : !changes.data?.length ? (
+          <EmptyState title="暂无变更记录" />
+        ) : (
+          <div className="change-timeline">
+            {changes.data.map((change) => (
+              <div key={`${change.level}/${change.slug}/${change.createdAt}`}>
+                <span className="timeline-dot" />
+                <div>
+                  <div className="change-heading">
+                    <strong>
+                      {change.level}/{change.slug}
+                    </strong>
+                    <Badge
+                      variant={
+                        change.kind === "created"
+                          ? "success"
+                          : change.kind === "deleted"
+                            ? "error"
+                            : "info"
+                      }
+                    >
+                      {{ created: "新建", updated: "更新", deleted: "删除" }[
+                        change.kind
+                      ] ?? change.kind}
+                    </Badge>
+                  </div>
+                  <time>{formatTimeFull(change.createdAt)}</time>
+                  {change.summary && <p>{change.summary}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Dialog>
     </>
   );
 }

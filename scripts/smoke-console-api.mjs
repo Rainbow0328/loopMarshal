@@ -40,26 +40,27 @@ const main = async () => {
   const instance = await startCoreServer({
     host: "127.0.0.1",
     port: smokePort,
-    databasePath: resolve(stateDir, "console-api.sqlite")
+    databasePath: resolve(stateDir, "console-api.sqlite"),
   });
 
   try {
     const client = createLoopMarshalClient({ baseUrl: smokeBaseUrl });
     const sessionName = `console-api-${Date.now()}`;
     const correlationId = "smoke-console-thread-1";
-    const reportContent = "Worker completed the console aggregation smoke task.";
+    const reportContent =
+      "Worker completed the console aggregation smoke task.";
 
     const host = await client.attachSession({
       sessionName,
       agentName: "main-host",
       role: "host",
-      roleDescription: "plan, dispatch, and maintain knowledge"
+      roleDescription: "plan, dispatch, and maintain knowledge",
     });
     const worker = await client.attachSession({
       sessionName,
       agentName: "worker-one",
       role: "worker",
-      roleDescription: "execute assigned tasks"
+      roleDescription: "execute assigned tasks",
     });
 
     const taskMessage = await client.sendMessage({
@@ -69,18 +70,21 @@ const main = async () => {
       type: "task",
       correlationId,
       payload: {
-        content: "Run the console aggregation smoke task."
-      }
+        content: "Run the console aggregation smoke task.",
+      },
     });
 
     const claimed = await client.claimNext(worker.agent.id, {
       types: ["task"],
-      correlationId
+      correlationId,
     });
-    assert(claimed?.id === taskMessage.id, "worker should claim the dispatched task");
+    assert(
+      claimed?.id === taskMessage.id,
+      "worker should claim the dispatched task",
+    );
 
     await client.completeMessage(taskMessage.id, {
-      agentId: worker.agent.id
+      agentId: worker.agent.id,
     });
 
     await client.sendMessage({
@@ -91,26 +95,26 @@ const main = async () => {
       correlationId,
       payload: {
         content: reportContent,
-        result: "completed"
-      }
+        result: "completed",
+      },
     });
 
     const snapshot = await client.getSessionConsole(host.session.id);
     const thread = snapshot.taskThreads.find(
-      (item) => item.correlationId === correlationId
+      (item) => item.correlationId === correlationId,
     );
 
     assert(thread, "console snapshot should include the task thread");
     assert(thread.status === "reported", "task thread should be reported");
     assert(
       thread.workerReport?.content === reportContent,
-      "task thread should expose the worker report content"
+      "task thread should expose the worker report content",
     );
     assert(
       snapshot.members.every((member) =>
-        ["offline", "working", "waiting"].includes(member.status)
+        ["offline", "working", "waiting"].includes(member.status),
       ),
-      "console members should only expose the three user-facing statuses"
+      "console members should only expose the three user-facing statuses",
     );
 
     console.log(
@@ -121,12 +125,12 @@ const main = async () => {
           workerReport: thread.workerReport?.content,
           memberStatuses: snapshot.members.map((member) => ({
             agentName: member.agentName,
-            status: member.status
-          }))
+            status: member.status,
+          })),
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } finally {
     await instance.close();

@@ -24,7 +24,11 @@ const smokePort = 42783;
 const smokeBaseUrl = `http://127.0.0.1:${smokePort}`;
 const rootDir = process.cwd();
 const cliEntry = resolve(rootDir, "apps/cli/dist/apps/cli/src/index.js");
-const stateDir = resolve(rootDir, ".loopmarshal-test", "smoke-cli-resolve-selective");
+const stateDir = resolve(
+  rootDir,
+  ".loopmarshal-test",
+  "smoke-cli-resolve-selective",
+);
 
 const assert = (condition, message) => {
   if (!condition) {
@@ -37,9 +41,9 @@ const runCli = async ({ args, env }) => {
     cwd: rootDir,
     env: {
       ...process.env,
-      ...env
+      ...env,
     },
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"],
   });
 
   let stdout = "";
@@ -62,7 +66,7 @@ const runCli = async ({ args, env }) => {
     exitCode,
     stdout,
     stderr,
-    json: stdout ? JSON.parse(stdout) : null
+    json: stdout ? JSON.parse(stdout) : null,
   };
 };
 
@@ -70,7 +74,7 @@ const runCliJson = async (input) => {
   const result = await runCli(input);
   if (result.exitCode !== 0) {
     throw new Error(
-      `CLI command failed (${input.args.join(" ")}): ${result.stderr || result.stdout || result.exitCode}`
+      `CLI command failed (${input.args.join(" ")}): ${result.stderr || result.stdout || result.exitCode}`,
     );
   }
   return result.json;
@@ -87,13 +91,13 @@ const main = async () => {
   const instance = await startCoreServer({
     host: "127.0.0.1",
     port: smokePort,
-    databasePath: resolve(stateDir, "resolve-selective.sqlite")
+    databasePath: resolve(stateDir, "resolve-selective.sqlite"),
   });
 
   try {
     const env = {
       LOOPMARSHAL_BASE_URL: smokeBaseUrl,
-      LOOPMARSHAL_CLI_STATE_DIR: resolve(stateDir, ".loopmarshal")
+      LOOPMARSHAL_CLI_STATE_DIR: resolve(stateDir, ".loopmarshal"),
     };
     const client = createLoopMarshalClient({ baseUrl: smokeBaseUrl });
     const sessionName = `resolve-selective-${Date.now()}`;
@@ -103,28 +107,46 @@ const main = async () => {
 
     await runCliJson({
       args: ["attach", hostName, "--session", sessionName, "--role", "host"],
-      env
+      env,
     });
     await runCliJson({
-      args: ["attach", workerOneName, "--session", sessionName, "--role", "worker", "--duty", "work one"],
-      env
+      args: [
+        "attach",
+        workerOneName,
+        "--session",
+        sessionName,
+        "--role",
+        "worker",
+        "--duty",
+        "work one",
+      ],
+      env,
     });
     await runCliJson({
-      args: ["attach", workerTwoName, "--session", sessionName, "--role", "worker", "--duty", "work two"],
-      env
+      args: [
+        "attach",
+        workerTwoName,
+        "--session",
+        sessionName,
+        "--role",
+        "worker",
+        "--duty",
+        "work two",
+      ],
+      env,
     });
 
     await client.updateWindowBindingDefaults(sessionName, hostName, {
       intervalSeconds: 1,
-      maxRounds: 1
+      maxRounds: 1,
     });
     await client.updateWindowBindingDefaults(sessionName, workerOneName, {
       intervalSeconds: 1,
-      maxRounds: 1
+      maxRounds: 1,
     });
     await client.updateWindowBindingDefaults(sessionName, workerTwoName, {
       intervalSeconds: 1,
-      maxRounds: 1
+      maxRounds: 1,
     });
 
     const session = await client.getSessionByName(sessionName);
@@ -140,7 +162,7 @@ const main = async () => {
       toAgentId: hostAgent.id,
       type: "result",
       payload: { content: "worker one done", result: "done" },
-      correlationId: "selective-report-one"
+      correlationId: "selective-report-one",
     });
     await client.sendMessage({
       sessionId: session.id,
@@ -148,16 +170,16 @@ const main = async () => {
       toAgentId: hostAgent.id,
       type: "result",
       payload: { content: "worker two done", result: "done" },
-      correlationId: "selective-report-two"
+      correlationId: "selective-report-two",
     });
 
     const hostAwait = await runCliJson({
       args: ["await", hostName, "--session", sessionName],
-      env
+      env,
     });
     assert(
       hostAwait.op === "PROCESS_CLAIMED_MESSAGE",
-      `host should claim both reports, got ${hostAwait.op}`
+      `host should claim both reports, got ${hostAwait.op}`,
     );
     assert(hostAwait.messageCount === 2, "host should claim both reports");
     const messageIds = hostAwait.messages.map((m) => m.id || m.messageId);
@@ -165,54 +187,70 @@ const main = async () => {
 
     const selectiveResolve = await runCliJson({
       args: [
-        "resolve", hostName,
-        "--session", sessionName,
-        "--message-id", messageIds[0],
-        "--summary", "resolved first report only"
+        "resolve",
+        hostName,
+        "--session",
+        sessionName,
+        "--message-id",
+        messageIds[0],
+        "--summary",
+        "resolved first report only",
       ],
-      env
+      env,
     });
     assert(
       selectiveResolve.op === "HOST_DECISION_REQUIRED",
-      `selective resolve should return HOST_DECISION_REQUIRED, got ${selectiveResolve.op}`
+      `selective resolve should return HOST_DECISION_REQUIRED, got ${selectiveResolve.op}`,
     );
-    assert(selectiveResolve.resolvedCount === 1, "should resolve only 1 message");
+    assert(
+      selectiveResolve.resolvedCount === 1,
+      "should resolve only 1 message",
+    );
     assert(
       selectiveResolve.resolvedMessageIds.length === 1,
-      "resolvedMessageIds should contain 1 id"
+      "resolvedMessageIds should contain 1 id",
     );
 
     const secondHostAwait = await runCliJson({
       args: ["await", hostName, "--session", sessionName],
-      env
+      env,
     });
     assert(
       secondHostAwait.op === "PROCESS_CLAIMED_MESSAGE",
-      `host should still have the second claimed message, got ${secondHostAwait.op}`
+      `host should still have the second claimed message, got ${secondHostAwait.op}`,
     );
-    assert(secondHostAwait.messageCount === 1, "host should have 1 remaining message");
+    assert(
+      secondHostAwait.messageCount === 1,
+      "host should have 1 remaining message",
+    );
 
     const resolveAll = await runCliJson({
       args: [
-        "resolve", hostName,
-        "--session", sessionName,
-        "--summary", "resolved remaining report"
+        "resolve",
+        hostName,
+        "--session",
+        sessionName,
+        "--summary",
+        "resolved remaining report",
       ],
-      env
+      env,
     });
     assert(
       resolveAll.op === "HOST_DECISION_REQUIRED",
-      `resolve all should return HOST_DECISION_REQUIRED, got ${resolveAll.op}`
+      `resolve all should return HOST_DECISION_REQUIRED, got ${resolveAll.op}`,
     );
-    assert(resolveAll.resolvedCount === 1, "should resolve the remaining message");
+    assert(
+      resolveAll.resolvedCount === 1,
+      "should resolve the remaining message",
+    );
 
     const finalAwait = await runCliJson({
       args: ["await", hostName, "--session", sessionName],
-      env
+      env,
     });
     assert(
       finalAwait.op === "PROCESS_SESSION_IDLE",
-      `host should be idle after resolving all, got ${finalAwait.op}`
+      `host should be idle after resolving all, got ${finalAwait.op}`,
     );
 
     console.log(
@@ -223,11 +261,11 @@ const main = async () => {
           selectiveResolveCount: selectiveResolve.resolvedCount,
           remainingClaimCount: secondHostAwait.messageCount,
           finalResolveCount: resolveAll.resolvedCount,
-          finalIdleOp: finalAwait.op
+          finalIdleOp: finalAwait.op,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } finally {
     await instance.close();

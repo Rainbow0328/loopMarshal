@@ -20,7 +20,7 @@ const parseMaxSize = (value: string): number => {
     b: 1,
     kb: 1024,
     mb: 1024 * 1024,
-    gb: 1024 * 1024 * 1024
+    gb: 1024 * 1024 * 1024,
   };
   const multiplier = multipliers[unit] ?? multipliers["mb"] ?? 1024 * 1024;
   return num * multiplier;
@@ -29,7 +29,7 @@ const parseMaxSize = (value: string): number => {
 const rotateLogFile = (
   filePath: string,
   maxSize: number,
-  maxFiles: number
+  maxFiles: number,
 ): void => {
   if (!existsSync(filePath)) return;
 
@@ -105,8 +105,8 @@ export const createLogger = (options?: {
         target: "pino/file",
         options: {
           destination,
-          mkdir: true
-        }
+          mkdir: true,
+        },
       })
     : undefined;
 
@@ -115,14 +115,14 @@ export const createLogger = (options?: {
       name: options?.name ?? "loopmarshal",
       level,
       base: {
-        pid: process.pid
+        pid: process.pid,
       },
       timestamp: pino.stdTimeFunctions.isoTime,
       formatters: {
-        level: (label) => ({ level: label })
-      }
+        level: (label) => ({ level: label }),
+      },
     },
-    transport
+    transport,
   );
 
   // Set up periodic rotation check (every 60 seconds)

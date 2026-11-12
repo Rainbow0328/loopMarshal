@@ -13,11 +13,13 @@
  * limitations under the License.
  */
 import type { DatabaseSync } from "node:sqlite";
+import { inStoreTransaction } from "../transaction.js";
+import type { DeliveryRepository } from "./delivery-repository.js";
 
 import type {
   AgentQueueStats,
   MessageRecord,
-  MessageType
+  MessageType,
 } from "@loopmarshal/protocol";
 
 type MessageRow = Omit<MessageRecord, "payload"> & {
@@ -31,7 +33,82 @@ export type AtomicInsertResult = {
 };
 
 export class MessageRepository {
+  private deliveries: DeliveryRepository | undefined;
   public constructor(private readonly database: DatabaseSync) {}
+
+  public setDeliveryRepository(deliveries: DeliveryRepository): void {
+    this.deliveries = deliveries;
+  }
+  public transaction<T>(operation: () => T): T {
+    return inStoreTransaction(this.database, operation);
+  }
+
+  public getNamedOperation(
+    sessionId: string,
+    senderId: string,
+    key: string,
+  ): { request: string; result: MessageRecord[] } | null {
+    const row = this.database
+      .prepare(
+        `SELECT request_json AS request, result_json AS result
+      FROM named_send_operations WHERE session_id = ? AND sender_id = ? AND operation_key = ?`,
+      )
+      .get(sessionId, senderId, key) as
+      | { request: string; result: string }
+      | undefined;
+    return row
+      ? {
+          request: row.request,
+          result: JSON.parse(row.result) as MessageRecord[],
+        }
+      : null;
+  }
+
+  public saveNamedOperation(
+    sessionId: string,
+    senderId: string,
+    key: string,
+    request: string,
+    result: MessageRecord[],
+  ): void {
+    this.database
+      .prepare(
+        `INSERT INTO named_send_operations (session_id, sender_id, operation_key, request_json, result_json)
+      VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(sessionId, senderId, key, request, JSON.stringify(result));
+  }
+
+  public isManagedProxy(agentId: string): boolean {
+    return Boolean(
+      this.database
+        .prepare(
+          "SELECT 1 FROM session_member_routes WHERE agent_id = ? AND access_mode = 'managed_proxy'",
+        )
+        .get(agentId),
+    );
+  }
+
+  public isMemberDisabled(agentId: string): boolean {
+    return Boolean(
+      this.database
+        .prepare(
+          "SELECT 1 FROM session_member_routes WHERE agent_id = ? AND binding_status = 'disabled'",
+        )
+        .get(agentId),
+    );
+  }
+
+  private isInboxClaimBlocked(agentId: string): boolean {
+    return Boolean(
+      this.database
+        .prepare(
+          `SELECT 1 FROM session_member_routes WHERE agent_id = ?
+      AND (access_mode = 'managed_proxy' OR binding_status = 'disabled')`,
+        )
+        .get(agentId),
+    );
+  }
 
   public insert(message: MessageRecord): void {
     const statement = this.database.prepare(`
@@ -89,7 +166,7 @@ export class MessageRepository {
       processedAt: message.processedAt ?? null,
       failedAt: message.failedAt ?? null,
       failureReason: message.failureReason ?? null,
-      createdAt: message.createdAt
+      createdAt: message.createdAt,
     });
   }
 
@@ -99,76 +176,75 @@ export class MessageRepository {
     processedAt: string;
   }): AtomicInsertResult | null {
     const supersedeMessageIds = [...new Set(input.supersedeMessageIds ?? [])];
-    this.database.exec("BEGIN IMMEDIATE");
+    const dispatchConflict = Symbol("dispatch-conflict");
     try {
-      if (input.message.idempotencyKey) {
-        const existing = this.findByIdempotencyKey(
-          input.message.sessionId,
-          input.message.fromAgentId,
-          input.message.idempotencyKey
-        );
-        if (existing) {
-          this.database.exec("COMMIT");
-          return {
-            message: existing,
-            idempotent: true,
-            supersededMessageIds: []
-          };
-        }
-      }
-
-      if (
-        supersedeMessageIds.length > 0 &&
-        !this.validateSupersededMessages(input.message, supersedeMessageIds)
-      ) {
-        this.database.exec("ROLLBACK");
-        return null;
-      }
-
-      try {
-        this.insert(input.message);
-      } catch (error) {
-        if (
-          input.message.idempotencyKey &&
-          this.isUniqueIdempotencyViolation(error)
-        ) {
+      return inStoreTransaction(this.database, () => {
+        if (input.message.idempotencyKey) {
           const existing = this.findByIdempotencyKey(
             input.message.sessionId,
             input.message.fromAgentId,
-            input.message.idempotencyKey
+            input.message.idempotencyKey,
           );
           if (existing) {
-            this.database.exec("COMMIT");
             return {
               message: existing,
               idempotent: true,
-              supersededMessageIds: []
+              supersededMessageIds: [],
             };
           }
         }
 
-        throw error;
-      }
-
-      if (supersedeMessageIds.length > 0) {
-        const updatedCount = this.markSupersededMessagesProcessed(
-          supersedeMessageIds,
-          input.processedAt
-        );
-        if (updatedCount !== supersedeMessageIds.length) {
-          this.database.exec("ROLLBACK");
-          return null;
+        if (
+          supersedeMessageIds.length > 0 &&
+          !this.validateSupersededMessages(input.message, supersedeMessageIds)
+        ) {
+          throw dispatchConflict;
         }
-      }
 
-      this.database.exec("COMMIT");
-      return {
-        message: input.message,
-        idempotent: false,
-        supersededMessageIds: supersedeMessageIds
-      };
+        try {
+          this.insert(input.message);
+        } catch (error) {
+          if (
+            input.message.idempotencyKey &&
+            this.isUniqueIdempotencyViolation(error)
+          ) {
+            const existing = this.findByIdempotencyKey(
+              input.message.sessionId,
+              input.message.fromAgentId,
+              input.message.idempotencyKey,
+            );
+            if (existing) {
+              return {
+                message: existing,
+                idempotent: true,
+                supersededMessageIds: [],
+              };
+            }
+          }
+
+          throw error;
+        }
+
+        if (supersedeMessageIds.length > 0) {
+          const updatedCount = this.markSupersededMessagesProcessed(
+            supersedeMessageIds,
+            input.processedAt,
+          );
+          if (updatedCount !== supersedeMessageIds.length) {
+            throw dispatchConflict;
+          }
+        }
+
+        this.deliveries?.supersede(supersedeMessageIds, input.processedAt);
+        this.deliveries?.enqueue(input.message);
+        return {
+          message: input.message,
+          idempotent: false,
+          supersededMessageIds: supersedeMessageIds,
+        };
+      });
     } catch (error) {
-      this.safeRollback();
+      if (error === dispatchConflict) return null;
       throw error;
     }
   }
@@ -203,7 +279,7 @@ export class MessageRepository {
   public findByIdempotencyKey(
     sessionId: string,
     fromAgentId: string,
-    idempotencyKey: string
+    idempotencyKey: string,
   ): MessageRecord | null {
     const statement = this.database.prepare(`
       SELECT
@@ -234,7 +310,7 @@ export class MessageRepository {
     const row = statement.get({
       sessionId,
       fromAgentId,
-      idempotencyKey
+      idempotencyKey,
     }) as MessageRow | undefined;
 
     return row ? this.mapRow(row) : null;
@@ -245,14 +321,16 @@ export class MessageRepository {
     options: {
       pendingOnly?: boolean;
       claimedOnly?: boolean;
-    } = {}
+    } = {},
   ): MessageRecord[] {
     const sessionStatement = this.database.prepare(`
       SELECT session_id AS sessionId
       FROM agents
       WHERE id = ?
     `);
-    const agentRow = sessionStatement.get(agentId) as { sessionId: string } | undefined;
+    const agentRow = sessionStatement.get(agentId) as
+      | { sessionId: string }
+      | undefined;
     if (!agentRow) {
       return [];
     }
@@ -290,7 +368,7 @@ export class MessageRepository {
       sessionId: agentRow.sessionId,
       agentId,
       pendingOnly: options.pendingOnly ? 1 : 0,
-      claimedOnly: options.claimedOnly ? 1 : 0
+      claimedOnly: options.claimedOnly ? 1 : 0,
     }) as MessageRow[];
 
     return rows.map((row) => this.mapRow(row));
@@ -303,8 +381,9 @@ export class MessageRepository {
       types?: MessageType[];
       fromAgentId?: string;
       correlationId?: string;
-    } = {}
+    } = {},
   ): MessageRecord | null {
+    if (this.isInboxClaimBlocked(agentId)) return null;
     const sessionStatement = this.database.prepare(`
       SELECT session_id AS sessionId
       FROM agents
@@ -381,7 +460,7 @@ export class MessageRepository {
     const statementInput: Record<string, string> = {
       sessionId: agentRow.sessionId,
       agentId,
-      claimedAt
+      claimedAt,
     };
 
     for (const [index, type] of (options.types ?? []).entries()) {
@@ -407,8 +486,9 @@ export class MessageRepository {
       fromAgentId?: string;
       correlationId?: string;
       maxMessages?: number;
-    } = {}
+    } = {},
   ): MessageRecord[] {
+    if (this.isInboxClaimBlocked(agentId)) return [];
     const sessionStatement = this.database.prepare(`
       SELECT session_id AS sessionId
       FROM agents
@@ -480,7 +560,7 @@ export class MessageRepository {
       sessionId: agentRow.sessionId,
       agentId,
       claimedAt,
-      maxMessages
+      maxMessages,
     };
 
     for (const [index, type] of (options.types ?? []).entries()) {
@@ -540,14 +620,14 @@ export class MessageRepository {
       agentId: row.agentId,
       pending: Number(row.pending),
       claimed: Number(row.claimed),
-      total: Number(row.total)
+      total: Number(row.total),
     }));
   }
 
   public acknowledge(
     messageId: string,
     processed: boolean,
-    processedAt?: string
+    processedAt?: string,
   ): void {
     const statement = this.database.prepare(`
       UPDATE messages
@@ -562,14 +642,14 @@ export class MessageRepository {
       messageId,
       deliveryStatus: processed ? "processed" : "acknowledged",
       processingStatus: processed ? "processed" : "pending",
-      processedAt: processed ? processedAt ?? null : null
+      processedAt: processed ? (processedAt ?? null) : null,
     });
   }
 
   public markProcessed(
     messageId: string,
     agentId: string,
-    processedAt: string
+    processedAt: string,
   ): MessageRecord | null {
     const statement = this.database.prepare(`
       UPDATE messages
@@ -601,7 +681,7 @@ export class MessageRepository {
     const row = statement.get({
       messageId,
       agentId,
-      processedAt
+      processedAt,
     }) as MessageRow | undefined;
 
     return row ? this.mapRow(row) : null;
@@ -611,7 +691,7 @@ export class MessageRepository {
     messageId: string,
     agentId: string,
     failedAt: string,
-    reason?: string
+    reason?: string,
   ): MessageRecord | null {
     const statement = this.database.prepare(`
       UPDATE messages
@@ -645,7 +725,7 @@ export class MessageRepository {
       messageId,
       agentId,
       failedAt,
-      failureReason: reason ?? null
+      failureReason: reason ?? null,
     }) as MessageRow | undefined;
 
     return row ? this.mapRow(row) : null;
@@ -669,11 +749,19 @@ export class MessageRepository {
     `);
 
     statement.run({
-      agentId
+      agentId,
     });
   }
 
-  public listBySessionId(sessionId: string): MessageRecord[] {
+  public listBySessionId(
+    sessionId: string,
+    options: {
+      memberId?: string;
+      correlationId?: string;
+      before?: MessageRecord;
+      limit?: number;
+    } = {},
+  ): MessageRecord[] {
     const statement = this.database.prepare(`
       SELECT
         id,
@@ -693,11 +781,25 @@ export class MessageRepository {
         failure_reason AS failureReason,
         created_at AS createdAt
       FROM messages
-      WHERE session_id = ?
-      ORDER BY created_at DESC
+      WHERE session_id = @sessionId
+      ${options.memberId ? "AND (from_agent_id = @memberId OR to_agent_id = @memberId)" : ""}
+      ${options.correlationId ? "AND correlation_id = @correlationId" : ""}
+      ${options.before ? "AND (created_at < @beforeTime OR (created_at = @beforeTime AND id < @beforeId))" : ""}
+      ORDER BY created_at DESC, id DESC
+      ${options.limit ? "LIMIT @limit" : ""}
     `);
 
-    const rows = statement.all(sessionId) as MessageRow[];
+    const rows = statement.all({
+      sessionId,
+      ...(options.memberId ? { memberId: options.memberId } : {}),
+      ...(options.correlationId
+        ? { correlationId: options.correlationId }
+        : {}),
+      ...(options.before
+        ? { beforeTime: options.before.createdAt, beforeId: options.before.id }
+        : {}),
+      ...(options.limit ? { limit: options.limit } : {}),
+    }) as MessageRow[];
     return rows.map((row) => this.mapRow(row));
   }
 
@@ -720,13 +822,13 @@ export class MessageRepository {
       ...(row.failureReason ? { failureReason: row.failureReason } : {}),
       ...(row.toAgentId ? { toAgentId: row.toAgentId } : {}),
       ...(row.idempotencyKey ? { idempotencyKey: row.idempotencyKey } : {}),
-      ...(row.correlationId ? { correlationId: row.correlationId } : {})
+      ...(row.correlationId ? { correlationId: row.correlationId } : {}),
     };
   }
 
   private validateSupersededMessages(
     message: MessageRecord,
-    supersedeMessageIds: string[]
+    supersedeMessageIds: string[],
   ): boolean {
     const placeholders = supersedeMessageIds
       .map((_, index) => `@messageId${index}`)
@@ -742,7 +844,7 @@ export class MessageRepository {
 
     const params: Record<string, string> = {
       sessionId: message.sessionId,
-      toAgentId: message.toAgentId ?? ""
+      toAgentId: message.toAgentId ?? "",
     };
     for (const [index, messageId] of supersedeMessageIds.entries()) {
       params[`messageId${index}`] = messageId;
@@ -754,7 +856,7 @@ export class MessageRepository {
 
   private markSupersededMessagesProcessed(
     supersedeMessageIds: string[],
-    processedAt: string
+    processedAt: string,
   ): number {
     const placeholders = supersedeMessageIds
       .map((_, index) => `@messageId${index}`)
@@ -769,7 +871,7 @@ export class MessageRepository {
     `);
 
     const params: Record<string, string> = {
-      processedAt
+      processedAt,
     };
     for (const [index, messageId] of supersedeMessageIds.entries()) {
       params[`messageId${index}`] = messageId;

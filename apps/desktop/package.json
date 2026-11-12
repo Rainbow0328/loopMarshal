@@ -1,0 +1,18 @@
+{
+  "name": "@loopmarshal/desktop",
+  "productName": "LoopMarshal",
+  "version": "0.1.0",
+  "description": "LoopMarshal desktop client for local coding-agent collaboration",
+  "author": "LoopMarshal Team",
+  "license": "Apache-2.0",
+  "private": true,
+  "main": "src/main.cjs",
+  "scripts": {
+    "build": "node --check src/main.cjs && node --check src/preload.cjs && node --check src/core-supervisor.cjs && node --check src/core-host.mjs && node --check src/cli-wrapper.mjs",
+    "test": "node --test test/*.test.cjs"
+  },
+  "devDependencies": {
+    "electron": "45.2.3",
+    "electron-builder": "26.18.0"
+  }
+}

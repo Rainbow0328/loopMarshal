@@ -28,7 +28,7 @@ const main = async () => {
   const instance = await startCoreServer({
     host: "127.0.0.1",
     port: smokePort,
-    databasePath: ".loopmarshal-test/smoke-session-release.sqlite"
+    databasePath: ".loopmarshal-test/smoke-session-release.sqlite",
   });
 
   try {
@@ -40,7 +40,7 @@ const main = async () => {
       displayName: "Release Host",
       platform: "trae",
       capabilities: ["planning"],
-      connectionMode: "skill-bridge"
+      connectionMode: "skill-bridge",
     });
 
     const worker = await client.joinNamedSession(sessionName, {
@@ -49,7 +49,7 @@ const main = async () => {
       platform: "cursor",
       role: "worker",
       capabilities: ["backend"],
-      connectionMode: "skill-bridge"
+      connectionMode: "skill-bridge",
     });
 
     const workerLeave = await client.leaveAgent(worker.agent.id);
@@ -68,23 +68,29 @@ const main = async () => {
       membersAfterHostLeaveMissing = true;
     }
 
-    assert(workerLeave.sessionClosed === false, "session should stay open until last agent leaves");
-    assert(hostLeave.sessionDeleted === true, "host leave should delete the session");
+    assert(
+      workerLeave.sessionClosed === false,
+      "session should stay open until last agent leaves",
+    );
+    assert(
+      hostLeave.sessionDeleted === true,
+      "host leave should delete the session",
+    );
     assert(
       membersAfterWorkerLeave.length === 1,
-      "worker leave should remove worker from member list"
+      "worker leave should remove worker from member list",
     );
     assert(
       membersAfterWorkerLeave[0]?.agentName === "release-host",
-      "host should be the only remaining member after worker leave"
+      "host should be the only remaining member after worker leave",
     );
     assert(
       sessionAfterHostLeaveMissing,
-      "session should be deleted after the host leaves"
+      "session should be deleted after the host leaves",
     );
     assert(
       membersAfterHostLeaveMissing,
-      "member list lookup should fail after the host leaves and the session is deleted"
+      "member list lookup should fail after the host leaves and the session is deleted",
     );
 
     const recreated = await client.hostSessionByName(sessionName, {
@@ -92,11 +98,17 @@ const main = async () => {
       displayName: "Release Host 2",
       platform: "codex",
       capabilities: ["planning"],
-      connectionMode: "skill-bridge"
+      connectionMode: "skill-bridge",
     });
 
-    assert(recreated.session.id !== host.session.id, "recreated session should be a new session");
-    assert(recreated.session.name === sessionName, "recreated session should reuse the same name");
+    assert(
+      recreated.session.id !== host.session.id,
+      "recreated session should be a new session",
+    );
+    assert(
+      recreated.session.name === sessionName,
+      "recreated session should reuse the same name",
+    );
 
     console.log(
       JSON.stringify(
@@ -104,15 +116,17 @@ const main = async () => {
           sessionName,
           originalSessionId: host.session.id,
           workerLeave,
-          membersAfterWorkerLeave: membersAfterWorkerLeave.map((member) => member.agentName),
+          membersAfterWorkerLeave: membersAfterWorkerLeave.map(
+            (member) => member.agentName,
+          ),
           hostLeave,
           sessionAfterHostLeaveMissing,
           membersAfterHostLeaveMissing,
-          recreatedSessionId: recreated.session.id
+          recreatedSessionId: recreated.session.id,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } finally {
     await instance.close();

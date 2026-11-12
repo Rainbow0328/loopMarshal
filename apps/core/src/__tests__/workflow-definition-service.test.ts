@@ -22,12 +22,10 @@ describe("WorkflowDefinitionService", () => {
         role: "worker",
         nodes: [
           { id: "claim", label: "Claim", kind: "claim_message" },
-          { id: "process", label: "Process", kind: "llm_tool_loop" }
+          { id: "process", label: "Process", kind: "llm_tool_loop" },
         ],
-        edges: [
-          { from: "claim", to: "missing", condition: "has_message" }
-        ]
-      })
+        edges: [{ from: "claim", to: "missing", condition: "has_message" }],
+      }),
     ).toThrow('Workflow edge target "missing" does not exist.');
   });
 
@@ -42,13 +40,13 @@ describe("WorkflowDefinitionService", () => {
         { id: "heartbeat", label: "Heartbeat", kind: "heartbeat" },
         { id: "claim", label: "Claim", kind: "claim_message" },
         { id: "idle", label: "Idle", kind: "idle" },
-        { id: "process", label: "Process", kind: "llm_tool_loop" }
+        { id: "process", label: "Process", kind: "llm_tool_loop" },
       ],
       edges: [
         { from: "heartbeat", to: "claim" },
         { from: "claim", to: "idle", condition: "no_message" },
-        { from: "claim", to: "process", condition: "has_message" }
-      ]
+        { from: "claim", to: "process", condition: "has_message" },
+      ],
     });
 
     expect(workflow.id).toBe("valid-worker-loop");
@@ -64,13 +62,23 @@ describe("WorkflowDefinitionService", () => {
       role: "worker",
       nodes: [
         { id: "claim", label: "Claim", kind: "claim_message" },
-        { id: "trace", label: "Trace", kind: "trace", config: { message: "claimed", step: "Tracing", includePayload: true } },
-        { id: "process", label: "Process", kind: "llm_tool_loop", config: { prompt: "Summarize this task" } }
+        {
+          id: "trace",
+          label: "Trace",
+          kind: "trace",
+          config: { message: "claimed", step: "Tracing", includePayload: true },
+        },
+        {
+          id: "process",
+          label: "Process",
+          kind: "llm_tool_loop",
+          config: { prompt: "Summarize this task" },
+        },
       ],
       edges: [
         { from: "claim", to: "trace", condition: "has_message" },
-        { from: "trace", to: "process" }
-      ]
+        { from: "trace", to: "process" },
+      ],
     });
 
     expect(workflow.nodes[1]?.kind).toBe("trace");
@@ -85,20 +93,35 @@ describe("WorkflowDefinitionService", () => {
       name: "Gated Host Loop",
       role: "host",
       nodes: [
-        { id: "dispatch", label: "Dispatch", kind: "dispatch_message", config: { messageType: "task", message: "Run frontend task" } },
-        { id: "wait", label: "Wait For Worker", kind: "wait_for_message", config: { messageType: "result", processingStatus: "processed" } },
-        { id: "review", label: "Review Gate", kind: "review_gate", config: { reviewStatus: "ready_for_review" } }
+        {
+          id: "dispatch",
+          label: "Dispatch",
+          kind: "dispatch_message",
+          config: { messageType: "task", message: "Run frontend task" },
+        },
+        {
+          id: "wait",
+          label: "Wait For Worker",
+          kind: "wait_for_message",
+          config: { messageType: "result", processingStatus: "processed" },
+        },
+        {
+          id: "review",
+          label: "Review Gate",
+          kind: "review_gate",
+          config: { reviewStatus: "ready_for_review" },
+        },
       ],
       edges: [
         { from: "dispatch", to: "wait", condition: "sent" },
-        { from: "wait", to: "review", condition: "ready" }
-      ]
+        { from: "wait", to: "review", condition: "ready" },
+      ],
     });
 
     expect(workflow.nodes.map((node) => node.kind)).toEqual([
       "dispatch_message",
       "wait_for_message",
-      "review_gate"
+      "review_gate",
     ]);
   });
 
@@ -113,12 +136,10 @@ describe("WorkflowDefinitionService", () => {
         nodes: [
           { id: "start", label: "Start", kind: "trace" },
           { id: "next", label: "Next", kind: "trace" },
-          { id: "orphan", label: "Orphan", kind: "trace" }
+          { id: "orphan", label: "Orphan", kind: "trace" },
         ],
-        edges: [
-          { from: "start", to: "next" }
-        ]
-      })
+        edges: [{ from: "start", to: "next" }],
+      }),
     ).toThrow('Workflow node "orphan" is unreachable from start node "start".');
   });
 
@@ -133,13 +154,13 @@ describe("WorkflowDefinitionService", () => {
         nodes: [
           { id: "claim", label: "Claim", kind: "claim_message" },
           { id: "a", label: "A", kind: "trace" },
-          { id: "b", label: "B", kind: "trace" }
+          { id: "b", label: "B", kind: "trace" },
         ],
         edges: [
           { from: "claim", to: "a", condition: "ready" },
-          { from: "claim", to: "b", condition: "ready" }
-        ]
-      })
+          { from: "claim", to: "b", condition: "ready" },
+        ],
+      }),
     ).toThrow('Workflow node "claim" has duplicated condition "ready".');
   });
 });

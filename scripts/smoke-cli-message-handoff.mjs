@@ -21,7 +21,11 @@ import { createSmokeClient } from "./helpers/create-smoke-client.mjs";
 const smokePort = 42716;
 const smokeBaseUrl = `http://127.0.0.1:${smokePort}`;
 const rootDir = process.cwd();
-const stateDir = resolve(rootDir, ".loopmarshal-test", "smoke-cli-message-handoff");
+const stateDir = resolve(
+  rootDir,
+  ".loopmarshal-test",
+  "smoke-cli-message-handoff",
+);
 
 const assert = (condition, message) => {
   if (!condition) {
@@ -40,7 +44,7 @@ const main = async () => {
   const instance = await startCoreServer({
     host: "127.0.0.1",
     port: smokePort,
-    databasePath: ".loopmarshal-test/smoke-cli-message-handoff.sqlite"
+    databasePath: ".loopmarshal-test/smoke-cli-message-handoff.sqlite",
   });
 
   try {
@@ -52,12 +56,12 @@ const main = async () => {
     const host = await client.attachNamedSession(sessionName, {
       agentName: hostName,
       role: "host",
-      roleDescription: "主控编排"
+      roleDescription: "主控编排",
     });
     const worker = await client.attachNamedSession(sessionName, {
       agentName: workerName,
       role: "worker",
-      roleDescription: "负责执行分派下来的开发任务并回报结果"
+      roleDescription: "负责执行分派下来的开发任务并回报结果",
     });
 
     const correlationId = `message-handoff-${Date.now()}`;
@@ -68,15 +72,15 @@ const main = async () => {
       type: "instruction",
       payload: {
         content: "请回复：第一轮任务已接收",
-        result: "pending"
+        result: "pending",
       },
       correlationId,
-      idempotencyKey: `${correlationId}:dispatch`
+      idempotencyKey: `${correlationId}:dispatch`,
     });
 
     const firstWorkerAwait = await client.claimNext(worker.agent.id, {
       types: ["instruction"],
-      correlationId
+      correlationId,
     });
 
     assert(
@@ -84,7 +88,7 @@ const main = async () => {
         firstWorkerAwait.payload &&
         typeof firstWorkerAwait.payload === "object" &&
         firstWorkerAwait.payload.content === "请回复：第一轮任务已接收",
-      "worker should claim the dispatched task"
+      "worker should claim the dispatched task",
     );
 
     const workerReport = await client.sendMessage({
@@ -94,17 +98,17 @@ const main = async () => {
       type: "result",
       payload: {
         content: "第一轮任务已接收",
-        result: "done"
+        result: "done",
       },
       correlationId,
-      idempotencyKey: `${correlationId}:report`
+      idempotencyKey: `${correlationId}:report`,
     });
     await client.completeMessage(firstWorkerAwait.id, {
-      agentId: worker.agent.id
+      agentId: worker.agent.id,
     });
     const firstHostAwait = await client.claimNext(host.agent.id, {
       types: ["result", "progress", "error"],
-      correlationId
+      correlationId,
     });
 
     assert(
@@ -112,11 +116,11 @@ const main = async () => {
         firstHostAwait.payload &&
         typeof firstHostAwait.payload === "object" &&
         firstHostAwait.payload.content === "第一轮任务已接收",
-      "host should claim the first worker report"
+      "host should claim the first worker report",
     );
 
     await client.completeMessage(firstHostAwait.id, {
-      agentId: host.agent.id
+      agentId: host.agent.id,
     });
     await sleep(50);
 
@@ -128,14 +132,14 @@ const main = async () => {
       type: "progress",
       payload: {
         content: "host resolve 后续报告",
-        result: "pending"
+        result: "pending",
       },
       correlationId: followupCorrelationId,
-      idempotencyKey: `${followupCorrelationId}:report`
+      idempotencyKey: `${followupCorrelationId}:report`,
     });
     const resolvedHostAwait = await client.claimNext(host.agent.id, {
       types: ["progress"],
-      correlationId: followupCorrelationId
+      correlationId: followupCorrelationId,
     });
 
     assert(
@@ -143,7 +147,7 @@ const main = async () => {
         resolvedHostAwait.payload &&
         typeof resolvedHostAwait.payload === "object" &&
         resolvedHostAwait.payload.content === "host resolve 后续报告",
-      "host should claim the follow-up report after completing the previous one"
+      "host should claim the follow-up report after completing the previous one",
     );
 
     await sleep(50);
@@ -155,11 +159,11 @@ const main = async () => {
           dispatchedMessageId: dispatched.id,
           firstWorkerClaimedId: firstWorkerAwait.id,
           firstHostClaimedId: firstHostAwait.id,
-          followupClaimedId: resolvedHostAwait.id
+          followupClaimedId: resolvedHostAwait.id,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } finally {
     await instance.close();

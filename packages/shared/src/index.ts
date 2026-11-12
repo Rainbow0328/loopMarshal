@@ -20,9 +20,11 @@ export const createIsoTimestamp = (): string => {
 };
 
 export const resolveUserTimeZone = (): string => {
-  return process.env.LOOPMARSHAL_TIMEZONE?.trim() ||
+  return (
+    process.env.LOOPMARSHAL_TIMEZONE?.trim() ||
     Intl.DateTimeFormat().resolvedOptions().timeZone ||
-    "UTC";
+    "UTC"
+  );
 };
 
 const toDate = (value: string): Date | null => {
@@ -31,12 +33,14 @@ const toDate = (value: string): Date | null => {
 };
 
 export const isIsoTimestampString = (value: string): boolean => {
-  return /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value) && toDate(value) !== null;
+  return (
+    /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value) && toDate(value) !== null
+  );
 };
 
 export const formatTimestampForDisplay = (
   isoTimestamp: string,
-  timeZone = resolveUserTimeZone()
+  timeZone = resolveUserTimeZone(),
 ): string => {
   const date = toDate(isoTimestamp);
   if (!date) {
@@ -52,7 +56,7 @@ export const formatTimestampForDisplay = (
     minute: "2-digit",
     second: "2-digit",
     hour12: false,
-    timeZoneName: "longOffset"
+    timeZoneName: "longOffset",
   });
   const parts = formatter.formatToParts(date);
   const readPart = (type: Intl.DateTimeFormatPartTypes) =>
@@ -62,7 +66,10 @@ export const formatTimestampForDisplay = (
   return `${readPart("year")}-${readPart("month")}-${readPart("day")} ${readPart("hour")}:${readPart("minute")}:${readPart("second")}${timeZoneName ? ` ${timeZoneName}` : ` ${timeZone}`}`;
 };
 
-const enrichValueWithLocalTimes = (value: unknown, timeZone: string): unknown => {
+const enrichValueWithLocalTimes = (
+  value: unknown,
+  timeZone: string,
+): unknown => {
   if (Array.isArray(value)) {
     return value.map((item) => enrichValueWithLocalTimes(item, timeZone));
   }
@@ -91,25 +98,25 @@ const enrichValueWithLocalTimes = (value: unknown, timeZone: string): unknown =>
 
 export const wrapForDisplay = <T>(
   value: T,
-  timeZone = resolveUserTimeZone()
+  timeZone = resolveUserTimeZone(),
 ): T | { value: T; displayTimezone: string } => {
   const enriched = enrichValueWithLocalTimes(value, timeZone) as T;
 
   if (Array.isArray(enriched) || !enriched || typeof enriched !== "object") {
     return {
       value: enriched,
-      displayTimezone: timeZone
+      displayTimezone: timeZone,
     };
   }
 
   return {
     ...(enriched as Record<string, unknown>),
-    displayTimezone: timeZone
+    displayTimezone: timeZone,
   } as T;
 };
 
 export const createLogTimestampFragment = (
-  timeZone = resolveUserTimeZone()
+  timeZone = resolveUserTimeZone(),
 ): string => {
   const utcTimestamp = createIsoTimestamp();
   const localTimestamp = formatTimestampForDisplay(utcTimestamp, timeZone);
@@ -117,9 +124,7 @@ export const createLogTimestampFragment = (
   return `,"time":"${localTimestamp}","timeUtc":"${utcTimestamp}","timezone":"${timeZone}"`;
 };
 
-export const getLoopMarshalHomePath = (
-  projectRoot = process.cwd()
-): string => {
+export const getLoopMarshalHomePath = (projectRoot = process.cwd()): string => {
   const configuredHome = process.env.LOOPMARSHAL_HOME?.trim();
   if (configuredHome) {
     return configuredHome;
@@ -143,7 +148,7 @@ export const getProjectLogPath = (projectRoot = process.cwd()): string => {
 
 export const appendProjectLogEntry = (
   entry: Record<string, unknown>,
-  projectRoot = process.cwd()
+  projectRoot = process.cwd(),
 ): void => {
   const logPath = getProjectLogPath(projectRoot);
   mkdirSync(dirname(logPath), { recursive: true });
@@ -152,3 +157,4 @@ export const appendProjectLogEntry = (
 
 export * from "./config.js";
 export * from "./logger.js";
+export * from "./local-auth.js";

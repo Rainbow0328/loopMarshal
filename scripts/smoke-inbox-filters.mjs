@@ -28,7 +28,7 @@ const main = async () => {
   const instance = await startCoreServer({
     host: "127.0.0.1",
     port: smokePort,
-    databasePath: ".loopmarshal-test/smoke-inbox-filters.sqlite"
+    databasePath: ".loopmarshal-test/smoke-inbox-filters.sqlite",
   });
 
   try {
@@ -40,7 +40,7 @@ const main = async () => {
       displayName: "Filters Host",
       platform: "codex",
       capabilities: ["planning"],
-      connectionMode: "skill-bridge"
+      connectionMode: "skill-bridge",
     });
 
     const worker = await client.joinNamedSession(sessionName, {
@@ -48,8 +48,9 @@ const main = async () => {
       displayName: "Filters Worker",
       platform: "claude",
       role: "worker",
+      roleDescription: "验证消息筛选与领取",
       capabilities: ["backend"],
-      connectionMode: "skill-bridge"
+      connectionMode: "skill-bridge",
     });
 
     const firstMessage = await client.sendMessage({
@@ -59,8 +60,8 @@ const main = async () => {
       type: "instruction",
       payload: {
         content: "first task",
-        result: "pending"
-      }
+        result: "pending",
+      },
     });
 
     const secondMessage = await client.sendMessage({
@@ -70,48 +71,96 @@ const main = async () => {
       type: "instruction",
       payload: {
         content: "second task",
-        result: "pending"
-      }
+        result: "pending",
+      },
     });
 
-    const pendingBeforeClaim = await client.getInboxWithOptions(worker.agent.id, {
-      pendingOnly: true
-    });
-    const claimedBeforeClaim = await client.getInboxWithOptions(worker.agent.id, {
-      claimedOnly: true
-    });
+    const pendingBeforeClaim = await client.getInboxWithOptions(
+      worker.agent.id,
+      {
+        pendingOnly: true,
+      },
+    );
+    const claimedBeforeClaim = await client.getInboxWithOptions(
+      worker.agent.id,
+      {
+        claimedOnly: true,
+      },
+    );
 
     const claimed = await client.claimNext(worker.agent.id);
-    const pendingAfterClaim = await client.getInboxWithOptions(worker.agent.id, {
-      pendingOnly: true
-    });
-    const claimedAfterClaim = await client.getInboxWithOptions(worker.agent.id, {
-      claimedOnly: true
-    });
+    const pendingAfterClaim = await client.getInboxWithOptions(
+      worker.agent.id,
+      {
+        pendingOnly: true,
+      },
+    );
+    const claimedAfterClaim = await client.getInboxWithOptions(
+      worker.agent.id,
+      {
+        claimedOnly: true,
+      },
+    );
 
     assert(claimed, "one message should be claimed");
 
     const completed = await client.completeMessage(claimed.id, {
-      agentId: worker.agent.id
+      agentId: worker.agent.id,
     });
 
-    const pendingAfterComplete = await client.getInboxWithOptions(worker.agent.id, {
-      pendingOnly: true
-    });
-    const claimedAfterComplete = await client.getInboxWithOptions(worker.agent.id, {
-      claimedOnly: true
-    });
+    const pendingAfterComplete = await client.getInboxWithOptions(
+      worker.agent.id,
+      {
+        pendingOnly: true,
+      },
+    );
+    const claimedAfterComplete = await client.getInboxWithOptions(
+      worker.agent.id,
+      {
+        claimedOnly: true,
+      },
+    );
 
-    assert(pendingBeforeClaim.length === 2, "pending inbox before claim should contain two messages");
-    assert(claimedBeforeClaim.length === 0, "claimed inbox before claim should be empty");
-    assert(claimed.id === firstMessage.id, "claim-next should claim the earliest pending message");
-    assert(pendingAfterClaim.length === 1, "pending inbox after claim should contain one message");
-    assert(claimedAfterClaim.length === 1, "claimed inbox after claim should contain one message");
-    assert(claimedAfterClaim[0]?.id === firstMessage.id, "claimed inbox should contain the claimed message");
-    assert(completed.processingStatus === "processed", "completed message should be processed");
-    assert(pendingAfterComplete.length === 1, "pending inbox after complete should still contain one message");
-    assert(pendingAfterComplete[0]?.id === secondMessage.id, "remaining pending message should be the second one");
-    assert(claimedAfterComplete.length === 0, "claimed inbox after complete should be empty");
+    assert(
+      pendingBeforeClaim.length === 2,
+      "pending inbox before claim should contain two messages",
+    );
+    assert(
+      claimedBeforeClaim.length === 0,
+      "claimed inbox before claim should be empty",
+    );
+    assert(
+      claimed.id === firstMessage.id,
+      "claim-next should claim the earliest pending message",
+    );
+    assert(
+      pendingAfterClaim.length === 1,
+      "pending inbox after claim should contain one message",
+    );
+    assert(
+      claimedAfterClaim.length === 1,
+      "claimed inbox after claim should contain one message",
+    );
+    assert(
+      claimedAfterClaim[0]?.id === firstMessage.id,
+      "claimed inbox should contain the claimed message",
+    );
+    assert(
+      completed.processingStatus === "processed",
+      "completed message should be processed",
+    );
+    assert(
+      pendingAfterComplete.length === 1,
+      "pending inbox after complete should still contain one message",
+    );
+    assert(
+      pendingAfterComplete[0]?.id === secondMessage.id,
+      "remaining pending message should be the second one",
+    );
+    assert(
+      claimedAfterComplete.length === 0,
+      "claimed inbox after complete should be empty",
+    );
 
     console.log(
       JSON.stringify(
@@ -125,11 +174,11 @@ const main = async () => {
           pendingAfterClaim: pendingAfterClaim.length,
           claimedAfterClaim: claimedAfterClaim.length,
           pendingAfterComplete: pendingAfterComplete.length,
-          claimedAfterComplete: claimedAfterComplete.length
+          claimedAfterComplete: claimedAfterComplete.length,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } finally {
     await instance.close();

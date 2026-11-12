@@ -33,7 +33,7 @@ const assert = (condition, message) => {
 const internalCommandToArgs = (cmd) => {
   assert(
     typeof cmd === "string" && cmd.startsWith("loopmarshal "),
-    "cmd should be a runnable loopmarshal command string"
+    "cmd should be a runnable loopmarshal command string",
   );
   return cmd.slice("loopmarshal ".length).trim().split(/\s+/);
 };
@@ -43,9 +43,9 @@ const runCliJson = async ({ args, env }) => {
     cwd: rootDir,
     env: {
       ...process.env,
-      ...env
+      ...env,
     },
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"],
   });
 
   let stdout = "";
@@ -66,7 +66,7 @@ const runCliJson = async ({ args, env }) => {
 
   if (exitCode !== 0) {
     throw new Error(
-      `CLI command failed (${args.join(" ")}): ${stderr || stdout || exitCode}`
+      `CLI command failed (${args.join(" ")}): ${stderr || stdout || exitCode}`,
     );
   }
 
@@ -80,13 +80,13 @@ const main = async () => {
   const instance = await startCoreServer({
     host: "127.0.0.1",
     port: smokePort,
-    databasePath: ".loopmarshal-test/smoke-cli-loop.sqlite"
+    databasePath: ".loopmarshal-test/smoke-cli-loop.sqlite",
   });
 
   try {
     const env = {
       LOOPMARSHAL_BASE_URL: smokeBaseUrl,
-      LOOPMARSHAL_CLI_STATE_DIR: stateDir
+      LOOPMARSHAL_CLI_STATE_DIR: stateDir,
     };
     const sessionName = `cli-loop-${Date.now()}`;
     const hostName = "main-host";
@@ -101,9 +101,9 @@ const main = async () => {
         "--role",
         "host",
         "--duty",
-        "主控编排"
+        "主控编排",
       ],
-      env
+      env,
     });
     const worker = await runCliJson({
       args: [
@@ -114,9 +114,9 @@ const main = async () => {
         "--role",
         "worker",
         "--duty",
-        "负责执行分派下来的开发任务并回报结果"
+        "负责执行分派下来的开发任务并回报结果",
       ],
-      env
+      env,
     });
     const dispatch = await runCliJson({
       args: [
@@ -125,13 +125,13 @@ const main = async () => {
         "--session",
         sessionName,
         "--task",
-        `${workerName}::请返回 cli submit 测试成功`
+        `${workerName}::请返回 cli submit 测试成功`,
       ],
-      env
+      env,
     });
     const workerAwait = await runCliJson({
       args: ["await", workerName, "--session", sessionName],
-      env
+      env,
     });
     const workerSubmit = await runCliJson({
       args: [
@@ -140,29 +140,35 @@ const main = async () => {
         "--session",
         sessionName,
         "--content",
-        "cli submit 测试成功"
+        "cli submit 测试成功",
       ],
-      env
+      env,
     });
     const hostAwait = await runCliJson({
       args: internalCommandToArgs(dispatch.cmd),
-      env
+      env,
     });
 
     assert(host.op === "SESSION_READY", "host attach should succeed");
     assert(worker.op === "SESSION_READY", "worker attach should succeed");
-    assert(dispatch.op === "EXECUTE_INTERNAL_CMD", "dispatch-many should hand off to await");
+    assert(
+      dispatch.op === "EXECUTE_INTERNAL_CMD",
+      "dispatch-many should hand off to await",
+    );
     assert(
       workerAwait.op === "PROCESS_CLAIMED_MESSAGE" &&
         workerAwait.kind === "task",
-      "worker await should claim one task"
+      "worker await should claim one task",
     );
-    assert(workerSubmit.op === "EXECUTE_INTERNAL_CMD", "submit should hand off back to await");
+    assert(
+      workerSubmit.op === "EXECUTE_INTERNAL_CMD",
+      "submit should hand off back to await",
+    );
     assert(
       hostAwait.op === "PROCESS_CLAIMED_MESSAGE" &&
         hostAwait.kind === "report" &&
         hostAwait.message?.content === "cli submit 测试成功",
-      "host await should receive the worker report"
+      "host await should receive the worker report",
     );
 
     console.log(
@@ -172,11 +178,11 @@ const main = async () => {
           dispatchOp: dispatch.op,
           workerAwaitOp: workerAwait.op,
           workerSubmitOp: workerSubmit.op,
-          hostAwaitOp: hostAwait.op
+          hostAwaitOp: hostAwait.op,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } finally {
     await instance.close();

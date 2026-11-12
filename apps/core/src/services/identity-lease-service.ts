@@ -15,7 +15,7 @@
 import type {
   AcquireIdentityLeaseInput,
   IdentityLease,
-  ReleaseIdentityLeaseInput
+  ReleaseIdentityLeaseInput,
 } from "@loopmarshal/protocol";
 import { IdentityLeaseRepository } from "@loopmarshal/store";
 
@@ -33,9 +33,11 @@ export class IdentityLeaseService {
     const lease = this.leases.acquire({
       identityKey,
       ownerToken: input.ownerToken,
-      leaseUntil: new Date(Date.now() + input.leaseSeconds * 1000).toISOString(),
+      leaseUntil: new Date(
+        Date.now() + input.leaseSeconds * 1000,
+      ).toISOString(),
       now: now(),
-      takeover: input.takeover ?? false
+      takeover: input.takeover ?? false,
     });
     if (!lease) {
       const existing = this.leases.findByIdentityKey(identityKey);
@@ -45,9 +47,9 @@ export class IdentityLeaseService {
         existing
           ? {
               ownerToken: existing.ownerToken,
-              leaseUntil: existing.leaseUntil
+              leaseUntil: existing.leaseUntil,
             }
-          : undefined
+          : undefined,
       );
     }
 
@@ -61,7 +63,7 @@ export class IdentityLeaseService {
     const identityKey = `${input.flow}:${input.identity}`;
     return {
       released: this.leases.release(identityKey, input.ownerToken),
-      identityKey
+      identityKey,
     };
   }
 

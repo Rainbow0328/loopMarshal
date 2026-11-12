@@ -45,9 +45,7 @@ export type StructuredSummary = {
 };
 
 export class AgentContextService {
-  public constructor(
-    private readonly repository: AgentContextRepository,
-  ) {}
+  public constructor(private readonly repository: AgentContextRepository) {}
 
   /**
    * 加载某个 Web Agent 的上下文快照。
@@ -85,7 +83,7 @@ export class AgentContextService {
    */
   public appendTurn(
     runtime: WebAgentRuntime,
-    turn: ContextTurn
+    turn: ContextTurn,
   ): { snapshot: AgentContextSnapshot; needSummary: boolean } {
     let snapshot = this.load(runtime.id);
     if (!snapshot) {
@@ -96,15 +94,19 @@ export class AgentContextService {
 
     // 窗口管理：保留最近 maxRecentTurns + 2 条（留 2 条缓冲）
     const maxKeep = SUMMARY_TRIGGERS.maxRecentTurns + 2;
-    const trimmedTurns = recentTurns.length > maxKeep
-      ? recentTurns.slice(recentTurns.length - maxKeep)
-      : recentTurns;
+    const trimmedTurns =
+      recentTurns.length > maxKeep
+        ? recentTurns.slice(recentTurns.length - maxKeep)
+        : recentTurns;
 
     const workerReportCount = trimmedTurns.filter(
-      (t) => t.role === "tool" && t.content.includes("worker")
+      (t) => t.role === "tool" && t.content.includes("worker"),
     ).length;
 
-    const totalChars = trimmedTurns.reduce((sum, t) => sum + t.content.length, 0);
+    const totalChars = trimmedTurns.reduce(
+      (sum, t) => sum + t.content.length,
+      0,
+    );
     const needSummary =
       trimmedTurns.length > SUMMARY_TRIGGERS.maxRecentTurns ||
       totalChars > SUMMARY_TRIGGERS.maxEstimatedInputChars ||
@@ -159,7 +161,7 @@ export class AgentContextService {
   public applyStructuredSummary(
     runtime: WebAgentRuntime,
     summary: Partial<StructuredSummary>,
-    newRecentTurns: ContextTurn[]
+    newRecentTurns: ContextTurn[],
   ): AgentContextSnapshot {
     const existing = this.load(runtime.id);
     const currentDecisions = existing?.confirmedDecisions ?? [];
@@ -182,7 +184,8 @@ export class AgentContextService {
       sessionId: runtime.sessionId,
       agentId: runtime.agentId,
       role: runtime.role,
-      conversationSummary: summary.objective ?? existing?.conversationSummary ?? null,
+      conversationSummary:
+        summary.objective ?? existing?.conversationSummary ?? null,
       recentTurns: newRecentTurns,
       confirmedDecisions: mergedDecisions,
       unresolvedQuestions: mergedQuestions,

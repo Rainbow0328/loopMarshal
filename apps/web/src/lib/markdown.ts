@@ -15,26 +15,29 @@ function escapeHtml(text: string): string {
 }
 
 function renderInline(text: string): string {
-  let result = escapeHtml(text);
-
-  // Inline code
-  result = result.replace(/`([^`]+)`/g, '<code class="md-inline-code">$1</code>');
-
-  // Bold
-  result = result.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-  result = result.replace(/__([^_]+)__/g, "<strong>$1</strong>");
-
-  // Italic
-  result = result.replace(/\*([^*]+)\*/g, "<em>$1</em>");
-  result = result.replace(/(?<!\w)_([^_]+)_(?!\w)/g, "<em>$1</em>");
-
-  // Links
-  result = result.replace(
-    /\[([^\]]+)\]\(([^)]+)\)/g,
-    '<a href="$2" target="_blank" rel="noopener noreferrer" class="md-link">$1</a>'
-  );
-
-  return result;
+  // Parse raw tokens before escaping; formatting inside URLs must never create attributes.
+  const tokens =
+    /`([^`]+)`|\[([^\]]+)\]\(([^)]+)\)|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|(?<!\w)_([^_]+)_(?!\w)/g;
+  let result = "";
+  let end = 0;
+  for (const match of text.matchAll(tokens)) {
+    result += escapeHtml(text.slice(end, match.index));
+    if (match[1] !== undefined)
+      result += `<code class="md-inline-code">${escapeHtml(match[1])}</code>`;
+    else if (match[2] !== undefined) {
+      const label = renderInline(match[2]);
+      const url = match[3];
+      result +=
+        /^(https?:\/\/|mailto:|\/(?![\/\\])|#)/i.test(url) &&
+        !/[\u0000-\u001f\u007f]/.test(url)
+          ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="md-link">${label}</a>`
+          : label;
+    } else if (match[4] !== undefined || match[5] !== undefined)
+      result += `<strong>${renderInline(match[4] ?? match[5])}</strong>`;
+    else result += `<em>${renderInline(match[6] ?? match[7])}</em>`;
+    end = match.index! + match[0].length;
+  }
+  return result + escapeHtml(text.slice(end));
 }
 
 export function renderMarkdown(md: string): string {
@@ -55,7 +58,7 @@ export function renderMarkdown(md: string): string {
     if (listType && listBuffer.length > 0) {
       const tag = listType;
       html.push(
-        `<${tag}>${listBuffer.map((item) => `<li>${renderInline(item)}</li>`).join("")}</${tag}>`
+        `<${tag}>${listBuffer.map((item) => `<li>${renderInline(item)}</li>`).join("")}</${tag}>`,
       );
       listBuffer = [];
       listType = null;
@@ -74,7 +77,7 @@ export function renderMarkdown(md: string): string {
       table += tableRows
         .map(
           (row) =>
-            `<tr>${row.map((cell) => `<td>${renderInline(cell)}</td>`).join("")}</tr>`
+            `<tr>${row.map((cell) => `<td>${renderInline(cell)}</td>`).join("")}</tr>`,
         )
         .join("");
       table += "</tbody></table></div>";
@@ -94,12 +97,16 @@ export function renderMarkdown(md: string): string {
         flushList();
         flushTable();
         inCodeBlock = true;
-        codeBlockLang = line.trim().slice(3).trim();
+        codeBlockLang = line
+          .trim()
+          .slice(3)
+          .trim()
+          .replace(/[^a-zA-Z0-9_-]/g, "");
         codeBuffer = [];
       } else {
         const code = escapeHtml(codeBuffer.join("\n"));
         html.push(
-          `<pre class="md-code-block${codeBlockLang ? ` lang-${codeBlockLang}` : ""}"><code>${code}</code></pre>`
+          `<pre class="md-code-block${codeBlockLang ? ` lang-${codeBlockLang}` : ""}"><code>${code}</code></pre>`,
         );
         inCodeBlock = false;
         codeBlockLang = "";
@@ -114,17 +121,27 @@ export function renderMarkdown(md: string): string {
     }
 
     // Table detection (line with | and next line with |---|---|)
-    if (line.includes("|") && i + 1 < lines.length && /^\s*\|[\s:|-]+\|/.test(lines[i + 1])) {
+    if (
+      line.includes("|") &&
+      i + 1 < lines.length &&
+      /^\s*\|[\s:|-]+\|/.test(lines[i + 1])
+    ) {
       flushList();
       inTable = true;
-      tableHeader = line.split("|").map((c) => c.trim()).filter((_, idx, arr) => idx !== 0 && idx !== arr.length - 1);
+      tableHeader = line
+        .split("|")
+        .map((c) => c.trim())
+        .filter((_, idx, arr) => idx !== 0 && idx !== arr.length - 1);
       i++; // skip separator line
       continue;
     }
 
     if (inTable) {
       if (line.includes("|")) {
-        const cells = line.split("|").map((c) => c.trim()).filter((_, idx, arr) => idx !== 0 && idx !== arr.length - 1);
+        const cells = line
+          .split("|")
+          .map((c) => c.trim())
+          .filter((_, idx, arr) => idx !== 0 && idx !== arr.length - 1);
         tableRows.push(cells);
         continue;
       } else {
@@ -144,7 +161,9 @@ export function renderMarkdown(md: string): string {
     if (headingMatch) {
       flushList();
       const level = headingMatch[1].length;
-      html.push(`<h${level} class="md-heading md-h${level}">${renderInline(headingMatch[2])}</h${level}>`);
+      html.push(
+        `<h${level} class="md-heading md-h${level}">${renderInline(headingMatch[2])}</h${level}>`,
+      );
       continue;
     }
 
@@ -152,7 +171,9 @@ export function renderMarkdown(md: string): string {
     if (line.trim().startsWith(">")) {
       flushList();
       const content = line.trim().replace(/^>\s?/, "");
-      html.push(`<blockquote class="md-blockquote">${renderInline(content)}</blockquote>`);
+      html.push(
+        `<blockquote class="md-blockquote">${renderInline(content)}</blockquote>`,
+      );
       continue;
     }
 
@@ -193,7 +214,9 @@ export function renderMarkdown(md: string): string {
 
   // Flush remaining
   if (inCodeBlock) {
-    html.push(`<pre class="md-code-block"><code>${escapeHtml(codeBuffer.join("\n"))}</code></pre>`);
+    html.push(
+      `<pre class="md-code-block"><code>${escapeHtml(codeBuffer.join("\n"))}</code></pre>`,
+    );
   }
   flushList();
   flushTable();

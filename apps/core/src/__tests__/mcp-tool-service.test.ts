@@ -6,7 +6,9 @@ import path from "node:path";
 import type { AgentPermissionPolicy } from "@loopmarshal/protocol";
 import { McpToolService } from "../services/mcp-tool-service.js";
 
-function createPolicy(input: Partial<AgentPermissionPolicy> = {}): AgentPermissionPolicy {
+function createPolicy(
+  input: Partial<AgentPermissionPolicy> = {},
+): AgentPermissionPolicy {
   return {
     knowledge: { read: true, write: false, delete: false, ...input.knowledge },
     messages: {
@@ -15,14 +17,14 @@ function createPolicy(input: Partial<AgentPermissionPolicy> = {}): AgentPermissi
       dispatchTask: false,
       claim: true,
       complete: true,
-      ...input.messages
+      ...input.messages,
     },
     filesystem: {
       read: false,
       write: false,
       allowedPaths: [],
       deniedPaths: [],
-      ...input.filesystem
+      ...input.filesystem,
     },
     command: {
       enabled: false,
@@ -31,8 +33,8 @@ function createPolicy(input: Partial<AgentPermissionPolicy> = {}): AgentPermissi
       workingDirectory: null,
       timeoutSeconds: 30,
       requireApproval: true,
-      ...input.command
-    }
+      ...input.command,
+    },
   };
 }
 
@@ -42,6 +44,38 @@ function createHarness() {
 }
 
 describe("McpToolService local operations", () => {
+  it("checks message history read permission and resolve send permission before accessing messages", async () => {
+    const { service } = createHarness();
+    service.setAgentPermissionPolicy(
+      "host",
+      createPolicy({ messages: { read: false, send: false } }),
+    );
+    const services = {
+      sessionService: { listMembers: () => [{ id: "host", role: "host" }] },
+    } as never;
+    expect(
+      (
+        await service.executeTool(
+          "query_messages",
+          {},
+          "host",
+          "session",
+          services,
+        )
+      ).error,
+    ).toContain("messages.read");
+    expect(
+      (
+        await service.executeTool(
+          "resolve_message",
+          {},
+          "host",
+          "session",
+          services,
+        )
+      ).error,
+    ).toContain("messages.send");
+  });
   it("uses default restrictive permissions when the agent has no policy override", async () => {
     const { service } = createHarness();
 
@@ -50,7 +84,7 @@ describe("McpToolService local operations", () => {
       { path: "package.json" },
       "agent-without-policy",
       "session-1",
-      { mcpToolService: service } as never
+      { mcpToolService: service } as never,
     );
 
     expect(result.success).toBe(false);
@@ -70,9 +104,9 @@ describe("McpToolService local operations", () => {
             read: true,
             write: true,
             allowedPaths: ["workspace"],
-            deniedPaths: ["workspace/blocked"]
-          }
-        })
+            deniedPaths: ["workspace/blocked"],
+          },
+        }),
       );
 
       const writeResult = await service.executeTool(
@@ -80,17 +114,19 @@ describe("McpToolService local operations", () => {
         { path: "workspace/notes.md", content: "hello" },
         "keeper-agent",
         "session-1",
-        { mcpToolService: service } as never
+        { mcpToolService: service } as never,
       );
       expect(writeResult.success).toBe(true);
-      await expect(readFile(path.join(tempRoot, "workspace", "notes.md"), "utf8")).resolves.toBe("hello");
+      await expect(
+        readFile(path.join(tempRoot, "workspace", "notes.md"), "utf8"),
+      ).resolves.toBe("hello");
 
       const deniedResult = await service.executeTool(
         "file_read",
         { path: "../outside.md" },
         "keeper-agent",
         "session-1",
-        { mcpToolService: service } as never
+        { mcpToolService: service } as never,
       );
       expect(deniedResult.success).toBe(false);
       expect(deniedResult.error).toContain("outside allowedPaths");
@@ -109,15 +145,20 @@ describe("McpToolService local operations", () => {
       service.setAgentPermissionPolicy(
         "cmd-agent",
         createPolicy({
-          filesystem: { read: true, write: false, allowedPaths: ["."], deniedPaths: [] },
+          filesystem: {
+            read: true,
+            write: false,
+            allowedPaths: ["."],
+            deniedPaths: [],
+          },
           command: {
             enabled: true,
             requireApproval: false,
             allowedPrefixes: [process.execPath],
             workingDirectory: ".",
-            timeoutSeconds: 10
-          }
-        })
+            timeoutSeconds: 10,
+          },
+        }),
       );
 
       const allowed = await service.executeTool(
@@ -125,17 +166,19 @@ describe("McpToolService local operations", () => {
         { command: process.execPath, args: ["--version"] },
         "cmd-agent",
         "session-1",
-        { mcpToolService: service } as never
+        { mcpToolService: service } as never,
       );
       expect(allowed.success).toBe(true);
-      expect(String((allowed.result as { stdout: string }).stdout)).toContain("v");
+      expect(String((allowed.result as { stdout: string }).stdout)).toContain(
+        "v",
+      );
 
       const denied = await service.executeTool(
         "command_run",
         { command: "not-allowed-command" },
         "cmd-agent",
         "session-1",
-        { mcpToolService: service } as never
+        { mcpToolService: service } as never,
       );
       expect(denied.success).toBe(false);
       expect(denied.error).toContain("not allowed");

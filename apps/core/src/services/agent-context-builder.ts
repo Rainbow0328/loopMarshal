@@ -27,6 +27,8 @@ import type {
 import { BUDGET_RATIOS, computeInputBudget } from "@loopmarshal/protocol";
 import type { SessionInsight, KnowledgeLevel } from "@loopmarshal/protocol";
 import type { ServerServices } from "../server/create-server.js";
+import { projectContext } from "./project-context.js";
+import { managedCollaborationSkill } from "./managed-collaboration-skill.js";
 
 // ============================================
 // token 估算
@@ -62,8 +64,12 @@ export type LayerBudgets = {
 export function computeLayerBudgets(inputBudget: number): LayerBudgets {
   return {
     systemRoleTools: Math.floor(inputBudget * BUDGET_RATIOS.systemRoleTools),
-    sessionSnapshotAndSummary: Math.floor(inputBudget * BUDGET_RATIOS.sessionSnapshotAndSummary),
-    relevantKnowledge: Math.floor(inputBudget * BUDGET_RATIOS.relevantKnowledge),
+    sessionSnapshotAndSummary: Math.floor(
+      inputBudget * BUDGET_RATIOS.sessionSnapshotAndSummary,
+    ),
+    relevantKnowledge: Math.floor(
+      inputBudget * BUDGET_RATIOS.relevantKnowledge,
+    ),
     recentTurns: Math.floor(inputBudget * BUDGET_RATIOS.recentTurns),
     currentEvent: Math.floor(inputBudget * BUDGET_RATIOS.currentEvent),
   };
@@ -73,7 +79,10 @@ export function computeLayerBudgets(inputBudget: number): LayerBudgets {
 // 从模型配置加载 token 预算
 // ============================================
 
-function loadTokenBudgetConfig(services: ServerServices, modelConfigId: string): TokenBudgetConfig {
+function loadTokenBudgetConfig(
+  services: ServerServices,
+  modelConfigId: string,
+): TokenBudgetConfig {
   try {
     const model = services.modelConfigService.getFull(modelConfigId);
     return {
@@ -111,9 +120,9 @@ const KEEPER_ROLE_PROMPT = `You are the Knowledge Keeper running on the core ser
 
 Your workflow is enforced by code — you cannot skip steps:
 1. Understand the Host's architecture intent from the received task
-2. Plan which L1/L2/L3 knowledge documents to create or update
+2. Plan only durable, verified project knowledge changes at the proper L1/L2/L3 level; an explicit no-change result is valid
 3. Execute knowledge_update for each planned document
-4. Self-check: verify the written knowledge matches the architecture intent
+4. Self-check: verify knowledge matches confirmed intent, project evidence and the hierarchy; verify the reason if no change is needed
 5. Report back to Host: refs, summaries, uncertainties, conflicts
 
 You do NOT make architecture decisions. You only sediment the Host's architecture intent into the knowledge base.
@@ -122,11 +131,17 @@ You do NOT dispatch implementation tasks. That is the Host's responsibility.`;
 function buildRoleConfiguration(
   runtime: WebAgentRuntime,
   tools: { name: string; description: string }[],
-  skillContents: string | null
+  skillContents: string | null,
 ): string {
-  const basePrompt = runtime.role === "host" ? HOST_ROLE_PROMPT : KEEPER_ROLE_PROMPT;
+  const basePrompt =
+    runtime.role === "host"
+      ? HOST_ROLE_PROMPT
+      : runtime.role === "knowledge_keeper"
+        ? KEEPER_ROLE_PROMPT
+        : "You are a Worker. Inspect the project, implement the assigned task using supplied tools, verify your work, and report facts and proposed knowledge changes to the Host.";
   const parts = [
     basePrompt,
+    managedCollaborationSkill(runtime.role, "core_runtime"),
     `# Identity\nYour role is ${runtime.role}.`,
     "# Runtime\nYou are running on the core server. Continue working even if the browser is closed.",
   ];
@@ -137,7 +152,9 @@ function buildRoleConfiguration(
   if (skillContents) {
     parts.push(`# Custom Skills\n${skillContents}`);
   }
-  parts.push(`# Tools\n${tools.map((t) => `- ${t.name}: ${t.description}`).join("\n")}`);
+  parts.push(
+    `# Tools\n${tools.map((t) => `- ${t.name}: ${t.description}`).join("\n")}`,
+  );
   return parts.join("\n\n");
 }
 
@@ -146,7 +163,10 @@ function buildRoleConfiguration(
 // 通过 workflowDefinitionService 读取 Skill 定义，注入到 system prompt
 // ============================================
 
-function loadCustomSkills(services: ServerServices, skillIds: string[]): string | null {
+function loadCustomSkills(
+  services: ServerServices,
+  skillIds: string[],
+): string | null {
   if (!skillIds || skillIds.length === 0) return null;
   const skillParts: string[] = [];
   for (const skillId of skillIds) {
@@ -160,7 +180,8 @@ function loadCustomSkills(services: ServerServices, skillIds: string[]): string 
         // 提取 custom 节点的 config 作为 Skill 指令
         for (const node of workflow.nodes) {
           if (node.kind === "custom" && node.config) {
-            const instruction = (node.config as Record<string, unknown>).instruction;
+            const instruction = (node.config as Record<string, unknown>)
+              .instruction;
             if (typeof instruction === "string" && instruction.trim()) {
               parts.push(instruction.trim());
             }
@@ -184,10 +205,7 @@ function loadCustomSkills(services: ServerServices, skillIds: string[]): string 
 // 最近交互构建（C1）—— 返回裁剪后的 turns
 // ============================================
 
-function trimRecentTurns(
-  turns: ContextTurn[],
-  budget: number
-): ContextTurn[] {
+function trimRecentTurns(turns: ContextTurn[], budget: number): ContextTurn[] {
   if (turns.length === 0) return [];
 
   // 从最近开始向前填充，直到预算用完
@@ -210,7 +228,7 @@ function trimRecentTurns(
 
 function trimKnowledgeSnippets(
   snippets: KnowledgeSnippet[],
-  budget: number
+  budget: number,
 ): KnowledgeSnippet[] {
   if (snippets.length === 0) return [];
 
@@ -234,7 +252,7 @@ function trimKnowledgeSnippets(
 function retrieveRelevantKnowledge(
   services: ServerServices,
   currentEvent: string,
-  maxSnippets: number = 10
+  maxSnippets: number = 10,
 ): KnowledgeSnippet[] {
   const snippets: KnowledgeSnippet[] = [];
   try {
@@ -254,14 +272,15 @@ function retrieveRelevantKnowledge(
       if (snippets.length >= maxSnippets) break;
 
       // 检查文档标题和 slug 是否包含关键词
-      const docText = `${doc.level}/${doc.slug} ${doc.title ?? ""}`.toLowerCase();
+      const docText =
+        `${doc.level}/${doc.slug} ${doc.title ?? ""}`.toLowerCase();
       const matches = keywords.some((kw) => docText.includes(kw));
 
-      if (matches) {
+      if (matches || doc.level === "l1" || snippets.length < 3) {
         try {
           const fullDoc = services.knowledgeService.get(
             doc.level as KnowledgeLevel,
-            doc.slug
+            doc.slug,
           );
           if (fullDoc) {
             snippets.push({
@@ -299,7 +318,9 @@ export type BuildContextInput = {
   autoRetrieveKnowledge?: boolean;
 };
 
-export function buildContextEnvelope(input: BuildContextInput): AgentContextEnvelope {
+export function buildContextEnvelope(
+  input: BuildContextInput,
+): AgentContextEnvelope {
   const {
     runtime,
     services,
@@ -311,28 +332,75 @@ export function buildContextEnvelope(input: BuildContextInput): AgentContextEnve
   } = input;
 
   // Token 预算——优先从模型配置加载（Fix 5）
-  const budgetConfig: TokenBudgetConfig = input.tokenBudgetConfig ?? loadTokenBudgetConfig(services, runtime.modelConfigId);
+  const budgetConfig: TokenBudgetConfig =
+    input.tokenBudgetConfig ??
+    loadTokenBudgetConfig(services, runtime.modelConfigId);
   const inputBudget = computeInputBudget(budgetConfig);
   const layerBudgets = computeLayerBudgets(inputBudget);
 
   // C3 角色配置——加载自定义 Skill 内容后注入（Fix 1）
-  const skillContents = loadCustomSkills(services, runtime.customSkillIds ?? []);
-  const roleConfiguration = buildRoleConfiguration(runtime, tools, skillContents);
+  const skillContents = loadCustomSkills(
+    services,
+    runtime.customSkillIds ?? [],
+  );
+  let roleConfiguration = buildRoleConfiguration(runtime, tools, skillContents);
+  try {
+    const members = services.sessionService.listMembers(runtime.sessionId);
+    roleConfiguration +=
+      "\n\n# Current session members\n" +
+      members
+        .map(
+          (member) =>
+            `${member.agentName} | ${member.role} | agentId=${member.id} | ${member.roleDescription ?? ""}`,
+        )
+        .join("\n");
+  } catch {
+    /* Optional for older service extensions. */
+  }
+  try {
+    const knowledge =
+      services.knowledgeService?.forSession?.(runtime.sessionId) ??
+      services.knowledgeService;
+    const docs = knowledge.list();
+    const latest = [...docs].sort((a, b) =>
+      b.updatedAt.localeCompare(a.updatedAt),
+    );
+    const index = latest.map(
+      (doc) =>
+        `${doc.level}/${doc.slug} v${doc.version} ${doc.title}: ${doc.summary ?? ""}`,
+    );
+    roleConfiguration += `\n\n# Current session knowledge index\n${index.join("\n").slice(0, 16000)}\nRead relevant documents with knowledge_read before making decisions. This index is refreshed each model step. Persist confirmed changes with knowledge_update or report them to the Host/Keeper; never treat stale conversation history as current knowledge.`;
+  } catch {
+    /* Empty knowledge or service test doubles. */
+  }
+  try {
+    roleConfiguration +=
+      "\n\n# Project\n" +
+      projectContext(services.sessionService.getSession(runtime.sessionId));
+  } catch {
+    /* Optional in older service extensions. */
+  }
 
   // C3 相关知识——自动检索或使用传入的（Fix 6）
   let relevantKnowledge = input.relevantKnowledge ?? [];
   if (relevantKnowledge.length === 0 && autoRetrieveKnowledge) {
-    relevantKnowledge = retrieveRelevantKnowledge(services, currentEvent);
+    const knowledge =
+      services.knowledgeService?.forSession?.(runtime.sessionId) ??
+      services.knowledgeService;
+    relevantKnowledge = retrieveRelevantKnowledge(
+      { ...services, knowledgeService: knowledge },
+      currentEvent,
+    );
   }
 
   // 预算裁剪——裁剪后的数据写入 envelope（Fix 3）
   const trimmedRecentTurns = trimRecentTurns(
     contextSnapshot?.recentTurns ?? [],
-    layerBudgets.recentTurns
+    layerBudgets.recentTurns,
   );
   const trimmedKnowledge = trimKnowledgeSnippets(
     relevantKnowledge,
-    layerBudgets.relevantKnowledge
+    layerBudgets.relevantKnowledge,
   );
 
   // C3 用户偏好
@@ -341,7 +409,8 @@ export function buildContextEnvelope(input: BuildContextInput): AgentContextEnve
     const prefs = services.userPreferencesService.list().slice(0, 50);
     userPreferences = prefs.map((p) => {
       const category = p.category ? `[${p.category}] ` : "";
-      const truncatedValue = p.value.length > 200 ? `${p.value.slice(0, 197)}...` : p.value;
+      const truncatedValue =
+        p.value.length > 200 ? `${p.value.slice(0, 197)}...` : p.value;
       return `${category}${p.key}: ${truncatedValue}`;
     });
   } catch {
@@ -407,10 +476,10 @@ export function renderContextEnvelope(envelope: AgentContextEnvelope): {
   const remainingBudget = Math.max(0, inputBudget - roleActualTokens);
 
   // 分配剩余预算给各层
-  const snapBudget = Math.floor(remainingBudget * 0.30);
+  const snapBudget = Math.floor(remainingBudget * 0.3);
   const knowledgeBudget = Math.floor(remainingBudget * 0.25);
-  const prefBudget = Math.floor(remainingBudget * 0.10);
-  const turnsBudget = Math.floor(remainingBudget * 0.20);
+  const prefBudget = Math.floor(remainingBudget * 0.1);
+  const turnsBudget = Math.floor(remainingBudget * 0.2);
   const eventBudget = Math.floor(remainingBudget * 0.15);
 
   const systemParts: string[] = [roleText];
@@ -419,27 +488,42 @@ export function renderContextEnvelope(envelope: AgentContextEnvelope): {
   const snap = envelope.sessionSnapshot;
   const snapParts: string[] = [];
   if (snap.objective) snapParts.push(`## Objective\n${snap.objective}`);
-  if (snap.activePlanSummary) snapParts.push(`## Confirmed Architecture\n${snap.activePlanSummary}`);
+  if (snap.activePlanSummary)
+    snapParts.push(`## Confirmed Architecture\n${snap.activePlanSummary}`);
   if (snap.confirmedDecisions.length > 0) {
-    snapParts.push(`## Confirmed Decisions\n${snap.confirmedDecisions.map((d) => `- ${d}`).join("\n")}`);
+    snapParts.push(
+      `## Confirmed Decisions\n${snap.confirmedDecisions.map((d) => `- ${d}`).join("\n")}`,
+    );
   }
   if (snap.constraints.length > 0) {
-    snapParts.push(`## Constraints\n${snap.constraints.map((c) => `- ${c}`).join("\n")}`);
+    snapParts.push(
+      `## Constraints\n${snap.constraints.map((c) => `- ${c}`).join("\n")}`,
+    );
   }
   if (snap.acceptanceCriteria.length > 0) {
-    snapParts.push(`## Acceptance Criteria\n${snap.acceptanceCriteria.map((c) => `- ${c}`).join("\n")}`);
+    snapParts.push(
+      `## Acceptance Criteria\n${snap.acceptanceCriteria.map((c) => `- ${c}`).join("\n")}`,
+    );
   }
   if (snap.completedItems.length > 0) {
-    snapParts.push(`## Completed Items\n${snap.completedItems.map((c) => `- ${c}`).join("\n")}`);
+    snapParts.push(
+      `## Completed Items\n${snap.completedItems.map((c) => `- ${c}`).join("\n")}`,
+    );
   }
   if (snap.pendingItems.length > 0) {
-    snapParts.push(`## Pending Items\n${snap.pendingItems.map((c) => `- ${c}`).join("\n")}`);
+    snapParts.push(
+      `## Pending Items\n${snap.pendingItems.map((c) => `- ${c}`).join("\n")}`,
+    );
   }
   if (snap.blockers.length > 0) {
-    snapParts.push(`## Blockers\n${snap.blockers.map((c) => `- ${c}`).join("\n")}`);
+    snapParts.push(
+      `## Blockers\n${snap.blockers.map((c) => `- ${c}`).join("\n")}`,
+    );
   }
   if (snap.unresolvedQuestions.length > 0) {
-    snapParts.push(`## Unresolved Questions\n${snap.unresolvedQuestions.map((q) => `- ${q}`).join("\n")}`);
+    snapParts.push(
+      `## Unresolved Questions\n${snap.unresolvedQuestions.map((q) => `- ${q}`).join("\n")}`,
+    );
   }
   if (snap.conversationSummary) {
     snapParts.push(`## Conversation Summary\n${snap.conversationSummary}`);
@@ -468,7 +552,10 @@ export function renderContextEnvelope(envelope: AgentContextEnvelope): {
     }
     if (keptKnowledge.length > 0) {
       const knowledgeText = keptKnowledge
-        .map((k) => `## ${k.ref}\n**Title**: ${k.title}\n${k.summary ? `**Summary**: ${k.summary}\n` : ""}\n${k.content}`)
+        .map(
+          (k) =>
+            `## ${k.ref}\n**Title**: ${k.title}\n${k.summary ? `**Summary**: ${k.summary}\n` : ""}\n${k.content}`,
+        )
         .join("\n\n");
       systemParts.push(`# Relevant Knowledge\n${knowledgeText}`);
     }
@@ -482,11 +569,17 @@ export function renderContextEnvelope(envelope: AgentContextEnvelope): {
     for (const p of envelope.userPreferences) {
       const entryTokens = estimateTokens(p);
       // Allow at least minPrefs, but stop if exceeding budget even for minimums
-      if (prefUsedTokens + entryTokens > prefBudget && keptPrefs.length >= minPrefs) break;
+      if (
+        prefUsedTokens + entryTokens > prefBudget &&
+        keptPrefs.length >= minPrefs
+      )
+        break;
       keptPrefs.push(p);
       prefUsedTokens += entryTokens;
     }
-    systemParts.push(`# Global User Preferences\n${keptPrefs.map((p) => `- ${p}`).join("\n")}`);
+    systemParts.push(
+      `# Global User Preferences\n${keptPrefs.map((p) => `- ${p}`).join("\n")}`,
+    );
   }
 
   // 最近交互——按预算裁剪，最小轮数不超过预算
@@ -497,12 +590,16 @@ export function renderContextEnvelope(envelope: AgentContextEnvelope): {
     for (let i = envelope.recentTurns.length - 1; i >= 0; i--) {
       const turn = envelope.recentTurns[i]!;
       const turnTokens = estimateTokens(turn.content);
-      if (turnsUsedTokens + turnTokens > turnsBudget && keptTurns.length >= minTurns) break;
+      if (
+        turnsUsedTokens + turnTokens > turnsBudget &&
+        keptTurns.length >= minTurns
+      )
+        break;
       keptTurns.unshift(turn);
       turnsUsedTokens += turnTokens;
     }
     systemParts.push(
-      `# Recent Turns\n${keptTurns.map((t) => `**${t.role}**: ${t.content}`).join("\n\n")}`
+      `# Recent Turns\n${keptTurns.map((t) => `**${t.role}**: ${t.content}`).join("\n\n")}`,
     );
   }
 
@@ -522,19 +619,26 @@ export function renderContextEnvelope(envelope: AgentContextEnvelope): {
   // 裁剪优先级：知识 → 偏好 → 最近交互 → 会话快照 → 角色配置
   let finalSystemPrompt = systemPrompt;
   const separator = "\n\n---\n\n";
-  let totalTokens = estimateTokens(finalSystemPrompt) + estimateTokens(userContent);
+  let totalTokens =
+    estimateTokens(finalSystemPrompt) + estimateTokens(userContent);
   if (totalTokens > inputBudget) {
     const sections = finalSystemPrompt.split(separator);
     // 从后向前移除非核心段落（保留角色配置 = sections[0]）
     while (sections.length > 1 && totalTokens > inputBudget) {
       sections.pop(); // 移除最后一个段落
       finalSystemPrompt = sections.join(separator);
-      totalTokens = estimateTokens(finalSystemPrompt) + estimateTokens(userContent);
+      totalTokens =
+        estimateTokens(finalSystemPrompt) + estimateTokens(userContent);
     }
     // 如果角色配置本身仍超预算，截断
     if (totalTokens > inputBudget) {
-      const maxRoleChars = Math.floor((inputBudget - estimateTokens(userContent)) * 3);
-      finalSystemPrompt = finalSystemPrompt.slice(0, Math.max(maxRoleChars, 100));
+      const maxRoleChars = Math.floor(
+        (inputBudget - estimateTokens(userContent)) * 3,
+      );
+      finalSystemPrompt = finalSystemPrompt.slice(
+        0,
+        Math.max(maxRoleChars, 100),
+      );
     }
   }
 

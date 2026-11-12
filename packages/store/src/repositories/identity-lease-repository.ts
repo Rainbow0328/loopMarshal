@@ -82,7 +82,7 @@ export class IdentityLeaseRepository {
 
     const row = statement.get({
       ...input,
-      takeover: input.takeover ? 1 : 0
+      takeover: input.takeover ? 1 : 0,
     }) as IdentityLeaseRow | undefined;
     return row ? this.mapRow(row) : null;
   }
@@ -96,7 +96,7 @@ export class IdentityLeaseRepository {
 
     const result = statement.run({
       identityKey,
-      ownerToken
+      ownerToken,
     });
     return Number(result.changes ?? 0) > 0;
   }
@@ -109,7 +109,7 @@ export class IdentityLeaseRepository {
 
     const result = statement.run({
       hostIdentityKey: `host:${identity}`,
-      workerIdentityKey: `worker:${identity}`
+      workerIdentityKey: `worker:${identity}`,
     });
 
     return Number(result.changes ?? 0);
@@ -124,7 +124,7 @@ export class IdentityLeaseRepository {
 
     const result = statement.run({
       hostPattern: `host:${sessionName}::%`,
-      workerPattern: `worker:${sessionName}::%`
+      workerPattern: `worker:${sessionName}::%`,
     });
 
     return Number(result.changes ?? 0);
@@ -136,7 +136,7 @@ export class IdentityLeaseRepository {
       ownerToken: row.ownerToken,
       leaseUntil: row.leaseUntil,
       createdAt: row.createdAt,
-      updatedAt: row.updatedAt
+      updatedAt: row.updatedAt,
     };
   }
 }

@@ -21,7 +21,11 @@ import { createSmokeClient } from "./helpers/create-smoke-client.mjs";
 const smokePort = 42726;
 const smokeBaseUrl = `http://127.0.0.1:${smokePort}`;
 const rootDir = process.cwd();
-const stateDir = resolve(rootDir, ".loopmarshal-test", "smoke-cli-attach-reset");
+const stateDir = resolve(
+  rootDir,
+  ".loopmarshal-test",
+  "smoke-cli-attach-reset",
+);
 
 const assert = (condition, message) => {
   if (!condition) {
@@ -36,7 +40,7 @@ const main = async () => {
   const instance = await startCoreServer({
     host: "127.0.0.1",
     port: smokePort,
-    databasePath: ".loopmarshal-test/smoke-cli-attach-reset.sqlite"
+    databasePath: ".loopmarshal-test/smoke-cli-attach-reset.sqlite",
   });
 
   try {
@@ -49,34 +53,35 @@ const main = async () => {
     const hostA = await client.attachNamedSession(sessionA, {
       agentName: hostName,
       role: "host",
-      roleDescription: "主控编排"
+      roleDescription: "主控编排",
     });
     const workerA = await client.attachNamedSession(sessionA, {
       agentName: workerName,
       role: "worker",
-      roleDescription: "负责学生管理前端页面开发"
+      roleDescription: "负责学生管理前端页面开发",
     });
     const hostB = await client.attachNamedSession(sessionB, {
       agentName: hostName,
       role: "host",
-      roleDescription: "主控编排"
+      roleDescription: "主控编排",
     });
 
     assert(
       hostA.agent.agentName === hostName && hostA.session.name === sessionA,
-      "attach host should bind the host into session A"
+      "attach host should bind the host into session A",
     );
     assert(
-      workerA.agent.agentName === workerName && workerA.session.name === sessionA,
-      "attach worker should bind the worker into session A"
+      workerA.agent.agentName === workerName &&
+        workerA.session.name === sessionA,
+      "attach worker should bind the worker into session A",
     );
     assert(
       workerA.agent.roleDescription === "负责学生管理前端页面开发",
-      "attach worker should persist the provided duty"
+      "attach worker should persist the provided duty",
     );
     assert(
       hostB.agent.agentName === hostName && hostB.session.name === sessionB,
-      "the same member name should be reusable under a different session"
+      "the same member name should be reusable under a different session",
     );
 
     const sessionInfoA = await client.getSessionByName(sessionA);
@@ -86,23 +91,23 @@ const main = async () => {
 
     assert(
       membersA.some((member) => member.agentName === hostName),
-      "session A should include the host"
+      "session A should include the host",
     );
     assert(
       membersA.some(
         (member) =>
           member.agentName === workerName &&
-          member.roleDescription === "负责学生管理前端页面开发"
+          member.roleDescription === "负责学生管理前端页面开发",
       ),
-      "session A should include the worker with duty"
+      "session A should include the worker with duty",
     );
     assert(
       membersB.some((member) => member.agentName === hostName),
-      "session B should include the reused host name independently"
+      "session B should include the reused host name independently",
     );
 
     await client.deleteSessionByName(sessionA, {
-      requesterAgentId: hostA.agent.id
+      requesterAgentId: hostA.agent.id,
     });
 
     let sessionADeleted = false;
@@ -115,11 +120,11 @@ const main = async () => {
 
     assert(
       sessionADeleted,
-      "resetting the host should clean up session A entirely"
+      "resetting the host should clean up session A entirely",
     );
     assert(
       membersBAfterReset.some((member) => member.agentName === hostName),
-      "resetting session A must not affect the same name in session B"
+      "resetting session A must not affect the same name in session B",
     );
 
     console.log(
@@ -129,11 +134,11 @@ const main = async () => {
           sessionB,
           hostAgentIdA: hostA.agent.id,
           workerAgentIdA: workerA.agent.id,
-          hostAgentIdB: hostB.agent.id
+          hostAgentIdB: hostB.agent.id,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } finally {
     await instance.close();

@@ -2,13 +2,14 @@ import { randomUUID } from "node:crypto";
 import type {
   CreateWebAgentRuntimeInput,
   UpdateWebAgentRuntimeInput,
-  WebAgentRuntime
+  WebAgentRuntime,
 } from "@loopmarshal/protocol";
 import type {
   AgentRepository,
   ModelConfigRepository,
+  MemberRouteRepository,
   SessionRepository,
-  WebAgentRuntimeRepository
+  WebAgentRuntimeRepository,
 } from "@loopmarshal/store";
 import { coreErrors } from "../errors.js";
 
@@ -19,7 +20,8 @@ export class WebAgentRuntimeService {
     private readonly repository: WebAgentRuntimeRepository,
     private readonly sessions: SessionRepository,
     private readonly agents: AgentRepository,
-    private readonly models: ModelConfigRepository
+    private readonly models: ModelConfigRepository,
+    private readonly routes?: MemberRouteRepository,
   ) {}
 
   public createOrUpdate(input: CreateWebAgentRuntimeInput): WebAgentRuntime {
@@ -40,11 +42,12 @@ export class WebAgentRuntimeService {
       lastError: null,
       lastTickAt: existing?.lastTickAt ?? null,
       lastSelfMaintenanceAt: existing?.lastSelfMaintenanceAt ?? null,
-      externalMcpServerIds: input.externalMcpServerIds ?? existing?.externalMcpServerIds ?? [],
+      externalMcpServerIds:
+        input.externalMcpServerIds ?? existing?.externalMcpServerIds ?? [],
       customDuty: input.customDuty ?? existing?.customDuty ?? null,
       customSkillIds: input.customSkillIds ?? existing?.customSkillIds ?? [],
       createdAt: existing?.createdAt ?? timestamp,
-      updatedAt: timestamp
+      updatedAt: timestamp,
     };
     this.repository.upsert(runtime);
     return this.get(runtime.id);
@@ -65,33 +68,57 @@ export class WebAgentRuntimeService {
     return runtime;
   }
 
-  public update(id: string, input: UpdateWebAgentRuntimeInput): WebAgentRuntime {
+  public update(
+    id: string,
+    input: UpdateWebAgentRuntimeInput,
+  ): WebAgentRuntime {
     const existing = this.get(id);
     if (input.modelConfigId && !this.models.findById(input.modelConfigId)) {
       throw coreErrors.agentNotFound(input.modelConfigId);
     }
     this.repository.update(id, {
-      ...(input.modelConfigId !== undefined ? { modelConfigId: input.modelConfigId } : {}),
-      ...(input.agentProfileId !== undefined ? { agentProfileId: input.agentProfileId } : {}),
+      ...(input.modelConfigId !== undefined
+        ? { modelConfigId: input.modelConfigId }
+        : {}),
+      ...(input.agentProfileId !== undefined
+        ? { agentProfileId: input.agentProfileId }
+        : {}),
       ...(input.toolsetId !== undefined ? { toolsetId: input.toolsetId } : {}),
       ...(input.status !== undefined ? { status: input.status } : {}),
-      ...(input.enabled !== undefined ? { enabled: input.enabled ? 1 : 0 } : {}),
-      ...(input.currentStep !== undefined ? { currentStep: input.currentStep } : {}),
+      ...(input.enabled !== undefined
+        ? { enabled: input.enabled ? 1 : 0 }
+        : {}),
+      ...(input.currentStep !== undefined
+        ? { currentStep: input.currentStep }
+        : {}),
       ...(input.lastError !== undefined ? { lastError: input.lastError } : {}),
-      ...(input.lastTickAt !== undefined ? { lastTickAt: input.lastTickAt } : {}),
-      ...(input.lastSelfMaintenanceAt !== undefined ? { lastSelfMaintenanceAt: input.lastSelfMaintenanceAt } : {}),
-      ...(input.externalMcpServerIds !== undefined ? { externalMcpServerIds: input.externalMcpServerIds } : {}),
-      ...(input.customDuty !== undefined ? { customDuty: input.customDuty } : {}),
-      ...(input.customSkillIds !== undefined ? { customSkillIds: input.customSkillIds } : {})
+      ...(input.lastTickAt !== undefined
+        ? { lastTickAt: input.lastTickAt }
+        : {}),
+      ...(input.lastSelfMaintenanceAt !== undefined
+        ? { lastSelfMaintenanceAt: input.lastSelfMaintenanceAt }
+        : {}),
+      ...(input.externalMcpServerIds !== undefined
+        ? { externalMcpServerIds: input.externalMcpServerIds }
+        : {}),
+      ...(input.customDuty !== undefined
+        ? { customDuty: input.customDuty }
+        : {}),
+      ...(input.customSkillIds !== undefined
+        ? { customSkillIds: input.customSkillIds }
+        : {}),
     } as Record<string, unknown> as Record<string, never>);
     return this.get(existing.id);
   }
 
-  public setStatus(id: string, status: WebAgentRuntime["status"]): WebAgentRuntime {
+  public setStatus(
+    id: string,
+    status: WebAgentRuntime["status"],
+  ): WebAgentRuntime {
     return this.update(id, {
       status,
       lastTickAt: now(),
-      ...(status !== "error" ? { lastError: null } : {})
+      ...(status !== "error" ? { lastError: null } : {}),
     });
   }
 
@@ -102,6 +129,11 @@ export class WebAgentRuntimeService {
   }
 
   private assertValidBinding(input: CreateWebAgentRuntimeInput): void {
+    if (this.routes?.get(input.agentId)?.accessMode === "managed_proxy") {
+      throw coreErrors.invalidInput(
+        "请先解除 CLI 代理绑定，再创建本地 Agent，避免同一成员被重复执行。",
+      );
+    }
     const session = this.sessions.findById(input.sessionId);
     if (!session) {
       throw coreErrors.sessionNotFound(input.sessionId);
@@ -115,12 +147,12 @@ export class WebAgentRuntimeService {
     }
     if (agent.role !== input.role) {
       throw coreErrors.invalidInput(
-        `Agent role "${agent.role}" cannot be bound as web runtime role "${input.role}".`
+        `Agent role "${agent.role}" cannot be bound as web runtime role "${input.role}".`,
       );
     }
-    if (input.role !== "host" && input.role !== "knowledge_keeper") {
+    if (!["host", "worker", "knowledge_keeper"].includes(input.role)) {
       throw coreErrors.invalidInput(
-        `Web runtime role must be "host" or "knowledge_keeper". Received "${input.role}".`
+        `Web runtime role must be "host", "worker" or "knowledge_keeper". Received "${input.role}".`,
       );
     }
     if (!this.models.findById(input.modelConfigId)) {

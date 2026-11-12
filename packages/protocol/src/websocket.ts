@@ -1,10 +1,7 @@
 // WebSocket message protocol definitions.
 
 // Client -> server.
-export type WsClientMessage =
-  | WsPingMessage
-  | WsClaimNextMessage
-  | WsAckMessage;
+export type WsClientMessage = WsPingMessage | WsClaimNextMessage | WsAckMessage;
 
 export type WsPingMessage = {
   type: "ping";

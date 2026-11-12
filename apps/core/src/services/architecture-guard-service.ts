@@ -22,7 +22,7 @@ export class GuardService {
 
     return {
       ok: violations.length === 0,
-      violations
+      violations,
     };
   }
 }

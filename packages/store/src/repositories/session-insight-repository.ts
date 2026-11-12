@@ -18,7 +18,7 @@ import type {
   PendingUserInput,
   ReviewStatus,
   SessionInsight,
-  UpdateSessionInsightInput
+  UpdateSessionInsightInput,
 } from "@loopmarshal/protocol";
 
 type SessionInsightRow = {
@@ -69,16 +69,18 @@ const parsePendingUserInputArray = (value: string): PendingUserInput[] => {
   try {
     const parsed = JSON.parse(value);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (item): item is PendingUserInput =>
-        item !== null &&
-        typeof item === "object" &&
-        typeof (item as { revision?: unknown }).revision === "number" &&
-        typeof (item as { content?: unknown }).content === "string"
-    ).map((item) => ({
-      revision: (item as { revision: number }).revision,
-      content: (item as { content: string }).content,
-    }));
+    return parsed
+      .filter(
+        (item): item is PendingUserInput =>
+          item !== null &&
+          typeof item === "object" &&
+          typeof (item as { revision?: unknown }).revision === "number" &&
+          typeof (item as { content?: unknown }).content === "string",
+      )
+      .map((item) => ({
+        revision: (item as { revision: number }).revision,
+        content: (item as { content: string }).content,
+      }));
   } catch {
     return [];
   }
@@ -129,7 +131,7 @@ export class SessionInsightRepository {
   }
 
   public upsert(
-    input: UpdateSessionInsightInput & { updatedAt: string }
+    input: UpdateSessionInsightInput & { updatedAt: string },
   ): SessionInsight | null {
     this.database.exec("BEGIN IMMEDIATE");
     try {
@@ -169,7 +171,7 @@ export class SessionInsightRepository {
   public clearDispatchForAgent(
     sessionId: string,
     agentId: string,
-    updatedAt: string
+    updatedAt: string,
   ): void {
     const statement = this.database.prepare(`
       UPDATE session_insights
@@ -186,13 +188,13 @@ export class SessionInsightRepository {
     statement.run({
       sessionId,
       agentId,
-      updatedAt
+      updatedAt,
     });
   }
 
   private buildMergedInsight(
     existing: SessionInsight | null,
-    input: UpdateSessionInsightInput & { updatedAt: string }
+    input: UpdateSessionInsightInput & { updatedAt: string },
   ): SessionInsight {
     const mergeMode = input.mergeMode ?? "replace";
     return {
@@ -200,58 +202,74 @@ export class SessionInsightRepository {
       objective:
         input.objective !== undefined
           ? input.objective
-          : existing?.objective ?? null,
+          : (existing?.objective ?? null),
       currentProjectUnderstanding:
         input.currentProjectUnderstanding !== undefined
           ? input.currentProjectUnderstanding
-          : existing?.currentProjectUnderstanding ?? null,
+          : (existing?.currentProjectUnderstanding ?? null),
       projectSummary:
         input.projectSummary !== undefined
           ? input.projectSummary
-          : existing?.projectSummary ?? null,
+          : (existing?.projectSummary ?? null),
       userIntentSummary:
         input.userIntentSummary !== undefined
           ? input.userIntentSummary
-          : existing?.userIntentSummary ?? null,
+          : (existing?.userIntentSummary ?? null),
       latestUserInput:
         input.latestUserInput !== undefined
           ? input.latestUserInput
-          : existing?.latestUserInput ?? null,
+          : (existing?.latestUserInput ?? null),
       latestReportSummary:
         input.latestReportSummary !== undefined
           ? input.latestReportSummary
-          : existing?.latestReportSummary ?? null,
+          : (existing?.latestReportSummary ?? null),
       recentUserInputs: this.mergeArray(
         existing?.recentUserInputs ?? [],
         input.recentUserInputs,
         mergeMode,
-        12
+        12,
       ),
       unappliedUserInputs: this.mergePendingUserInputArray(
         existing?.unappliedUserInputs ?? [],
         input.unappliedUserInputs,
         mergeMode,
-        12
+        12,
       ),
       userPreferences: this.mergeArray(
         existing?.userPreferences ?? [],
         input.userPreferences,
-        mergeMode
+        mergeMode,
       ),
       acceptanceCriteria: this.mergeArray(
         existing?.acceptanceCriteria ?? [],
         input.acceptanceCriteria,
-        mergeMode
+        mergeMode,
       ),
-      constraints: this.mergeArray(existing?.constraints ?? [], input.constraints, mergeMode),
+      constraints: this.mergeArray(
+        existing?.constraints ?? [],
+        input.constraints,
+        mergeMode,
+      ),
       completedItems: this.mergeArray(
         existing?.completedItems ?? [],
         input.completedItems,
-        mergeMode
+        mergeMode,
       ),
-      pendingItems: this.mergeArray(existing?.pendingItems ?? [], input.pendingItems, mergeMode),
-      blockers: this.mergeArray(existing?.blockers ?? [], input.blockers, mergeMode),
-      assumptions: this.mergeArray(existing?.assumptions ?? [], input.assumptions, mergeMode),
+      pendingItems: this.mergeArray(
+        existing?.pendingItems ?? [],
+        input.pendingItems,
+        mergeMode,
+      ),
+      blockers: this.mergeArray(
+        existing?.blockers ?? [],
+        input.blockers,
+        mergeMode,
+      ),
+      assumptions: this.mergeArray(
+        existing?.assumptions ?? [],
+        input.assumptions,
+        mergeMode,
+      ),
       latestUserDirectiveRevision:
         input.latestUserDirectiveRevision ??
         existing?.latestUserDirectiveRevision ??
@@ -261,42 +279,40 @@ export class SessionInsightRepository {
         existing?.appliedUserDirectiveRevision ??
         0,
       currentPlanRevision:
-        input.currentPlanRevision ??
-        existing?.currentPlanRevision ??
-        0,
+        input.currentPlanRevision ?? existing?.currentPlanRevision ?? 0,
       activePlanSummary:
         input.activePlanSummary !== undefined
           ? input.activePlanSummary
-          : existing?.activePlanSummary ?? null,
+          : (existing?.activePlanSummary ?? null),
       lastDispatchWorkerName:
         input.lastDispatchWorkerName !== undefined
           ? input.lastDispatchWorkerName
-          : existing?.lastDispatchWorkerName ?? null,
+          : (existing?.lastDispatchWorkerName ?? null),
       lastDispatchAgentId:
         input.lastDispatchAgentId !== undefined
           ? input.lastDispatchAgentId
-          : existing?.lastDispatchAgentId ?? null,
+          : (existing?.lastDispatchAgentId ?? null),
       lastDispatchMessageId:
         input.lastDispatchMessageId !== undefined
           ? input.lastDispatchMessageId
-          : existing?.lastDispatchMessageId ?? null,
+          : (existing?.lastDispatchMessageId ?? null),
       lastDispatchCorrelationId:
         input.lastDispatchCorrelationId !== undefined
           ? input.lastDispatchCorrelationId
-          : existing?.lastDispatchCorrelationId ?? null,
+          : (existing?.lastDispatchCorrelationId ?? null),
       lastDispatchTaskFocus:
         input.lastDispatchTaskFocus !== undefined
           ? input.lastDispatchTaskFocus
-          : existing?.lastDispatchTaskFocus ?? null,
-      reviewStatus: input.reviewStatus ?? existing?.reviewStatus ?? "in_progress",
+          : (existing?.lastDispatchTaskFocus ?? null),
+      reviewStatus:
+        input.reviewStatus ?? existing?.reviewStatus ?? "in_progress",
       reviewReason:
         input.reviewReason !== undefined
           ? input.reviewReason
-          : existing?.reviewReason ?? null,
-      readyForReview:
-        input.readyForReview ?? existing?.readyForReview ?? false,
+          : (existing?.reviewReason ?? null),
+      readyForReview: input.readyForReview ?? existing?.readyForReview ?? false,
       lastUpdatedByAgentId: input.updatedByAgentId,
-      updatedAt: input.updatedAt
+      updatedAt: input.updatedAt,
     } satisfies SessionInsight;
   }
 
@@ -427,7 +443,7 @@ export class SessionInsightRepository {
       reviewReason: merged.reviewReason,
       readyForReview: merged.readyForReview ? 1 : 0,
       lastUpdatedByAgentId: merged.lastUpdatedByAgentId ?? null,
-      updatedAt: merged.updatedAt
+      updatedAt: merged.updatedAt,
     });
   }
 
@@ -435,7 +451,7 @@ export class SessionInsightRepository {
     existing: string[],
     incoming: string[] | undefined,
     mergeMode: "replace" | "append",
-    limit?: number
+    limit?: number,
   ) {
     if (incoming === undefined) {
       const normalizedExisting = existing
@@ -449,9 +465,7 @@ export class SessionInsightRepository {
     }
 
     const normalize = (values: string[]) =>
-      values
-        .map((value) => value.trim())
-        .filter((value) => value.length > 0);
+      values.map((value) => value.trim()).filter((value) => value.length > 0);
 
     const distinct =
       mergeMode === "replace"
@@ -469,11 +483,11 @@ export class SessionInsightRepository {
     existing: PendingUserInput[],
     incoming: PendingUserInput[] | undefined,
     mergeMode: "replace" | "append",
-    limit?: number
+    limit?: number,
   ): PendingUserInput[] {
     if (incoming === undefined) {
       const normalizedExisting = existing.filter(
-        (item) => item.content.trim().length > 0
+        (item) => item.content.trim().length > 0,
       );
       if (limit && normalizedExisting.length > limit) {
         return normalizedExisting.slice(normalizedExisting.length - limit);
@@ -481,10 +495,14 @@ export class SessionInsightRepository {
       return normalizedExisting;
     }
 
-    const normalized = incoming.filter((item) => item.content.trim().length > 0);
+    const normalized = incoming.filter(
+      (item) => item.content.trim().length > 0,
+    );
 
     if (mergeMode === "replace") {
-      const distinct = [...new Map(normalized.map((item) => [item.content, item])).values()];
+      const distinct = [
+        ...new Map(normalized.map((item) => [item.content, item])).values(),
+      ];
       if (limit && distinct.length > limit) {
         return distinct.slice(distinct.length - limit);
       }
@@ -493,7 +511,10 @@ export class SessionInsightRepository {
 
     // append mode: merge by content dedup
     const existingContents = new Set(existing.map((item) => item.content));
-    const merged = [...existing, ...normalized.filter((item) => !existingContents.has(item.content))];
+    const merged = [
+      ...existing,
+      ...normalized.filter((item) => !existingContents.has(item.content)),
+    ];
     if (limit && merged.length > limit) {
       return merged.slice(merged.length - limit);
     }
@@ -510,7 +531,9 @@ export class SessionInsightRepository {
       latestUserInput: row.latestUserInput,
       latestReportSummary: row.latestReportSummary,
       recentUserInputs: parseJsonArray(row.recentUserInputsJson),
-      unappliedUserInputs: parsePendingUserInputArray(row.unappliedUserInputsJson),
+      unappliedUserInputs: parsePendingUserInputArray(
+        row.unappliedUserInputsJson,
+      ),
       userPreferences: parseJsonArray(row.userPreferencesJson),
       acceptanceCriteria: parseJsonArray(row.acceptanceCriteriaJson),
       constraints: parseJsonArray(row.constraintsJson),
@@ -533,7 +556,7 @@ export class SessionInsightRepository {
       ...(row.lastUpdatedByAgentId
         ? { lastUpdatedByAgentId: row.lastUpdatedByAgentId }
         : {}),
-      updatedAt: row.updatedAt
+      updatedAt: row.updatedAt,
     };
   }
 

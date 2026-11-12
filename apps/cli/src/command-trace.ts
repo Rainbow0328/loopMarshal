@@ -55,7 +55,9 @@ type CommandTraceEntry = {
 };
 
 const getCommandTracePath = (projectRoot: string): string => {
-  return process.env.LOOPMARSHAL_COMMAND_TRACE_FILE ?? getProjectLogPath(projectRoot);
+  return (
+    process.env.LOOPMARSHAL_COMMAND_TRACE_FILE ?? getProjectLogPath(projectRoot)
+  );
 };
 
 const serializeTraceData = (value: unknown): unknown => {
@@ -63,7 +65,7 @@ const serializeTraceData = (value: unknown): unknown => {
     return {
       name: value.name,
       message: value.message,
-      stack: value.stack ?? null
+      stack: value.stack ?? null,
     };
   }
 
@@ -75,8 +77,8 @@ const serializeTraceData = (value: unknown): unknown => {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([key, item]) => [
         key,
-        serializeTraceData(item)
-      ])
+        serializeTraceData(item),
+      ]),
     );
   }
 
@@ -85,14 +87,14 @@ const serializeTraceData = (value: unknown): unknown => {
 
 const appendTraceEntry = (
   projectRoot: string,
-  entry: CommandTraceEntry
+  entry: CommandTraceEntry,
 ): void => {
   appendProjectLogEntry(
     {
       source: "cli.command_trace",
-      ...entry
+      ...entry,
     },
-    projectRoot
+    projectRoot,
   );
 };
 
@@ -103,7 +105,7 @@ export const createCommandTrace = (
     sessionName?: string;
     windowName?: string;
     input?: unknown;
-  }
+  },
 ) => {
   const commandRunId = randomUUID();
   const emit = (event: CommandTraceEvent, data: unknown) => {
@@ -115,12 +117,12 @@ export const createCommandTrace = (
       windowName: options.windowName ?? null,
       at: new Date().toISOString(),
       event,
-      data: serializeTraceData(data)
+      data: serializeTraceData(data),
     });
   };
 
   emit("command_start", {
-    input: options.input ?? null
+    input: options.input ?? null,
   });
 
   return {
@@ -134,7 +136,7 @@ export const createCommandTrace = (
     },
     fail(error: unknown) {
       emit("command_failed", error);
-    }
+    },
   };
 };
 

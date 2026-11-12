@@ -1,3 +1,4 @@
+import { externalToolName } from "./external-tool-name.js";
 /**
  * Agent 工作流注册表。
  *
@@ -9,10 +10,22 @@
  */
 import { randomUUID } from "node:crypto";
 import { StateGraph, START, END, Annotation } from "@langchain/langgraph";
-import type { WebAgentRuntime, McpToolDefinition, McpToolResult, KnowledgeLevel, AgentContextEnvelope } from "@loopmarshal/protocol";
+import type {
+  WebAgentRuntime,
+  McpToolDefinition,
+  McpToolResult,
+  KnowledgeLevel,
+  AgentContextEnvelope,
+} from "@loopmarshal/protocol";
 import type { ServerServices } from "../server/create-server.js";
-import { createLlmRequest, type LlmChatMessage } from "./llm-provider-client.js";
-import { buildContextEnvelope, renderContextEnvelope } from "./agent-context-builder.js";
+import {
+  createLlmRequest,
+  type LlmChatMessage,
+} from "./llm-provider-client.js";
+import {
+  buildContextEnvelope,
+  renderContextEnvelope,
+} from "./agent-context-builder.js";
 
 // ============================================
 // 共享状态类型
@@ -84,6 +97,14 @@ const WorkflowState = Annotation.Root({
     reducer: (_, next) => next,
     default: () => [],
   }),
+  knowledgePlanValid: Annotation<boolean>({
+    reducer: (_, next) => next,
+    default: () => false,
+  }),
+  noKnowledgeChangeReason: Annotation<string | null>({
+    reducer: (_, next) => next,
+    default: () => null,
+  }),
   // 真实记录 report_to_host 是否发送了定向 result
   sentDirectedResult: Annotation<boolean>({
     reducer: (_, next) => next,
@@ -115,41 +136,117 @@ const llmComplete = async (
   modelConfigId: string,
   systemPrompt: string,
   userContent: string,
-  tools?: McpToolDefinition[]
-): Promise<{ content: string; toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }> }> => {
-  // 测试注入：如果 services 上有 llmOverride，直接使用它，跳过 HTTP 调用
-  if (services.llmOverride) {
+  tools?: McpToolDefinition[],
+  runtime?: WebAgentRuntime,
+  autoActions = false,
+): Promise<{
+  content: string;
+  toolCalls: Array<{
+    id: string;
+    name: string;
+    arguments: Record<string, unknown>;
+  }>;
+}> => {
+  if (services.llmOverride)
     return services.llmOverride(systemPrompt, userContent, tools);
-  }
   const model = services.modelConfigService.getFull(modelConfigId);
+  const supplemental = runtime
+    ? services.mcpToolService
+        .getToolsetDefinitions(runtime.toolsetId)
+        .filter(
+          (tool) =>
+            [
+              "session_context",
+              "query_messages",
+              "knowledge_list",
+              "knowledge_read",
+              "file_read",
+              "file_list",
+            ].includes(tool.name) ||
+            (autoActions &&
+              [
+                "knowledge_update",
+                "send_message",
+                "dispatch_task",
+                "update_insight",
+              ].includes(tool.name)),
+        )
+    : [];
+  if (runtime) {
+    for (const id of runtime.externalMcpServerIds ?? []) {
+      for (const tool of await services.externalMcpService.listTools(id))
+        supplemental.push({
+          name: externalToolName(id, tool.name),
+          description: tool.description,
+          parameters: tool.inputSchema as McpToolDefinition["parameters"],
+        });
+    }
+  }
+  const available = [
+    ...new Map(
+      [...(tools ?? []), ...supplemental].map((tool) => [tool.name, tool]),
+    ).values(),
+  ];
+  const deferredNames = autoActions
+    ? []
+    : ["dispatch_task", "knowledge_update", "send_message"];
   const messages: LlmChatMessage[] = [
     { role: "system", content: systemPrompt },
     { role: "user", content: userContent },
   ];
-
-  const { response, parse } = await createLlmRequest(model, {
-    messages,
-    ...(tools && tools.length > 0
-      ? {
-          tools: tools.map((tool) => ({
-            type: "function" as const,
-            function: {
-              name: tool.name,
-              description: tool.description,
-              parameters: tool.parameters,
-            },
-          })),
-        }
-      : {}),
-  });
-
-  if (!response.ok) {
-    throw new Error(`LLM HTTP ${response.status}: ${await response.text()}`);
+  for (let round = 0; round < 15; round++) {
+    const { response, parse } = await createLlmRequest(model, {
+      messages,
+      ...(available.length
+        ? {
+            tools: available.map((tool) => ({
+              type: "function" as const,
+              function: {
+                name: tool.name,
+                description: tool.description,
+                parameters: tool.parameters,
+              },
+            })),
+          }
+        : {}),
+    });
+    if (!response.ok)
+      throw new Error(`LLM HTTP ${response.status}: ${await response.text()}`);
+    const output = await parse();
+    const calls = normalizeToolCalls(output.tool_calls);
+    if (!calls.length) return { content: output.content ?? "", toolCalls: [] };
+    const deferred = calls.filter((call) => deferredNames.includes(call.name));
+    messages.push({
+      role: "assistant",
+      content: output.content ?? "",
+      tool_calls: calls.map((call) => ({
+        id: call.id,
+        type: "function",
+        function: {
+          name: call.name,
+          arguments: JSON.stringify(call.arguments),
+        },
+      })),
+    });
+    for (const call of calls.filter(
+      (call) => !deferredNames.includes(call.name),
+    )) {
+      const result =
+        runtime && available.some((tool) => tool.name === call.name)
+          ? await executeTool(services, runtime, call.name, call.arguments)
+          : { success: false, error: "Tool is not available in this step." };
+      messages.push({
+        role: "tool",
+        tool_call_id: call.id,
+        content: JSON.stringify(result),
+      });
+    }
+    if (deferred.length)
+      return { content: output.content ?? "", toolCalls: deferred };
   }
-
-  const output = await parse();
-  const toolCalls = normalizeToolCalls(output.tool_calls);
-  return { content: output.content ?? "", toolCalls };
+  throw new Error(
+    "Agent reached the tool-round limit before completing the workflow step.",
+  );
 };
 
 function normalizeToolCalls(toolCalls: unknown[] | null): Array<{
@@ -159,12 +256,17 @@ function normalizeToolCalls(toolCalls: unknown[] | null): Array<{
 }> {
   if (!Array.isArray(toolCalls)) return [];
   return toolCalls.flatMap((item, index) => {
-    const call = item as { id?: string; function?: { name?: string; arguments?: string } };
+    const call = item as {
+      id?: string;
+      function?: { name?: string; arguments?: string };
+    };
     const name = call.function?.name;
     if (!name) return [];
     let args: Record<string, unknown> = {};
     try {
-      args = call.function?.arguments ? JSON.parse(call.function.arguments) : {};
+      args = call.function?.arguments
+        ? JSON.parse(call.function.arguments)
+        : {};
     } catch {
       args = {};
     }
@@ -176,14 +278,14 @@ const executeTool = async (
   services: ServerServices,
   runtime: WebAgentRuntime,
   toolName: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
 ): Promise<McpToolResult> => {
   const result = await services.mcpToolService.executeTool(
     toolName,
     args,
     runtime.agentId,
     runtime.sessionId,
-    services
+    services,
   );
   return {
     toolCallId: "",
@@ -211,13 +313,19 @@ async function buildNodeContext(
 
   let insight = null;
   try {
-    insight = services.sessionInsightService?.getSessionInsight(runtime.sessionId) ?? null;
-  } catch { /* skip */ }
+    insight =
+      services.sessionInsightService?.getSessionInsight(runtime.sessionId) ??
+      null;
+  } catch {
+    /* skip */
+  }
 
   let contextSnapshot = null;
   try {
     contextSnapshot = services.agentContextService?.load(runtime.id) ?? null;
-  } catch { /* skip */ }
+  } catch {
+    /* skip */
+  }
 
   const tools = state.tools ?? [];
   const envelope = buildContextEnvelope({
@@ -266,7 +374,11 @@ function normalizeKnowledgeRef(level: unknown, slug: unknown): string | null {
   if (level === undefined || slug === undefined) return null;
   const normalizedLevel = String(level).trim().toLowerCase();
   const normalizedSlug = String(slug).trim().toLowerCase();
-  if (!VALID_KNOWLEDGE_LEVELS.includes(normalizedLevel as typeof VALID_KNOWLEDGE_LEVELS[number])) {
+  if (
+    !VALID_KNOWLEDGE_LEVELS.includes(
+      normalizedLevel as (typeof VALID_KNOWLEDGE_LEVELS)[number],
+    )
+  ) {
     return null;
   }
   if (normalizedSlug.length === 0) return null;
@@ -276,7 +388,11 @@ function normalizeKnowledgeRef(level: unknown, slug: unknown): string | null {
 function normalizeKnowledgeLevel(level: unknown): KnowledgeLevel | null {
   if (level === undefined) return null;
   const normalized = String(level).trim().toLowerCase();
-  if (!VALID_KNOWLEDGE_LEVELS.includes(normalized as typeof VALID_KNOWLEDGE_LEVELS[number])) {
+  if (
+    !VALID_KNOWLEDGE_LEVELS.includes(
+      normalized as (typeof VALID_KNOWLEDGE_LEVELS)[number],
+    )
+  ) {
     return null;
   }
   return normalized as KnowledgeLevel;
@@ -319,7 +435,8 @@ const buildHostWorkflow = () => {
   const graph = new StateGraph(WorkflowState)
     // 节点0：路由——根据消息类型和 payload kind 选择路径
     .addNode("route_message", async (state: WorkflowStateType) => {
-      const payloadKind = state.messagePayloadKind ?? extractPayloadKind(state.taskContent);
+      const payloadKind =
+        state.messagePayloadKind ?? extractPayloadKind(state.taskContent);
       return { messagePayloadKind: payloadKind };
     })
     // 节点1：接收用户输入，判断架构是否已确认
@@ -330,14 +447,18 @@ const buildHostWorkflow = () => {
       // 构建四层上下文信封
       let insight = null;
       try {
-        insight = services.sessionInsightService?.getSessionInsight(runtime.sessionId) ?? null;
+        insight =
+          services.sessionInsightService?.getSessionInsight(
+            runtime.sessionId,
+          ) ?? null;
       } catch {
         // sessionInsightService 不存在时跳过
       }
 
       let contextSnapshot = null;
       try {
-        contextSnapshot = services.agentContextService?.load(runtime.id) ?? null;
+        contextSnapshot =
+          services.agentContextService?.load(runtime.id) ?? null;
       } catch {
         // agentContextService 不存在时跳过
       }
@@ -358,10 +479,15 @@ ${taskContent}`,
       const { content } = await llmComplete(
         services,
         runtime.modelConfigId,
-        systemPrompt + "\n\n---\n\n# Step 1: Receive User Input\nAnalyze the user's message. Determine: has the user confirmed the architecture and is ready to start implementation work?\n\nReply with:\n- CONFIRMED: if the user has confirmed and wants to start work\n- NOT_CONFIRMED: if the user is still discussing requirements, refining ideas, or hasn't given a clear go-ahead\n- Then provide your response to the user.",
-        userContent
+        systemPrompt +
+          "\n\n---\n\n# Step 1: Receive User Input\nAnalyze the user's message. Determine: has the user confirmed the architecture and is ready to start implementation work?\n\nReply with:\n- CONFIRMED: if the user has confirmed and wants to start work\n- NOT_CONFIRMED: if the user is still discussing requirements, refining ideas, or hasn't given a clear go-ahead\n- Then provide your response to the user.",
+        userContent,
+        undefined,
+        runtime,
       );
-      const confirmed = content.toUpperCase().includes("CONFIRMED") && !content.toUpperCase().includes("NOT_CONFIRMED");
+      const confirmed =
+        content.toUpperCase().includes("CONFIRMED") &&
+        !content.toUpperCase().includes("NOT_CONFIRMED");
 
       // 追加本轮交互到上下文快照
       try {
@@ -383,7 +509,7 @@ ${taskContent}`,
         architectureConfirmed: confirmed,
         result: content,
         contextEnvelope: envelope,
-        messages: [{ role: "assistant", content }]
+        messages: [{ role: "assistant", content }],
       };
     })
     // 节点2a：未确认——和用户沟通，结束本轮
@@ -401,7 +527,14 @@ ${taskContent}`,
         `# User's Confirmed Goal\n${taskContent}`,
         "# Step 2: Design Architecture\nThe user has confirmed. Now design the architecture plan.\nOutput:\n- L1 direction: system goals, core users, scope, acceptance criteria\n- L2 modules: feature modules, boundaries\n- L3 contracts: data models, interfaces, routes, error codes",
       );
-      const { content } = await llmComplete(services, runtime.modelConfigId, systemPrompt, userContent);
+      const { content } = await llmComplete(
+        services,
+        runtime.modelConfigId,
+        systemPrompt,
+        userContent,
+        undefined,
+        runtime,
+      );
       // 将 architecture 和原始用户 goal 持久化到 session insight
       try {
         services.sessionInsightService?.updateSessionInsight({
@@ -414,42 +547,58 @@ ${taskContent}`,
         // sessionInsightService 不存在或更新失败不影响流程
       }
       appendTurnToContext(state, "assistant", content);
-      return { architecture: content, messages: [{ role: "assistant", content }] };
+      return {
+        architecture: content,
+        messages: [{ role: "assistant", content }],
+      };
     })
     // 节点3：检查是否存在 Knowledge Keeper
     .addNode("check_keeper", async (state: WorkflowStateType) => {
       const { services, runtime } = state;
       const members = services.sessionService.listMembers(runtime.sessionId);
-      const hasKeeper = members.some((m: { role: string }) => m.role === "knowledge_keeper");
+      const hasKeeper = members.some(
+        (m: { role: string }) => m.role === "knowledge_keeper",
+      );
       return { hasKeeper };
     })
     // 节点4a：有 Keeper——通过 send_message 工具派发知识库维护任务
     .addNode("dispatch_to_keeper", async (state: WorkflowStateType) => {
       const { runtime, services, architecture } = state;
-      const keeper = services.sessionService.listMembers(runtime.sessionId)
-        .find((m: { role: string; id: string }) => m.role === "knowledge_keeper");
+      const keeper = services.sessionService
+        .listMembers(runtime.sessionId)
+        .find(
+          (m: { role: string; id: string }) => m.role === "knowledge_keeper",
+        );
       if (keeper) {
         // 生成 correlationId 用于关联 Keeper 回报
         const correlationId = `keeper-maintain:${randomUUID()}`;
-      // 统一通过 send_message 工具派发，保持 MCP 工具边界
-      const result = await executeTool(services, runtime, "send_message", {
-        type: "task",
-        content: JSON.stringify({
-          kind: "knowledge_maintenance",
-          content: `Maintain knowledge base according to this architecture plan:\n\n${architecture}`,
-          requirements: ["refs", "summaries", "uncertainties", "conflicts"],
-        }),
-        toAgentId: keeper.id,
-        correlationId,
-      });
-      if (result.success) {
-        return {
-          continueAwaiting: true,
+        // 统一通过 send_message 工具派发，保持 MCP 工具边界
+        const result = await executeTool(services, runtime, "send_message", {
+          type: "task",
+          content: JSON.stringify({
+            kind: "knowledge_maintenance",
+            content: `Maintain knowledge base according to this architecture plan:\n\n${architecture}`,
+            requirements: ["refs", "summaries", "uncertainties", "conflicts"],
+          }),
+          toAgentId: keeper.id,
           correlationId,
-          messages: [{ role: "system", content: "Dispatched knowledge maintenance task to Knowledge Keeper." }],
+        });
+        if (result.success) {
+          return {
+            continueAwaiting: true,
+            correlationId,
+            messages: [
+              {
+                role: "system",
+                content:
+                  "Dispatched knowledge maintenance task to Knowledge Keeper.",
+              },
+            ],
+          };
+        }
+        return {
+          result: `Failed to dispatch to Keeper: ${result.error ?? "unknown error"}`,
         };
-      }
-      return { result: `Failed to dispatch to Keeper: ${result.error ?? "unknown error"}` };
       }
       return { hasKeeper: false };
     })
@@ -460,15 +609,27 @@ ${taskContent}`,
       const { systemPrompt, userContent } = await buildNodeContext(
         state,
         `# Architecture Plan\n${architecture}`,
-        "# Step 3 (self-maintain): Maintain Knowledge Base\nNo Knowledge Keeper exists. You are maintaining the knowledge base yourself.\nOutput a JSON array of documents to create or update. Each document needs: level (L1/L2/L3), slug, title, and content.\n\nExample:\n[{\"level\":\"L1\",\"slug\":\"direction\",\"title\":\"Project Direction\",\"content\":\"...\"}]",
+        '# Step 3 (self-maintain): Maintain Knowledge Base\nNo Knowledge Keeper exists. You are maintaining the knowledge base yourself.\nOutput a JSON array of documents to create or update. Each document needs: level (L1/L2/L3), slug, title, and content.\n\nExample:\n[{"level":"L1","slug":"direction","title":"Project Direction","content":"..."}]',
       );
-      const { content } = await llmComplete(services, runtime.modelConfigId, systemPrompt, userContent);
+      const { content } = await llmComplete(
+        services,
+        runtime.modelConfigId,
+        systemPrompt,
+        userContent,
+        undefined,
+        runtime,
+      );
       // 解析 LLM 输出的文档列表，直接调用 knowledgeService 写入
       const updatedRefs: string[] = [];
       try {
         const jsonMatch = content.match(/\[[\s\S]*\]/);
         if (jsonMatch) {
-          const docs = JSON.parse(jsonMatch[0]) as Array<{ level: string; slug: string; title: string; content: string }>;
+          const docs = JSON.parse(jsonMatch[0]) as Array<{
+            level: string;
+            slug: string;
+            title: string;
+            content: string;
+          }>;
           for (const doc of docs) {
             const ref = normalizeKnowledgeRef(doc.level, doc.slug);
             const normalizedLevel = normalizeKnowledgeLevel(doc.level);
@@ -479,7 +640,7 @@ ${taskContent}`,
                 title: doc.title,
                 content: doc.content,
                 sourceKind: "host_update",
-                sourceAgentId: runtime.agentId
+                sourceAgentId: runtime.agentId,
               });
               updatedRefs.push(ref);
             }
@@ -489,7 +650,10 @@ ${taskContent}`,
         // 解析失败时跳过
       }
       appendTurnToContext(state, "assistant", content);
-      return { knowledgeRefs: updatedRefs, messages: [{ role: "assistant", content }] };
+      return {
+        knowledgeRefs: updatedRefs,
+        messages: [{ role: "assistant", content }],
+      };
     })
     // 节点5：复审知识库（仅当收到 Keeper result 时执行）
     // 使用 Context Builder（Fix 1）
@@ -499,7 +663,9 @@ ${taskContent}`,
       let architecture = state.architecture;
       if (!architecture) {
         try {
-          const insight = services.sessionInsightService?.getSessionInsight(runtime.sessionId);
+          const insight = services.sessionInsightService?.getSessionInsight(
+            runtime.sessionId,
+          );
           architecture = insight?.activePlanSummary ?? null;
         } catch {
           // sessionInsightService 不存在时跳过
@@ -510,31 +676,62 @@ ${taskContent}`,
       const { systemPrompt, userContent } = await buildNodeContext(
         state,
         `# Architecture Plan\n${architecture}\n\n# Current Knowledge Base Manifest\n${manifestText}`,
-        "# Step 4: Review Knowledge Base\nThe Knowledge Keeper has maintained the knowledge base. Review it against your architecture intent.\nCheck:\n- Faithful reflection of your architecture\n- No missing modules/interfaces/fields\n- No over-engineering\n- Sufficient for worker implementation\nOutput a JSON object with: verdict (string: \"pass\" or \"fail\"), reasons (array of strings), missingRefs (array of strings), conflicts (array of strings).",
+        '# Step 4: Review Knowledge Base\nThe Knowledge Keeper has maintained the knowledge base. Review it against your architecture intent.\nCheck:\n- Faithful reflection of your architecture\n- No missing modules/interfaces/fields\n- No over-engineering\n- Sufficient for worker implementation\nOutput a JSON object with: verdict (string: "pass" or "fail"), reasons (array of strings), missingRefs (array of strings), conflicts (array of strings).',
       );
-      const { content } = await llmComplete(services, runtime.modelConfigId, systemPrompt, userContent);
+      const { content } = await llmComplete(
+        services,
+        runtime.modelConfigId,
+        systemPrompt,
+        userContent,
+        undefined,
+        runtime,
+      );
       appendTurnToContext(state, "assistant", content);
-      return { architecture, reviewNotes: content, messages: [{ role: "assistant", content }] };
+      return {
+        architecture,
+        reviewNotes: content,
+        messages: [{ role: "assistant", content }],
+      };
     })
     // 节点6：派发实现任务——真正向 Worker 发送 task 消息
     // 使用 Context Builder（Fix 1）
     .addNode("dispatch_implementation", async (state: WorkflowStateType) => {
-      const { runtime, services, taskContent, architecture, reviewNotes } = state;
+      const { runtime, services, taskContent, architecture, reviewNotes } =
+        state;
       // 从 session insight 恢复原始用户 goal（跨轮次持久化）
       let originalGoal = taskContent;
       try {
-        const insight = services.sessionInsightService?.getSessionInsight(runtime.sessionId);
-        if (state.messagePayloadKind === "knowledge_maintenance_report" && insight?.objective) {
+        const insight = services.sessionInsightService?.getSessionInsight(
+          runtime.sessionId,
+        );
+        if (
+          state.messagePayloadKind === "knowledge_maintenance_report" &&
+          insight?.objective
+        ) {
           originalGoal = insight.objective;
         }
       } catch {
         // sessionInsightService 不存在时跳过
       }
-      const workers = services.sessionService.listMembers(runtime.sessionId)
-        .filter((m: { role: string; id: string; agentName?: string; displayName?: string }) => m.role === "worker");
-      const workerList = workers.length > 0
-        ? workers.map((w: { id: string; agentName?: string; displayName?: string }) => `- agentId: ${w.id}, name: ${w.displayName ?? w.agentName ?? "unknown"}`).join("\n")
-        : "(no workers available)";
+      const workers = services.sessionService
+        .listMembers(runtime.sessionId)
+        .filter(
+          (m: {
+            role: string;
+            id: string;
+            agentName?: string;
+            displayName?: string;
+          }) => m.role === "worker",
+        );
+      const workerList =
+        workers.length > 0
+          ? workers
+              .map(
+                (w: { id: string; agentName?: string; displayName?: string }) =>
+                  `- agentId: ${w.id}, name: ${w.displayName ?? w.agentName ?? "unknown"}`,
+              )
+              .join("\n")
+          : "(no workers available)";
       const eventParts = [
         `# User Goal\n${originalGoal}`,
         `# Architecture\n${architecture}`,
@@ -548,12 +745,24 @@ ${taskContent}`,
         eventParts.join("\n\n"),
         "# Final Step: Dispatch Implementation\nKnowledge base is ready. Now dispatch implementation tasks to workers.\nCall the dispatch_task tool for each worker task you want to create.\nIMPORTANT: You MUST provide toAgentId with a valid worker agentId from the Available workers list. Tasks without toAgentId will be rejected.",
       );
-      const { content, toolCalls } = await llmComplete(services, runtime.modelConfigId, systemPrompt, userContent, state.tools);
+      const { content, toolCalls } = await llmComplete(
+        services,
+        runtime.modelConfigId,
+        systemPrompt,
+        userContent,
+        state.tools.filter((tool) => tool.name === "dispatch_task"),
+        runtime,
+      );
       // 执行 dispatch_task 工具调用，真正向 Worker 发送任务
       const dispatchedTasks: string[] = [];
       for (const call of toolCalls) {
         if (call.name === "dispatch_task") {
-          const result = await executeTool(services, runtime, call.name, call.arguments);
+          const result = await executeTool(
+            services,
+            runtime,
+            call.name,
+            call.arguments,
+          );
           if (result.success) {
             dispatchedTasks.push(call.id);
           }
@@ -562,8 +771,14 @@ ${taskContent}`,
       // 如果 LLM 没有调用 dispatch_task 工具，解析文本输出并通过 executeTool 派发
       if (dispatchedTasks.length === 0 && workers.length > 0) {
         // 将 LLM 输出按分隔符拆成多个任务，通过 dispatch_task 工具派发
-        const taskDescriptions = content.split(/\n(?=\d+\.|##|Task)/).filter((s: string) => s.trim().length > 0);
-        for (let i = 0; i < taskDescriptions.length && i < workers.length; i++) {
+        const taskDescriptions = content
+          .split(/\n(?=\d+\.|##|Task)/)
+          .filter((s: string) => s.trim().length > 0);
+        for (
+          let i = 0;
+          i < taskDescriptions.length && i < workers.length;
+          i++
+        ) {
           const worker = workers[i]!;
           const dispatchCorrelationId = `impl:${randomUUID()}`;
           const result = await executeTool(services, runtime, "dispatch_task", {
@@ -576,11 +791,16 @@ ${taskContent}`,
           }
         }
       }
-      const summary = dispatchedTasks.length > 0
-        ? `Dispatched ${dispatchedTasks.length} implementation task(s) to workers.`
-        : content;
+      const summary =
+        dispatchedTasks.length > 0
+          ? `Dispatched ${dispatchedTasks.length} implementation task(s) to workers.`
+          : content;
       appendTurnToContext(state, "assistant", summary);
-      return { result: summary, continueAwaiting: dispatchedTasks.length > 0, messages: [{ role: "assistant", content: summary }] };
+      return {
+        result: summary,
+        continueAwaiting: dispatchedTasks.length > 0,
+        messages: [{ role: "assistant", content: summary }],
+      };
     })
     // 节点7：处理 Worker 回报（非知识库维护的 result）
     // 使用 Context Builder（Fix 1）
@@ -591,7 +811,15 @@ ${taskContent}`,
         `# Worker Report\n${taskContent}`,
         "# Worker Report Handling\nA worker has reported back. Review the result and decide next steps.\nOptions:\n- Accept: the work is done satisfactorily\n- Rework: the worker needs to redo or fix issues\n- Knowledge update: the knowledge base needs updating based on the worker's findings\nReply with your decision and reasoning.",
       );
-      const { content } = await llmComplete(services, runtime.modelConfigId, systemPrompt, userContent);
+      const { content } = await llmComplete(
+        services,
+        runtime.modelConfigId,
+        systemPrompt,
+        userContent,
+        undefined,
+        runtime,
+        true,
+      );
       appendTurnToContext(state, "tool", taskContent);
       appendTurnToContext(state, "assistant", content);
       return { result: content, messages: [{ role: "assistant", content }] };
@@ -612,9 +840,14 @@ ${taskContent}`,
     return "receive_user_input";
   });
   // 条件分支：架构是否已确认
-  graph.addConditionalEdges("receive_user_input", (state: WorkflowStateType) => {
-    return state.architectureConfirmed ? "design_architecture" : "communicate_with_user";
-  });
+  graph.addConditionalEdges(
+    "receive_user_input",
+    (state: WorkflowStateType) => {
+      return state.architectureConfirmed
+        ? "design_architecture"
+        : "communicate_with_user";
+    },
+  );
   graph.addEdge("communicate_with_user", END);
   graph.addEdge("design_architecture", "check_keeper");
   // 条件分支：是否有 Keeper
@@ -663,19 +896,20 @@ const KEEPER_SYSTEM_PROMPT = `You are the Knowledge Keeper running on the core s
 
 Your workflow is enforced by code — you cannot skip steps:
 1. Understand the Host's architecture intent from the received task
-2. Plan which L1/L2/L3 knowledge documents to create or update
-3. Execute knowledge_update for each planned document
-4. Self-check: verify the written knowledge matches the architecture intent
+2. Plan only durable, verified project knowledge changes at the proper L1/L2/L3 level; an explicit no-change result is valid
+3. Execute knowledge_update only for valid planned documents; an explicit no-change plan creates no placeholder document
+4. Self-check: verify knowledge matches confirmed intent, project evidence and the hierarchy; verify the reason if no change is needed
 5. Report back to Host: refs, summaries, uncertainties, conflicts
 
-You do NOT make architecture decisions. You only sediment the Host's architecture intent into the knowledge base.
+You do NOT make architecture decisions. You record only verified project facts under the shared L1/L2/L3 hierarchy. A completed Worker delivery is unverified until the Host reviews it. Collaboration logs, member IDs, round counts, test counts and transport probes belong in messages or acceptance records, not project knowledge. An explicit no-change result is valid.
 You do NOT dispatch implementation tasks. That is the Host's responsibility.`;
 
 const buildKeeperWorkflow = () => {
   const graph = new StateGraph(WorkflowState)
     // 节点0：路由——区分 Host 派发的 knowledge_maintenance task 和自主触发 self_maintenance instruction
     .addNode("route_keeper_message", async (state: WorkflowStateType) => {
-      const payloadKind = state.messagePayloadKind ?? extractPayloadKind(state.taskContent);
+      const payloadKind =
+        state.messagePayloadKind ?? extractPayloadKind(state.taskContent);
       // self_maintenance = Keeper 自主触发，不向 Host 发 knowledge_maintenance_report，
       // 不触发 Host 同步复审和实现派发
       const isSelfMaintenance = payloadKind === "self_maintenance";
@@ -684,14 +918,22 @@ const buildKeeperWorkflow = () => {
       if (isSelfMaintenance) {
         try {
           const parsed = JSON.parse(state.taskContent);
-          if (parsed && typeof parsed === "object" && "targetRevision" in parsed) {
+          if (
+            parsed &&
+            typeof parsed === "object" &&
+            "targetRevision" in parsed
+          ) {
             targetRevision = Number(parsed.targetRevision);
           }
         } catch {
           // payload 不是 JSON
         }
       }
-      return { messagePayloadKind: payloadKind, isSelfMaintenance, targetRevision };
+      return {
+        messagePayloadKind: payloadKind,
+        isSelfMaintenance,
+        targetRevision,
+      };
     })
     // 节点1：理解维护意图
     // Host 派发的 knowledge_maintenance task 直接读取 taskContent
@@ -704,7 +946,11 @@ const buildKeeperWorkflow = () => {
       if (messagePayloadKind === "self_maintenance") {
         try {
           const parsed = JSON.parse(taskContent);
-          if (parsed && typeof parsed === "object" && "insightSnapshot" in parsed) {
+          if (
+            parsed &&
+            typeof parsed === "object" &&
+            "insightSnapshot" in parsed
+          ) {
             const snap = parsed.insightSnapshot as Record<string, unknown>;
             userContent = [
               `Reason: ${String(parsed.reason ?? "self_maintenance")}`,
@@ -722,48 +968,120 @@ const buildKeeperWorkflow = () => {
           // payload 不是 JSON，直接用原始 taskContent
         }
       }
-      const { systemPrompt, userContent: renderedUserContent } = await buildNodeContext(
-        state,
-        userContent,
-        "# Step 1: Understand Maintenance Intent\nAnalyze the provided insight snapshot or architecture plan. Extract which L1/L2/L3 knowledge documents need to be created or updated. Output a JSON list of planned refs with level, slug, title, and content outline.",
+      const { systemPrompt, userContent: renderedUserContent } =
+        await buildNodeContext(
+          state,
+          userContent,
+          '# Step 1: Understand Maintenance Intent\nInspect relevant files and existing knowledge. Apply the project knowledge hierarchy; collaboration metadata and execution logs are not project knowledge. Plan only supported, durable changes. Output a JSON list of planned documents with level, slug, title and content outline. If nothing needs changing, output {"action":"no_change","reason":"explain why no durable facts changed"}. Missing intent is a question for the Host, not a fabricated L1 goal.',
+        );
+      const { content } = await llmComplete(
+        services,
+        runtime.modelConfigId,
+        systemPrompt,
+        renderedUserContent,
+        undefined,
+        runtime,
       );
-      const { content } = await llmComplete(services, runtime.modelConfigId, systemPrompt, renderedUserContent);
       // 解析 LLM 输出的 plannedRefs，用于 execute_update 的完整验证
       const plannedRefs: string[] = [];
+      let knowledgePlanValid = false;
+      let noKnowledgeChangeReason: string | null = null;
       try {
-        const jsonMatch = content.match(/\[[\s\S]*\]/);
+        const jsonMatch = content.match(/\[[\s\S]*\]|\{[\s\S]*\}/);
         if (jsonMatch) {
-          const planned = JSON.parse(jsonMatch[0]) as Array<{ level?: string; slug?: string }>;
-          for (const item of planned) {
-            const ref = normalizeKnowledgeRef(item.level, item.slug);
-            if (ref) {
-              plannedRefs.push(ref);
+          const planned: unknown = JSON.parse(jsonMatch[0]);
+          if (Array.isArray(planned) && planned.length > 0) {
+            knowledgePlanValid = true;
+            for (const item of planned) {
+              const ref =
+                item && typeof item === "object"
+                  ? normalizeKnowledgeRef(item.level, item.slug)
+                  : null;
+              if (ref) plannedRefs.push(ref);
+              else knowledgePlanValid = false;
             }
+          } else if (
+            planned &&
+            typeof planned === "object" &&
+            "action" in planned &&
+            planned.action === "no_change" &&
+            "reason" in planned &&
+            typeof planned.reason === "string" &&
+            planned.reason.trim()
+          ) {
+            knowledgePlanValid = true;
+            noKnowledgeChangeReason = planned.reason.trim();
           }
         }
       } catch {
         // 解析失败时 plannedRefs 为空，execute_update 会据此判断
       }
       appendTurnToContext(state, "assistant", content);
-      return { architecture: content, plannedRefs, messages: [{ role: "assistant", content }] };
+      return {
+        architecture: content,
+        plannedRefs,
+        knowledgePlanValid,
+        noKnowledgeChangeReason,
+        messages: [{ role: "assistant", content }],
+      };
     })
     // 节点2：执行知识库写入
     // 使用 Context Builder（Fix 2）
     .addNode("execute_update", async (state: WorkflowStateType) => {
       const { runtime, services, architecture } = state;
-      const tools = services.mcpToolService.getToolsetDefinitions(runtime.toolsetId);
+      // An explicit no-change plan is still self-checked; it never triggers a dummy write.
+      if (state.knowledgePlanValid && state.noKnowledgeChangeReason) {
+        return {
+          knowledgeUpdateSucceeded: true,
+          knowledgeRefs: [],
+          messages: [
+            {
+              role: "assistant",
+              content: `No knowledge changes: ${state.noKnowledgeChangeReason}`,
+            },
+          ],
+        };
+      }
+      if (!state.knowledgePlanValid || !state.plannedRefs.length) {
+        return {
+          knowledgeUpdateSucceeded: false,
+          knowledgeRefs: [],
+          messages: [
+            {
+              role: "assistant",
+              content:
+                "Knowledge plan is invalid or empty; no documents were written.",
+            },
+          ],
+        };
+      }
+      const tools = services.mcpToolService
+        .getToolsetDefinitions(runtime.toolsetId)
+        .filter((tool) => tool.name === "knowledge_update");
       const { systemPrompt, userContent } = await buildNodeContext(
         state,
         `# Architecture Plan to Sediment\n${architecture}\n\n# Available Tools\n${tools.map((t) => `- ${t.name}: ${t.description}`).join("\n")}`,
         "# Step 2: Execute Knowledge Update\nUse the knowledge_update tool to create or update each planned document. Call knowledge_update for each document.",
       );
-      const { content, toolCalls } = await llmComplete(services, runtime.modelConfigId, systemPrompt, userContent, tools);
+      const { content, toolCalls } = await llmComplete(
+        services,
+        runtime.modelConfigId,
+        systemPrompt,
+        userContent,
+        tools,
+        runtime,
+      );
       const updatedRefs: string[] = [];
       let failedCount = 0;
       const failures: Array<{ ref: string; error: string }> = [];
       for (const call of toolCalls) {
         if (call.name === "knowledge_update") {
-          const result = await executeTool(services, runtime, call.name, call.arguments);
+          const result = await executeTool(
+            services,
+            runtime,
+            call.name,
+            call.arguments,
+          );
           if (result.success && result.result) {
             const doc = result.result as { level?: string; slug?: string };
             const ref = normalizeKnowledgeRef(doc?.level, doc?.slug);
@@ -772,13 +1090,28 @@ const buildKeeperWorkflow = () => {
             } else {
               // 工具返回 success: true 但缺少有效 level/slug
               failedCount++;
-              const refStr = normalizeKnowledgeRef(call.arguments.level, call.arguments.slug) ?? "?/?";
-              failures.push({ ref: refStr, error: "Tool returned success but missing valid level/slug in result" });
+              const refStr =
+                normalizeKnowledgeRef(
+                  call.arguments.level,
+                  call.arguments.slug,
+                ) ?? "?/?";
+              failures.push({
+                ref: refStr,
+                error:
+                  "Tool returned success but missing valid level/slug in result",
+              });
             }
           } else {
             failedCount++;
-            const refStr = normalizeKnowledgeRef(call.arguments.level, call.arguments.slug) ?? "?/?";
-            failures.push({ ref: refStr, error: result.error ?? "unknown error" });
+            const refStr =
+              normalizeKnowledgeRef(
+                call.arguments.level,
+                call.arguments.slug,
+              ) ?? "?/?";
+            failures.push({
+              ref: refStr,
+              error: result.error ?? "unknown error",
+            });
           }
         }
       }
@@ -788,15 +1121,31 @@ const buildKeeperWorkflow = () => {
       const plannedRefs = state.plannedRefs ?? [];
       const plannedSet = new Set(plannedRefs);
       const updatedSet = new Set(updatedRefs);
-      const plannedSubsetOfUpdated = [...plannedSet].every(ref => updatedSet.has(ref));
+      const plannedSubsetOfUpdated = [...plannedSet].every((ref) =>
+        updatedSet.has(ref),
+      );
       const knowledgeUpdateSucceeded =
+        state.knowledgePlanValid &&
         plannedSet.size > 0 &&
         plannedSet.size === updatedSet.size &&
         plannedSubsetOfUpdated &&
         failedCount === 0;
-      const summaryDetail = JSON.stringify({ plannedCount: plannedRefs.length, successCount: updatedRefs.length, failedCount, failures, plannedRefs, updatedRefs: [...updatedSet] });
+      const summaryDetail = JSON.stringify({
+        plannedCount: plannedRefs.length,
+        successCount: updatedRefs.length,
+        failedCount,
+        failures,
+        plannedRefs,
+        updatedRefs: [...updatedSet],
+      });
       appendTurnToContext(state, "assistant", content + "\n\n" + summaryDetail);
-      return { knowledgeRefs: updatedRefs, knowledgeUpdateSucceeded, messages: [{ role: "assistant", content: content + "\n\n" + summaryDetail }] };
+      return {
+        knowledgeRefs: updatedRefs,
+        knowledgeUpdateSucceeded,
+        messages: [
+          { role: "assistant", content: content + "\n\n" + summaryDetail },
+        ],
+      };
     })
     // 节点3：自检
     // 解析 LLM 输出的结构化结果 { passed: boolean, uncertainties, conflicts }
@@ -806,17 +1155,27 @@ const buildKeeperWorkflow = () => {
       const { runtime, services, architecture, knowledgeRefs } = state;
       const { systemPrompt, userContent } = await buildNodeContext(
         state,
-        `# Architecture Plan\n${architecture}\n\n# Written Refs\n${knowledgeRefs.join(", ")}`,
-        "# Step 3: Self-Check\nVerify the written knowledge matches the architecture intent. Output a JSON object with: passed (boolean), uncertainties (array of strings), conflicts (array of strings).",
+        `# Architecture Plan\n${architecture}\n\n# Written Refs\n${knowledgeRefs.join(", ")}\n\n# No-change reason\n${state.noKnowledgeChangeReason ?? "not a no-change plan"}`,
+        "# Step 3: Self-Check\nRead changed documents and verify their project evidence, hierarchy and confirmed intent. Persistence alone does not prove semantic correctness. For no_change, verify that no durable facts require updating. Output a JSON object with: passed (boolean), uncertainties (array of strings), conflicts (array of strings).",
       );
-      const { content } = await llmComplete(services, runtime.modelConfigId, systemPrompt, userContent);
+      const { content } = await llmComplete(
+        services,
+        runtime.modelConfigId,
+        systemPrompt,
+        userContent,
+        undefined,
+        runtime,
+      );
       // 解析 LLM 输出的结构化自检结果
       // passed === true 且 conflicts 为空数组才认为自检通过
       let selfCheckPassed = false;
       try {
         const jsonMatch = content.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
-          const check = JSON.parse(jsonMatch[0]) as { passed?: boolean; conflicts?: unknown };
+          const check = JSON.parse(jsonMatch[0]) as {
+            passed?: boolean;
+            conflicts?: unknown;
+          };
           selfCheckPassed =
             check.passed === true &&
             Array.isArray(check.conflicts) &&
@@ -826,23 +1185,36 @@ const buildKeeperWorkflow = () => {
         // 解析失败时默认未通过
       }
       appendTurnToContext(state, "assistant", content);
-      return { reviewNotes: content, selfCheckPassed, messages: [{ role: "assistant", content }] };
+      return {
+        reviewNotes: content,
+        selfCheckPassed,
+        messages: [{ role: "assistant", content }],
+      };
     })
     // 节点4a：回报 Host——仅当 Host 显式要求时发送 knowledge_maintenance_report
     // 统一通过 send_message 工具发送，保持 MCP 工具边界
     .addNode("report_to_host", async (state: WorkflowStateType) => {
-      const { runtime, services, knowledgeRefs, reviewNotes, correlationId } = state;
+      const { runtime, services, knowledgeRefs, reviewNotes, correlationId } =
+        state;
       // 找到 Host agent，将 result 消息定向给它
-      const host = services.sessionService.listMembers(runtime.sessionId)
+      const host = services.sessionService
+        .listMembers(runtime.sessionId)
         .find((m: { role: string; id: string }) => m.role === "host");
       if (!host) {
         // 找不到 Host 是异常状态——显式失败，不发送不可领取的未定向消息
-        throw new Error(`Knowledge Keeper cannot report back: no Host agent found in session ${runtime.sessionId}.`);
+        throw new Error(
+          `Knowledge Keeper cannot report back: no Host agent found in session ${runtime.sessionId}.`,
+        );
       }
       const report = JSON.stringify({
         kind: "knowledge_maintenance_report",
         refs: knowledgeRefs,
-        summaries: "See knowledge documents for details.",
+        summaries:
+          state.noKnowledgeChangeReason ??
+          "See knowledge documents for details.",
+        noChange: Boolean(state.noKnowledgeChangeReason),
+        maintenanceSucceeded:
+          state.knowledgeUpdateSucceeded && state.selfCheckPassed,
         uncertainties: reviewNotes,
         conflicts: null,
       });
@@ -860,12 +1232,22 @@ const buildKeeperWorkflow = () => {
     // 只有 knowledge_update 全部成功且自检通过才清除触发条件，部分失败或自检不通过时保留待处理状态
     // 完成时只推进到 targetRevision（防止并发丢失后续新增输入）
     .addNode("complete_self_maintenance", async (state: WorkflowStateType) => {
-      const { runtime, services, knowledgeRefs, reviewNotes, targetRevision, knowledgeUpdateSucceeded, selfCheckPassed } = state;
+      const {
+        runtime,
+        services,
+        knowledgeRefs,
+        reviewNotes,
+        targetRevision,
+        knowledgeUpdateSucceeded,
+        selfCheckPassed,
+      } = state;
       let revisionApplied = false;
       // 只有成功更新了知识库且自检通过才清除触发条件
       if (knowledgeUpdateSucceeded && selfCheckPassed) {
         try {
-          const insight = services.sessionInsightService?.getSessionInsight(runtime.sessionId);
+          const insight = services.sessionInsightService?.getSessionInsight(
+            runtime.sessionId,
+          );
           if (insight) {
             // 严格校验 targetRevision：必须是正整数且不超过最新 revision
             const validTargetRevision =
@@ -889,9 +1271,9 @@ const buildKeeperWorkflow = () => {
             // 只推进到触发时的 targetRevision，不清空后来新增的输入
             const revisionToApply = targetRevision;
             // 只移除属于 targetRevision 快照的输入（revision <= targetRevision），保留之后新增的
-            const remainingUnapplied = (insight.unappliedUserInputs ?? []).filter(
-              (input) => input.revision > revisionToApply
-            );
+            const remainingUnapplied = (
+              insight.unappliedUserInputs ?? []
+            ).filter((input) => input.revision > revisionToApply);
             services.sessionInsightService?.updateSessionInsight({
               sessionId: runtime.sessionId,
               updatedByAgentId: runtime.agentId,
@@ -911,8 +1293,11 @@ const buildKeeperWorkflow = () => {
         notes: reviewNotes,
         knowledgeUpdateSucceeded,
         selfCheckPassed,
+        noChange: Boolean(state.noKnowledgeChangeReason),
         revisionApplied,
-        ...(revisionApplied && targetRevision !== null ? { appliedRevision: targetRevision } : {}),
+        ...(revisionApplied && targetRevision !== null
+          ? { appliedRevision: targetRevision }
+          : {}),
       });
       return { result: summary };
     });
@@ -942,7 +1327,9 @@ const buildKeeperWorkflow = () => {
 // ============================================
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type CompiledGraph = ReturnType<typeof buildHostWorkflow> | ReturnType<typeof buildKeeperWorkflow>;
+type CompiledGraph =
+  | ReturnType<typeof buildHostWorkflow>
+  | ReturnType<typeof buildKeeperWorkflow>;
 
 export class AgentWorkflowRegistry {
   private readonly hostWorkflow: CompiledGraph;
@@ -981,21 +1368,36 @@ export class AgentWorkflowRegistry {
     taskContent: string,
     tools: McpToolDefinition[],
     messageType: string = "task",
-    correlationId: string | null = null
-  ): Promise<{ result: string; sentDirectedResult: boolean; continueAwaiting: boolean }> {
+    correlationId: string | null = null,
+  ): Promise<{
+    result: string;
+    sentDirectedResult: boolean;
+    continueAwaiting: boolean;
+  }> {
+    services = {
+      ...services,
+      knowledgeService:
+        services.knowledgeService?.forSession?.(runtime.sessionId) ??
+        services.knowledgeService,
+    };
     const workflow = this.getWorkflow(runtime.role);
-    const result = await workflow.invoke({
-      runtime,
-      services,
-      taskContent,
-      tools,
-      messageType,
-      correlationId,
-      messages: [],
-    }, {
-      configurable: { thread_id: `web-runtime:${runtime.id}:message:${Date.now()}` },
-      recursionLimit: 25,
-    });
+    const result = await workflow.invoke(
+      {
+        runtime,
+        services,
+        taskContent,
+        tools,
+        messageType,
+        correlationId,
+        messages: [],
+      },
+      {
+        configurable: {
+          thread_id: `web-runtime:${runtime.id}:message:${Date.now()}`,
+        },
+        recursionLimit: 25,
+      },
+    );
     const output = result.result ?? "completed";
     // 从 Workflow State 读取真实的 sentDirectedResult，只由 report_to_host 节点设置
     const sentDirectedResult = result.sentDirectedResult ?? false;

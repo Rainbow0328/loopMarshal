@@ -13,6 +13,10 @@
  * limitations under the License.
  */
 export const errorCodes = {
+  memberRouteConflict: "MEMBER_ROUTE_CONFLICT",
+  nativeSessionInUse: "NATIVE_SESSION_IN_USE",
+  memberRouteBusy: "MEMBER_ROUTE_BUSY",
+  toolInstallationNotFound: "TOOL_INSTALLATION_NOT_FOUND",
   sessionNotFound: "SESSION_NOT_FOUND",
   sessionClosed: "SESSION_CLOSED",
   sessionNotEmpty: "SESSION_NOT_EMPTY",
@@ -31,7 +35,7 @@ export const errorCodes = {
   waitChainSuperseded: "WAIT_CHAIN_SUPERSEDED",
   crossSessionAgent: "CROSS_SESSION_AGENT",
   permissionDenied: "PERMISSION_DENIED",
-  invalidAgentRemoval: "INVALID_AGENT_REMOVAL"
+  invalidAgentRemoval: "INVALID_AGENT_REMOVAL",
 } as const;
 
 export type ErrorCode = (typeof errorCodes)[keyof typeof errorCodes];

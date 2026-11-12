@@ -35,7 +35,11 @@ export type LlmChatOutput = {
   content: string;
   role: string;
   tool_calls: unknown[] | null;
-  usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null;
+  usage: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  } | null;
 };
 
 export type LlmProviderResponse = {
@@ -45,7 +49,7 @@ export type LlmProviderResponse = {
 
 export const createLlmRequest = async (
   config: ModelConfigWithSecret,
-  input: LlmChatInput
+  input: LlmChatInput,
 ): Promise<LlmProviderResponse> => {
   if (config.provider === "anthropic") {
     return createAnthropicRequest(config, input);
@@ -55,50 +59,60 @@ export const createLlmRequest = async (
 };
 
 export const buildLlmTestMessages = (prompt?: string): LlmChatMessage[] => [
-  { role: "user", content: prompt ?? "Hello, respond with 'ok'." }
+  { role: "user", content: prompt ?? "Hello, respond with 'ok'." },
 ];
 
 const createOpenAiCompatibleRequest = async (
   config: ModelConfigWithSecret,
-  input: LlmChatInput
+  input: LlmChatInput,
 ): Promise<LlmProviderResponse> => {
   const body: Record<string, unknown> = {
     model: config.modelName ?? config.modelId,
     messages: input.messages,
-    max_tokens: input.maxTokens ?? config.maxOutputTokens ?? config.maxTokens ?? 4096,
+    max_tokens:
+      input.maxTokens ?? config.maxOutputTokens ?? config.maxTokens ?? 4096,
     temperature: input.temperature ?? config.temperature ?? 0.7,
-    top_p: input.topP ?? config.topP ?? 1.0
+    top_p: input.topP ?? config.topP ?? 1.0,
   };
 
   if (input.stream) body.stream = true;
   if (input.tools) body.tools = input.tools;
   if (input.tool_choice) body.tool_choice = input.tool_choice;
 
-  const response = await fetch(appendEndpoint(config.baseUrl, "/chat/completions"), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKeyEncrypted}`
+  const response = await fetch(
+    appendEndpoint(config.baseUrl, "/chat/completions"),
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.apiKeyEncrypted}`,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout((config.timeoutSeconds ?? 60) * 1000),
     },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout((config.timeoutSeconds ?? 60) * 1000)
-  });
+  );
 
   return {
     response,
     parse: async () => {
-      const data = await response.json() as {
-        choices?: { message?: { content?: string; role?: string; tool_calls?: unknown[] } }[];
-        usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+      const data = (await response.json()) as {
+        choices?: {
+          message?: { content?: string; role?: string; tool_calls?: unknown[] };
+        }[];
+        usage?: {
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          total_tokens?: number;
+        };
       };
       const message = data.choices?.[0]?.message;
       return {
         content: message?.content ?? "",
         role: message?.role ?? "assistant",
         tool_calls: message?.tool_calls ?? null,
-        usage: data.usage ?? null
+        usage: data.usage ?? null,
       };
-    }
+    },
   };
 };
 
@@ -122,7 +136,7 @@ const toAnthropicTools = (tools: unknown[]): unknown[] | undefined => {
       return {
         name: openaiTool.function.name,
         description: openaiTool.function.description,
-        input_schema: openaiTool.function.parameters
+        input_schema: openaiTool.function.parameters,
       };
     }
     return tool;
@@ -135,17 +149,25 @@ const toAnthropicTools = (tools: unknown[]): unknown[] | undefined => {
  * OpenAI: { id, type: "function", function: { name, arguments: "JSON string" } }
  */
 const parseAnthropicToolCalls = (
-  contentBlocks: Array<{ type?: string; text?: string; id?: string; name?: string; input?: unknown }>
+  contentBlocks: Array<{
+    type?: string;
+    text?: string;
+    id?: string;
+    name?: string;
+    input?: unknown;
+  }>,
 ): unknown[] | null => {
-  const toolUseBlocks = contentBlocks.filter((block) => block.type === "tool_use");
+  const toolUseBlocks = contentBlocks.filter(
+    (block) => block.type === "tool_use",
+  );
   if (toolUseBlocks.length === 0) return null;
   return toolUseBlocks.map((block) => ({
     id: block.id ?? "",
     type: "function",
     function: {
       name: block.name ?? "",
-      arguments: JSON.stringify(block.input ?? {})
-    }
+      arguments: JSON.stringify(block.input ?? {}),
+    },
   }));
 };
 
@@ -154,12 +176,13 @@ const parseAnthropicToolCalls = (
  * 处理 system prompt 提取、tool_call_id → tool_result 消息转换。
  */
 const toAnthropicMessages = (
-  messages: LlmChatMessage[]
+  messages: LlmChatMessage[],
 ): { system: string | undefined; messages: AnthropicMessage[] } => {
-  const system = messages
-    .filter((message) => message.role === "system")
-    .map((message) => message.content)
-    .join("\n\n") || undefined;
+  const system =
+    messages
+      .filter((message) => message.role === "system")
+      .map((message) => message.content)
+      .join("\n\n") || undefined;
 
   const converted: AnthropicMessage[] = [];
   for (const message of messages) {
@@ -173,24 +196,33 @@ const toAnthropicMessages = (
           {
             type: "tool_result",
             tool_use_id: message.tool_call_id,
-            content: message.content
-          }
-        ]
+            content: message.content,
+          },
+        ],
       });
       continue;
     }
 
     // assistant 消息可能携带 tool_calls（上一轮 LLM 调用了工具）
-    if (message.role === "assistant" && message.tool_calls && Array.isArray(message.tool_calls)) {
+    if (
+      message.role === "assistant" &&
+      message.tool_calls &&
+      Array.isArray(message.tool_calls)
+    ) {
       const content: AnthropicContentBlock[] = [];
       if (message.content) {
         content.push({ type: "text", text: message.content });
       }
-      for (const call of message.tool_calls as Array<{ id?: string; function?: { name?: string; arguments?: string } }>) {
+      for (const call of message.tool_calls as Array<{
+        id?: string;
+        function?: { name?: string; arguments?: string };
+      }>) {
         if (call.function?.name) {
           let input: unknown = {};
           try {
-            input = call.function.arguments ? JSON.parse(call.function.arguments) : {};
+            input = call.function.arguments
+              ? JSON.parse(call.function.arguments)
+              : {};
           } catch {
             input = {};
           }
@@ -198,7 +230,7 @@ const toAnthropicMessages = (
             type: "tool_use",
             id: call.id ?? "",
             name: call.function.name,
-            input
+            input,
           });
         }
       }
@@ -207,13 +239,17 @@ const toAnthropicMessages = (
     }
 
     // 普通消息
-    const role = message.role === "assistant" ? "assistant" as const : "user" as const;
+    const role =
+      message.role === "assistant" ? ("assistant" as const) : ("user" as const);
     converted.push({ role, content: message.content });
   }
 
   return {
     system,
-    messages: converted.length > 0 ? converted : [{ role: "user", content: "Hello, respond with 'ok'." }]
+    messages:
+      converted.length > 0
+        ? converted
+        : [{ role: "user", content: "Hello, respond with 'ok'." }],
   };
 };
 
@@ -229,15 +265,16 @@ type AnthropicMessage = {
 
 const createAnthropicRequest = async (
   config: ModelConfigWithSecret,
-  input: LlmChatInput
+  input: LlmChatInput,
 ): Promise<LlmProviderResponse> => {
   const { system, messages } = toAnthropicMessages(input.messages);
   const body: Record<string, unknown> = {
     model: config.modelName ?? config.modelId,
     messages,
-    max_tokens: input.maxTokens ?? config.maxOutputTokens ?? config.maxTokens ?? 4096,
+    max_tokens:
+      input.maxTokens ?? config.maxOutputTokens ?? config.maxTokens ?? 4096,
     temperature: input.temperature ?? config.temperature ?? 0.7,
-    top_p: input.topP ?? config.topP ?? 1.0
+    top_p: input.topP ?? config.topP ?? 1.0,
   };
 
   if (system) body.system = system;
@@ -248,7 +285,10 @@ const createAnthropicRequest = async (
   if (anthropicTools) body.tools = anthropicTools;
   if (input.tool_choice) {
     // OpenAI tool_choice 格式转换
-    const choice = input.tool_choice as { type?: string; function?: { name?: string } };
+    const choice = input.tool_choice as {
+      type?: string;
+      function?: { name?: string };
+    };
     if (choice?.type === "auto") {
       body.tool_choice = { type: "auto" };
     } else if (choice?.type === "none") {
@@ -263,26 +303,38 @@ const createAnthropicRequest = async (
     headers: {
       "Content-Type": "application/json",
       "x-api-key": config.apiKeyEncrypted ?? "",
-      "anthropic-version": "2023-06-01"
+      "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout((config.timeoutSeconds ?? 60) * 1000)
+    signal: AbortSignal.timeout((config.timeoutSeconds ?? 60) * 1000),
   });
 
   return {
     response,
     parse: async () => {
-      const data = await response.json() as {
-        content?: Array<{ type?: string; text?: string; id?: string; name?: string; input?: unknown }>;
+      const data = (await response.json()) as {
+        content?: Array<{
+          type?: string;
+          text?: string;
+          id?: string;
+          name?: string;
+          input?: unknown;
+        }>;
         role?: string;
         usage?: { input_tokens?: number; output_tokens?: number };
       };
       const promptTokens = data.usage?.input_tokens;
       const completionTokens = data.usage?.output_tokens;
       const usage: LlmChatOutput["usage"] = data.usage ? {} : null;
-      if (usage && promptTokens !== undefined) usage.prompt_tokens = promptTokens;
-      if (usage && completionTokens !== undefined) usage.completion_tokens = completionTokens;
-      if (usage && promptTokens !== undefined && completionTokens !== undefined) {
+      if (usage && promptTokens !== undefined)
+        usage.prompt_tokens = promptTokens;
+      if (usage && completionTokens !== undefined)
+        usage.completion_tokens = completionTokens;
+      if (
+        usage &&
+        promptTokens !== undefined &&
+        completionTokens !== undefined
+      ) {
         usage.total_tokens = promptTokens + completionTokens;
       }
       // 提取文本 content 和 tool_use blocks
@@ -296,15 +348,17 @@ const createAnthropicRequest = async (
         content: textContent,
         role: data.role ?? "assistant",
         tool_calls: toolCalls,
-        usage
+        usage,
       };
-    }
+    },
   };
 };
 
 const appendEndpoint = (baseUrl: string, endpoint: string): string => {
   const normalizedBase = baseUrl.replace(/\/+$/, "");
-  const normalizedEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  const normalizedEndpoint = endpoint.startsWith("/")
+    ? endpoint
+    : `/${endpoint}`;
   if (normalizedBase.endsWith(normalizedEndpoint)) {
     return normalizedBase;
   }

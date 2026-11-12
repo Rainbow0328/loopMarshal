@@ -23,40 +23,40 @@ const webDistPath = join(repoRoot, "apps", "web", "dist");
 
 const rootPackage = {
   packageJsonPath: join(repoRoot, "apps", "cli", "package.json"),
-  distPath: join(repoRoot, "apps", "cli", "dist")
+  distPath: join(repoRoot, "apps", "cli", "dist"),
 };
 
 const bundledPackages = [
   {
     name: "@loopmarshal/core",
     packageJsonPath: join(repoRoot, "apps", "core", "package.json"),
-    distPath: join(repoRoot, "apps", "core", "dist")
+    distPath: join(repoRoot, "apps", "core", "dist"),
   },
   {
     name: "@loopmarshal/protocol",
     packageJsonPath: join(repoRoot, "packages", "protocol", "package.json"),
-    distPath: join(repoRoot, "packages", "protocol", "dist")
+    distPath: join(repoRoot, "packages", "protocol", "dist"),
   },
   {
     name: "@loopmarshal/shared",
     packageJsonPath: join(repoRoot, "packages", "shared", "package.json"),
-    distPath: join(repoRoot, "packages", "shared", "dist")
+    distPath: join(repoRoot, "packages", "shared", "dist"),
   },
   {
     name: "@loopmarshal/sdk",
     packageJsonPath: join(repoRoot, "packages", "sdk", "package.json"),
-    distPath: join(repoRoot, "packages", "sdk", "dist")
+    distPath: join(repoRoot, "packages", "sdk", "dist"),
   },
   {
     name: "@loopmarshal/store",
     packageJsonPath: join(repoRoot, "packages", "store", "package.json"),
-    distPath: join(repoRoot, "packages", "store", "dist")
-  }
+    distPath: join(repoRoot, "packages", "store", "dist"),
+  },
 ];
 
 const internalPackageNames = new Set([
   "loopmarshal",
-  ...bundledPackages.map((item) => item.name)
+  ...bundledPackages.map((item) => item.name),
 ]);
 
 const readJson = async (path) => {
@@ -72,7 +72,7 @@ const sanitizePackageJson = (pkg, overrides = {}) => {
   const next = {
     ...pkg,
     ...overrides,
-    private: false
+    private: false,
   };
 
   delete next.scripts;
@@ -117,11 +117,11 @@ const collectExternalDependencies = async () => {
     collected.add(dependencyName);
 
     const dependencyPackageJson = await readJson(
-      join(getInstalledPackageDir(dependencyName), "package.json")
+      join(getInstalledPackageDir(dependencyName), "package.json"),
     );
 
     for (const childDependencyName of Object.keys(
-      dependencyPackageJson.dependencies ?? {}
+      dependencyPackageJson.dependencies ?? {},
     )) {
       if (!internalPackageNames.has(childDependencyName)) {
         queue.push(childDependencyName);
@@ -143,7 +143,11 @@ const copyPackage = async ({ packageJsonPath, distPath, name }, targetRoot) => {
 
 const copyExternalDependency = async (name, targetRoot) => {
   const sourceDir = getInstalledPackageDir(name);
-  const targetDir = join(targetRoot, "node_modules", ...packageNameToPathParts(name));
+  const targetDir = join(
+    targetRoot,
+    "node_modules",
+    ...packageNameToPathParts(name),
+  );
 
   await mkdir(dirname(targetDir), { recursive: true });
   await cp(sourceDir, targetDir, { recursive: true, dereference: true });
@@ -160,18 +164,22 @@ const main = async () => {
     {
       bundledDependencies: [
         ...bundledPackages.map((item) => item.name),
-        ...externalDependencies
-      ]
-    }
+        ...externalDependencies,
+      ],
+    },
   );
 
   await writeJson(join(releaseRoot, "package.json"), rootPackageJson);
-  await cp(rootPackage.distPath, join(releaseRoot, "dist"), { recursive: true });
+  await cp(rootPackage.distPath, join(releaseRoot, "dist"), {
+    recursive: true,
+  });
 
   // Copy skills directory (used by start-agent for IDE skill injection)
   const skillsSourcePath = join(repoRoot, "skills");
   if (existsSync(skillsSourcePath)) {
-    await cp(skillsSourcePath, join(releaseRoot, "skills"), { recursive: true });
+    await cp(skillsSourcePath, join(releaseRoot, "skills"), {
+      recursive: true,
+    });
   }
 
   for (const item of bundledPackages) {
@@ -182,7 +190,7 @@ const main = async () => {
     await cp(
       webDistPath,
       join(releaseRoot, "node_modules", "@loopmarshal", "core", "web"),
-      { recursive: true }
+      { recursive: true },
     );
   }
 
@@ -195,11 +203,11 @@ const main = async () => {
       {
         releaseRoot,
         bundledExternalDependencies: externalDependencies,
-        nextCommand: "npm pack ./release/loopmarshal --json --cache .npm-cache"
+        nextCommand: "npm pack ./release/loopmarshal --json --cache .npm-cache",
       },
       null,
-      2
-    )}\n`
+      2,
+    )}\n`,
   );
 };
 

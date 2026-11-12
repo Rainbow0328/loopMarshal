@@ -1,107 +1,110 @@
 #!/usr/bin/env node
 
-import { createHash, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
-import path from "node:path";
-import fs from "node:fs";
-import { Command } from "commander";
-import {
-  createLoopMarshalClient,
-  LoopMarshalSdkError
-} from "@loopmarshal/sdk";
-import { wrapForDisplay } from "@loopmarshal/shared";
 import {
   errorCodes,
   type Agent,
-  type KnowledgeLevel,
-  knowledgeSourceKinds,
-  type KnowledgeSourceKind,
   type MessageRecord,
   type MessageType,
-  type WindowBinding
+  type WindowBinding,
 } from "@loopmarshal/protocol";
+import { createLoopMarshalClient, LoopMarshalSdkError } from "@loopmarshal/sdk";
+import { readCoreManagementToken, wrapForDisplay } from "@loopmarshal/shared";
+import { Command } from "commander";
+import { createHash, randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path, { resolve } from "node:path";
+import {
+  ensureKnowledgeLevel,
+  ensureKnowledgeSourceKind,
+  ensureMessageType,
+  normalizeWindowDispatchTasks,
+  parseKnowledgeRef,
+  parseListOption,
+  parseTagsOption,
+  parseWindowDispatchTaskSpec,
+  type WindowDispatchTaskSpec,
+} from "./command-input.js";
+import { registerProxyCommands } from "./proxy-commands.js";
 
 import {
-  clearCliIdentity,
+  createCommandTrace,
+  getCommandTraceStorePath,
+  type CommandTraceEvent,
+} from "./command-trace.js";
+import {
   clearCliIdentitiesForSession,
+  clearCliIdentity,
   requireCliIdentity,
+  writeCliIdentity,
   type CliIdentityContext,
-  writeCliIdentity
 } from "./context.js";
-import { withLocalLoopLock } from "./local-loop-lock.js";
-import { clearLocalLoopLocksForIdentity } from "./local-loop-lock.js";
+import {
+  clearLocalLoopLocksForIdentity,
+  withLocalLoopLock,
+} from "./local-loop-lock.js";
+import { setupMcp, type McpSetupTarget } from "./mcp-setup.js";
+import {
+  configureMcpTimeouts,
+  type McpTimeoutConfigureTarget,
+} from "./mcp-timeout-config.js";
+import {
+  formatSetupGuide,
+  startAgent,
+  type SupportedIde,
+} from "./start-agent.js";
 import {
   buildWindowProfileKey,
-  getWindowProfilesStorePath,
   clearWindowProfile,
   clearWindowProfilesForIdentity,
   clearWindowProfilesForSession,
-  requireWindowProfile,
   registerWindowProfileFromIdentity,
-  type WindowProfile
+  requireWindowProfile,
+  type WindowProfile,
 } from "./window-profile.js";
 import {
   buildWindowRuntimeStateKey,
   clearWindowRuntimeState,
-  getWindowRuntimeStatesStorePath,
   readWindowRuntimeState,
   writeWindowRuntimeState,
-  type WindowRuntimeState
+  type WindowRuntimeState,
 } from "./window-runtime-state.js";
-import {
-  type CommandTraceEvent,
-  createCommandTrace,
-  getCommandTraceStorePath
-} from "./command-trace.js";
-import {
-  configureMcpTimeouts,
-  type McpTimeoutConfigureTarget
-} from "./mcp-timeout-config.js";
-import {
-  setupMcp,
-  type McpSetupTarget
-} from "./mcp-setup.js";
-import {
-  startAgent,
-  formatSetupGuide,
-  type SupportedIde
-} from "./start-agent.js";
 
 import {
+  DEFAULT_HOST_LOOP_ACK_MATCHED,
   DEFAULT_LOOP_INTERVAL_SECONDS,
   DEFAULT_LOOP_MAX_ROUNDS,
-  DEFAULT_WINDOW_WAIT_SLICE_ELAPSED_SECONDS,
-  DEFAULT_WINDOW_WAIT_CONTINUATION_BUDGET,
-  DEFAULT_LOOP_CONTINUE_AFTER_MATCH,
-  DEFAULT_LOOP_MAX_MATCHES,
-  DEFAULT_HOST_LOOP_ACK_MATCHED,
   DEFAULT_POLL_BACKOFF_GROWTH,
   DEFAULT_POLL_BACKOFF_MAX_FACTOR,
   DEFAULT_POLL_JITTER_RATIO,
-  DEFAULT_HOST_REPORT_TYPE,
+  DEFAULT_WINDOW_WAIT_CONTINUATION_BUDGET,
+  DEFAULT_WINDOW_WAIT_SLICE_ELAPSED_SECONDS,
   DEFAULT_WORKER_TASK_TYPE,
-  SUPPORTED_MESSAGE_TYPES,
+  FORBIDDEN_PURE_WAIT_COMMANDS,
   HOST_EXECUTABLE_MESSAGE_TYPES,
   HOST_REPORT_MESSAGE_TYPES,
   HOST_RESOLVABLE_MESSAGE_TYPES,
-  FORBIDDEN_PURE_WAIT_COMMANDS,
-  WINDOW_WAIT_ALIAS_NAMES
+  SUPPORTED_MESSAGE_TYPES,
+  WINDOW_WAIT_ALIAS_NAMES,
 } from "./constants.js";
 
 const projectRoot = process.cwd();
 const program = new Command();
 const client = createLoopMarshalClient({
-  headers: {
+  headers: () => ({
     "x-loopmarshal-client": "cli",
-    "x-loopmarshal-process": String(process.pid)
-  }
+    "x-loopmarshal-process": String(process.pid),
+    ...(process.env.LOOPMARSHAL_MEMBER_TOKEN
+      ? { authorization: `Bearer ${process.env.LOOPMARSHAL_MEMBER_TOKEN}` }
+      : readCoreManagementToken()
+        ? { "x-loopmarshal-management-token": readCoreManagementToken()! }
+        : {}),
+  }),
 });
 const cliLeaseOwnerToken = `cli:${process.pid}:${randomUUID()}`;
 const runtimeTerminalProgressHints = [
   "running",
   "no output",
-  "background"
+  "background",
 ] as const;
 const finalRuntimeResultPreamble =
   "INTERNAL: this JSON is the final completed result of the loopmarshal wait command. Ignore any earlier terminal progress text such as running, no output, background status, or streaming command wrappers. ";
@@ -134,9 +137,8 @@ const isTruthyEnvValue = (value: string | undefined): boolean => {
   return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
 };
 
-
 const requireLiveCliIdentity = async (
-  identity: string
+  identity: string,
 ): Promise<CliIdentityContext> => {
   let context: CliIdentityContext;
   try {
@@ -155,7 +157,7 @@ const requireLiveCliIdentity = async (
       await clearCliIdentity(projectRoot, identity);
       await clearWindowProfilesForIdentity(projectRoot, identity);
       throw new Error(
-        `identity="${identity}" 的本地绑定已失效，已自动清理：远端会话中已不存在成员 "${context.agentName}"。请重新执行 loopmarshal attach <name> --session <sessionName> --role <host|worker> --duty "<职责>"。`
+        `identity="${identity}" 的本地绑定已失效，已自动清理：远端会话中已不存在成员 "${context.agentName}"。请重新执行 loopmarshal attach <name> --session <sessionName> --role <host|worker> --duty "<职责>"。`,
       );
     }
   } catch (error: unknown) {
@@ -170,18 +172,18 @@ const requireLiveCliIdentity = async (
       ) {
         await clearCliIdentitiesForSession(projectRoot, {
           sessionId: context.sessionId,
-          sessionName: context.sessionName
+          sessionName: context.sessionName,
         });
         await clearWindowProfilesForSession(projectRoot, {
           sessionId: context.sessionId,
-          sessionName: context.sessionName
+          sessionName: context.sessionName,
         });
       } else {
         await clearCliIdentity(projectRoot, identity);
         await clearWindowProfilesForIdentity(projectRoot, identity);
       }
       throw new Error(
-        `identity="${identity}" 的本地绑定已失效，已自动清理：${error.message}。请重新执行 loopmarshal attach <name> --session <sessionName> --role <host|worker> --duty "<职责>"。`
+        `identity="${identity}" 的本地绑定已失效，已自动清理：${error.message}。请重新执行 loopmarshal attach <name> --session <sessionName> --role <host|worker> --duty "<职责>"。`,
       );
     }
 
@@ -194,8 +196,9 @@ const requireLiveCliIdentity = async (
 const cleanupSessionBeforeHostCreate = async (sessionName: string) => {
   try {
     const existingSession = await client.getSessionByName(sessionName);
-    const members = (await client.getMembers(existingSession.id)).sort((left, right) =>
-      left.role === right.role ? 0 : left.role === "host" ? 1 : -1
+    const members = (await client.getMembers(existingSession.id)).sort(
+      (left, right) =>
+        left.role === right.role ? 0 : left.role === "host" ? 1 : -1,
     );
 
     for (const member of members) {
@@ -210,7 +213,12 @@ const cleanupSessionBeforeHostCreate = async (sessionName: string) => {
 
     let deletion:
       | { sessionId: string; sessionName: string; deleted: true }
-      | { sessionId: string; sessionName: string; deleted: true; alreadyRemoved: true };
+      | {
+          sessionId: string;
+          sessionName: string;
+          deleted: true;
+          alreadyRemoved: true;
+        };
     try {
       deletion = await client.deleteSessionByName(sessionName);
     } catch (error: unknown) {
@@ -222,16 +230,16 @@ const cleanupSessionBeforeHostCreate = async (sessionName: string) => {
         sessionId: existingSession.id,
         sessionName,
         deleted: true,
-        alreadyRemoved: true
+        alreadyRemoved: true,
       };
     }
     const clearedIdentities = await clearCliIdentitiesForSession(projectRoot, {
       sessionId: existingSession.id,
-      sessionName
+      sessionName,
     });
     const clearedWindows = await clearWindowProfilesForSession(projectRoot, {
       sessionId: existingSession.id,
-      sessionName
+      sessionName,
     });
 
     return {
@@ -241,12 +249,12 @@ const cleanupSessionBeforeHostCreate = async (sessionName: string) => {
       removedMemberCount: members.length,
       clearedIdentityCount: clearedIdentities.length,
       clearedWindowCount: clearedWindows.length,
-      deletion
+      deletion,
     };
   } catch (error: unknown) {
     if (isSdkErrorCode(error, errorCodes.sessionNotFound)) {
       return {
-        cleaned: false
+        cleaned: false,
       };
     }
 
@@ -261,18 +269,22 @@ const clearLocalWindowState = async (options: {
 }) => {
   const clearedLockPaths = clearLocalLoopLocksForIdentity(
     projectRoot,
-    options.identity
+    options.identity,
   );
   await clearCliIdentity(projectRoot, options.identity);
   const clearedWindowNames = await clearWindowProfilesForIdentity(
     projectRoot,
-    options.identity
+    options.identity,
   );
-  await clearWindowProfile(projectRoot, options.sessionName, options.windowName);
+  await clearWindowProfile(
+    projectRoot,
+    options.sessionName,
+    options.windowName,
+  );
   await clearWindowRuntimeState(
     projectRoot,
     options.sessionName,
-    options.windowName
+    options.windowName,
   );
 
   return {
@@ -280,7 +292,7 @@ const clearLocalWindowState = async (options: {
     identity: options.identity,
     windowName: options.windowName,
     clearedWindowNames,
-    clearedLockPaths
+    clearedLockPaths,
   };
 };
 
@@ -292,7 +304,7 @@ const cleanupResidualWindowMember = async (options: {
     const session = await client.getSessionByName(options.sessionName);
     const members = await client.getMembers(session.id);
     const matchedMembers = members.filter(
-      (member) => member.agentName === options.agentName
+      (member) => member.agentName === options.agentName,
     );
 
     for (const member of matchedMembers) {
@@ -311,12 +323,12 @@ const cleanupResidualWindowMember = async (options: {
       sessionName: options.sessionName,
       removedMemberCount: matchedMembers.length,
       clearedIdentityCount: 0,
-      clearedWindowCount: 0
+      clearedWindowCount: 0,
     };
   } catch (error: unknown) {
     if (isSdkErrorCode(error, errorCodes.sessionNotFound)) {
       return {
-        cleaned: false
+        cleaned: false,
       };
     }
 
@@ -326,47 +338,55 @@ const cleanupResidualWindowMember = async (options: {
 
 const ensureWindowRole = (
   profile: WindowProfile,
-  expectedRole: "host" | "worker" | "knowledge_keeper"
+  expectedRole: "host" | "worker" | "knowledge_keeper",
 ): void => {
   if (profile.role !== expectedRole) {
     throw new Error(
-      `window="${profile.windowName}" 的角色是 "${profile.role}"，不能执行 ${expectedRole} 命令。`
+      `window="${profile.windowName}" 的角色是 "${profile.role}"，不能执行 ${expectedRole} 命令。`,
     );
   }
 };
 
 const ensureWindowRoleAny = (
   profile: WindowProfile,
-  allowedRoles: Array<"host" | "worker" | "knowledge_keeper">
+  allowedRoles: Array<"host" | "worker" | "knowledge_keeper">,
 ): void => {
-  if (!allowedRoles.includes(profile.role as "host" | "worker" | "knowledge_keeper")) {
+  if (
+    !allowedRoles.includes(
+      profile.role as "host" | "worker" | "knowledge_keeper",
+    )
+  ) {
     throw new Error(
-      `window="${profile.windowName}" 的角色是 "${profile.role}"，需要 ${allowedRoles.join(" 或 ")} 角色才能执行此命令。`
+      `window="${profile.windowName}" 的角色是 "${profile.role}"，需要 ${allowedRoles.join(" 或 ")} 角色才能执行此命令。`,
     );
   }
 };
 
 const syncWindowProfileWithContext = async (
   profile: WindowProfile,
-  context: CliIdentityContext
+  context: CliIdentityContext,
 ): Promise<WindowProfile> => {
   return registerWindowProfileFromIdentity(projectRoot, {
     windowName: profile.windowName,
     context,
     intervalSeconds: profile.defaults.intervalSeconds,
-    maxRounds: profile.defaults.maxRounds
+    maxRounds: profile.defaults.maxRounds,
   });
 };
 
 const requireLiveWindowContext = async (
   sessionName: string,
   windowName: string,
-  expectedRole?: "host" | "worker" | "knowledge_keeper"
+  expectedRole?: "host" | "worker" | "knowledge_keeper",
 ): Promise<{
   profile: WindowProfile;
   context: CliIdentityContext;
 }> => {
-  const profile = await requireWindowProfile(projectRoot, sessionName, windowName);
+  const profile = await requireWindowProfile(
+    projectRoot,
+    sessionName,
+    windowName,
+  );
   if (expectedRole) {
     ensureWindowRole(profile, expectedRole);
   }
@@ -374,20 +394,24 @@ const requireLiveWindowContext = async (
   const context = await requireLiveCliIdentity(profile.identity);
   return {
     profile: await syncWindowProfileWithContext(profile, context),
-    context
+    context,
   };
 };
 
 const attachNamedMember = async (options: {
   sessionName: string;
+  projectPath?: string;
   name: string;
   role: "host" | "worker" | "knowledge_keeper";
   duty: string;
 }) => {
   const result = await client.attachNamedSession(options.sessionName, {
+    ...(options.role === "host"
+      ? { projectPath: resolve(options.projectPath ?? projectRoot) }
+      : {}),
     agentName: options.name,
     role: options.role,
-    roleDescription: options.duty
+    roleDescription: options.duty,
   });
   const identity = buildIdentity(options.sessionName, options.name);
   const context = await writeCliIdentity(projectRoot, identity, result);
@@ -395,7 +419,7 @@ const attachNamedMember = async (options: {
     windowName: options.name,
     context,
     intervalSeconds: DEFAULT_LOOP_INTERVAL_SECONDS,
-    maxRounds: DEFAULT_LOOP_MAX_ROUNDS
+    maxRounds: DEFAULT_LOOP_MAX_ROUNDS,
   });
   const runtimeState = await persistWindowRuntimeState(profile, {
     activeFlow: options.role === "host" ? "host-cycle" : "worker-cycle",
@@ -408,14 +432,14 @@ const attachNamedMember = async (options: {
     lastWorkflowStep: "session_ready",
     lastAutomationState:
       options.role === "host" ? "host_ready" : "worker_ready",
-    lastTurnDisposition: "silent_hold"
+    lastTurnDisposition: "silent_hold",
   });
 
   return {
     result,
     context,
     profile,
-    runtimeState
+    runtimeState,
   };
 };
 
@@ -427,7 +451,7 @@ const resetNamedMember = async (options: {
   const localReset = await clearLocalWindowState({
     sessionName: options.sessionName,
     windowName: options.name,
-    identity
+    identity,
   });
 
   try {
@@ -439,8 +463,8 @@ const resetNamedMember = async (options: {
       return {
         localReset,
         remoteReset: {
-          cleaned: false
-        }
+          cleaned: false,
+        },
       };
     }
 
@@ -449,20 +473,20 @@ const resetNamedMember = async (options: {
         ? await cleanupSessionBeforeHostCreate(options.sessionName)
         : await cleanupResidualWindowMember({
             sessionName: options.sessionName,
-            agentName: options.name
+            agentName: options.name,
           });
 
     return {
       localReset,
-      remoteReset
+      remoteReset,
     };
   } catch (error: unknown) {
     if (isSdkErrorCode(error, errorCodes.sessionNotFound)) {
       return {
         localReset,
         remoteReset: {
-          cleaned: false
-        }
+          cleaned: false,
+        },
       };
     }
 
@@ -472,17 +496,17 @@ const resetNamedMember = async (options: {
 
 const persistWindowRuntimeState = async (
   profile: WindowProfile,
-  patch: Partial<WindowRuntimeState>
+  patch: Partial<WindowRuntimeState>,
 ): Promise<WindowRuntimeState> => {
   const existing = await readWindowRuntimeState(
     projectRoot,
     profile.sessionName,
-    profile.windowName
+    profile.windowName,
   );
   return writeWindowRuntimeState(projectRoot, {
     windowKey: buildWindowRuntimeStateKey(
       profile.sessionName,
-      profile.windowName
+      profile.windowName,
     ),
     sessionName: profile.sessionName,
     windowName: profile.windowName,
@@ -512,13 +536,13 @@ const persistWindowRuntimeState = async (
     userVisibleResponseAllowed: existing?.userVisibleResponseAllowed ?? null,
     leaseExpiresAt: existing?.leaseExpiresAt ?? null,
     updatedAt: new Date().toISOString(),
-    ...patch
+    ...patch,
   });
 };
 
 const buildRuntimeWaitChainId = (
   context: CliIdentityContext,
-  flow: "host" | "worker"
+  flow: "host" | "worker",
 ) => {
   return `${flow}:${context.identity}:${cliLeaseOwnerToken}`;
 };
@@ -526,16 +550,16 @@ const buildRuntimeWaitChainId = (
 const getInboxCountsForContext = async (context: CliIdentityContext) => {
   const [pendingInbox, claimedInbox] = await Promise.all([
     client.getInboxWithOptions(context.agentId, {
-      pendingOnly: true
+      pendingOnly: true,
     }),
     client.getInboxWithOptions(context.agentId, {
-      claimedOnly: true
-    })
+      claimedOnly: true,
+    }),
   ]);
 
   return {
     pendingInboxCount: pendingInbox.length,
-    claimedInboxCount: claimedInbox.length
+    claimedInboxCount: claimedInbox.length,
   };
 };
 
@@ -578,7 +602,7 @@ const recordWindowWaitHeartbeat = async (options: {
     lastStatus: options.status,
     lastWorkflowStep: options.workflowStep,
     lastAutomationState: options.automationState,
-    lastTurnDisposition: options.turnDisposition
+    lastTurnDisposition: options.turnDisposition,
   });
 };
 
@@ -588,7 +612,7 @@ type TraceStepSink = {
 
 const getRuntimeStringField = (
   record: Record<string, unknown>,
-  key: string
+  key: string,
 ): string | null => {
   const value = record[key];
   return typeof value === "string" ? value : null;
@@ -596,7 +620,7 @@ const getRuntimeStringField = (
 
 const getRuntimeRecordField = (
   record: Record<string, unknown>,
-  key: string
+  key: string,
 ): Record<string, unknown> | null => {
   const value = record[key];
   return value && typeof value === "object" && !Array.isArray(value)
@@ -619,7 +643,7 @@ const updateWindowStateFromResult = async (
     | "submit"
     | "dispatch-many"
     | "resolve",
-  result: Record<string, unknown>
+  result: Record<string, unknown>,
 ): Promise<WindowRuntimeState> => {
   const status = getRuntimeStringField(result, "status");
   const workflowStep = getRuntimeStringField(result, "workflowStep");
@@ -657,32 +681,35 @@ const updateWindowStateFromResult = async (
     getRuntimeRecordField(result, "nextReport");
 
   if (profile.role === "worker" && status === "task_claimed") {
-    currentMessageId = getRuntimeStringField(currentTaskRecord ?? {}, "messageId");
+    currentMessageId = getRuntimeStringField(
+      currentTaskRecord ?? {},
+      "messageId",
+    );
     currentCorrelationId = getRuntimeStringField(
       currentTaskRecord ?? {},
-      "correlationId"
+      "correlationId",
     );
     currentMessageKind = currentMessageId ? "task" : null;
     activeWaitPid = null;
   } else if (profile.role === "host" && status === "message_claimed") {
     if (messageKind === "task") {
       currentMessageId = getRuntimeStringField(
-        (currentTaskRecord ?? currentMessageRecord) ?? {},
-        "messageId"
+        currentTaskRecord ?? currentMessageRecord ?? {},
+        "messageId",
       );
       currentCorrelationId = getRuntimeStringField(
-        (currentTaskRecord ?? currentMessageRecord) ?? {},
-        "correlationId"
+        currentTaskRecord ?? currentMessageRecord ?? {},
+        "correlationId",
       );
       currentMessageKind = currentMessageId ? "task" : null;
     } else if (messageKind === "report") {
       currentMessageId = getRuntimeStringField(
-        (currentReportRecord ?? currentMessageRecord) ?? {},
-        "messageId"
+        currentReportRecord ?? currentMessageRecord ?? {},
+        "messageId",
       );
       currentCorrelationId = getRuntimeStringField(
-        (currentReportRecord ?? currentMessageRecord) ?? {},
-        "correlationId"
+        currentReportRecord ?? currentMessageRecord ?? {},
+        "correlationId",
       );
       currentMessageKind = currentMessageId ? "report" : null;
     }
@@ -728,13 +755,13 @@ const updateWindowStateFromResult = async (
     lastStatus: status,
     lastWorkflowStep: workflowStep,
     lastAutomationState: automationState,
-    lastTurnDisposition: turnDisposition
+    lastTurnDisposition: turnDisposition,
   });
 };
 
 const pickDefinedFields = (
   source: Record<string, unknown>,
-  keys: string[]
+  keys: string[],
 ): Record<string, unknown> => {
   const next: Record<string, unknown> = {};
   for (const key of keys) {
@@ -753,7 +780,7 @@ const buildWindowDebugResult = (
   commandTrace?: {
     commandRunId: string;
     tracePath: string;
-  }
+  },
 ) => {
   const {
     intervalSeconds: _ignoredIntervalSeconds,
@@ -769,16 +796,16 @@ const buildWindowDebugResult = (
       role: profile.role,
       platform: profile.platform,
       identity: profile.identity,
-      agentName: profile.agentName
+      agentName: profile.agentName,
     },
     waitPolicy: {
       ownedByRuntime: true,
       userConfigurable: false,
-      doNotChooseIntervalOrRounds: true
+      doNotChooseIntervalOrRounds: true,
     },
     runtimeState,
     ...(commandTrace ? { commandTrace } : {}),
-    ...sanitizedResult
+    ...sanitizedResult,
   };
 };
 
@@ -802,8 +829,9 @@ const buildControlMessageView = (record: unknown) => {
     type: getRuntimeStringField(messageRecord, "type"),
     content:
       getRuntimeStringField(messageRecord, "content") ?? payloadView.content,
-    result: getRuntimeStringField(messageRecord, "result") ?? payloadView.result,
-    payload: messageRecord.payload ?? null
+    result:
+      getRuntimeStringField(messageRecord, "result") ?? payloadView.result,
+    payload: messageRecord.payload ?? null,
   };
 };
 
@@ -816,7 +844,7 @@ const appendControlMessageViews = (
     result: string | null;
     payload: unknown;
   }>,
-  candidate: unknown
+  candidate: unknown,
 ) => {
   if (Array.isArray(candidate)) {
     for (const item of candidate) {
@@ -842,7 +870,7 @@ const dedupeControlMessageViews = (
     content: string | null;
     result: string | null;
     payload: unknown;
-  }>
+  }>,
 ) => {
   const seen = new Set<string>();
   const deduped: typeof items = [];
@@ -954,13 +982,13 @@ const resolveClaimedMessageViews = (result: Record<string, unknown>) => {
 };
 
 const buildWindowControlResult = (
-  debugResult: Record<string, unknown>
+  debugResult: Record<string, unknown>,
 ): Record<string, unknown> => {
   const explicitResultType = getRuntimeStringField(debugResult, "resultType");
   const status = getRuntimeStringField(debugResult, "status");
   const nextActionRequired = getRuntimeStringField(
     debugResult,
-    "nextActionRequired"
+    "nextActionRequired",
   );
   const workflowStep = getRuntimeStringField(debugResult, "workflowStep");
   const messageKind = inferClaimedMessageKind(debugResult);
@@ -978,7 +1006,7 @@ const buildWindowControlResult = (
 
     return {
       op: "EXECUTE_INTERNAL_CMD",
-      ...(cmd ? { cmd } : {})
+      ...(cmd ? { cmd } : {}),
     };
   }
 
@@ -996,7 +1024,7 @@ const buildWindowControlResult = (
       kind: messageKind,
       status,
       message: claimedMessage,
-      ...(claimedMessages.length > 1 ? { messages: claimedMessages } : {})
+      ...(claimedMessages.length > 1 ? { messages: claimedMessages } : {}),
     };
   }
 
@@ -1011,8 +1039,8 @@ const buildWindowControlResult = (
       status: status ?? "all_workers_waiting",
       message: {
         content:
-          "所有 worker 当前都处于等待/空闲状态，Host 不能继续等待。请继续规划、派发下一轮、检查知识库更新，或向用户汇报收口。"
-      }
+          "所有 worker 当前都处于等待/空闲状态，Host 不能继续等待。请继续规划、派发下一轮、检查知识库更新，或向用户汇报收口。",
+      },
     };
   }
 
@@ -1026,7 +1054,7 @@ const buildWindowControlResult = (
   ) {
     return {
       op: "END_TURN_SILENTLY",
-      status: status ?? nextActionRequired ?? "silent_stop"
+      status: status ?? nextActionRequired ?? "silent_stop",
     };
   }
 
@@ -1046,10 +1074,12 @@ const buildWindowControlResult = (
 
     return {
       op: "SESSION_READY",
-      member: pickDefinedFields(
-        memberSource,
-        ["name", "sessionName", "role", "roleDescription"]
-      )
+      member: pickDefinedFields(memberSource, [
+        "name",
+        "sessionName",
+        "role",
+        "roleDescription",
+      ]),
     };
   }
 
@@ -1062,17 +1092,17 @@ const buildWindowControlResult = (
         ? {
             member: pickDefinedFields(
               debugResult.member as Record<string, unknown>,
-              ["name", "sessionName", "identity"]
-            )
+              ["name", "sessionName", "identity"],
+            ),
           }
-        : {})
+        : {}),
     };
   }
 
   return {
     op: "INFO",
     ...(status ? { status } : {}),
-    ...(nextActionRequired ? { nextAction: nextActionRequired } : {})
+    ...(nextActionRequired ? { nextAction: nextActionRequired } : {}),
   };
 };
 
@@ -1084,19 +1114,19 @@ const buildWindowCommandOutputs = (
   commandTrace?: {
     commandRunId: string;
     tracePath: string;
-  }
+  },
 ) => {
   const debug = buildWindowDebugResult(
     profile,
     commandName,
     result,
     runtimeState,
-    commandTrace
+    commandTrace,
   );
 
   return {
     control: buildWindowControlResult(debug),
-    debug
+    debug,
   };
 };
 
@@ -1117,9 +1147,9 @@ const buildWindowProfileSummary = (profile: WindowProfile) => {
     waitPolicy: {
       ownedByRuntime: true,
       userConfigurable: false,
-      doNotChooseIntervalOrRounds: true
+      doNotChooseIntervalOrRounds: true,
     },
-    updatedAt: profile.updatedAt
+    updatedAt: profile.updatedAt,
   };
 };
 
@@ -1129,194 +1159,14 @@ const buildSessionMemberView = (sessionName: string, member: Agent) => {
     role: member.role,
     duty: member.roleDescription,
     status: member.status,
-    identity: buildIdentity(sessionName, member.agentName)
+    identity: buildIdentity(sessionName, member.agentName),
   };
-};
-
-const parseListOption = (value: string, previous: string[]) => {
-  previous.push(value);
-  return previous;
-};
-
-const parseTagsOption = (value: string | undefined): string[] => {
-  if (!value) {
-    return [];
-  }
-  return value
-    .split(",")
-    .map((tag) => tag.trim())
-    .filter((tag) => tag.length > 0);
-};
-
-const ensureKnowledgeLevel = (value: string | undefined): KnowledgeLevel => {
-  if (value === "l1" || value === "l2" || value === "l3") {
-    return value;
-  }
-  throw new Error("knowledge level 必须是 l1、l2 或 l3。");
-};
-
-const ensureKnowledgeSourceKind = (
-  value: string | undefined
-): KnowledgeSourceKind => {
-  const normalized = value ?? "host_update";
-  if ((knowledgeSourceKinds as readonly string[]).includes(normalized)) {
-    return normalized as KnowledgeSourceKind;
-  }
-  throw new Error(
-    `knowledge source-kind 必须是 ${knowledgeSourceKinds.join("、")} 之一。`
-  );
-};
-
-const parseKnowledgeRef = (ref: string): {
-  level: KnowledgeLevel;
-  slug: string;
-  fragment: string | null;
-} => {
-  const [pathPart, fragment] = ref.split("#", 2);
-  const normalized = (pathPart ?? "")
-    .replace(/^knowledge:/i, "")
-    .replace(/^\/+/, "");
-  const [level, ...slugParts] = normalized.split("/");
-  if (slugParts.length === 0) {
-    throw new Error(`知识库引用 "${ref}" 无效，应形如 L1/session-direction 或 l2/cli-flow#section。`);
-  }
-  return {
-    level: ensureKnowledgeLevel(level?.toLowerCase()),
-    slug: slugParts.join("/"),
-    fragment: fragment ?? null
-  };
-};
-
-type WindowDispatchTaskSpec = {
-  targetWindowName: string;
-  content: string;
 };
 
 type PreparedWindowDispatchTask = {
   targetWindowName: string;
-  targetProfile: WindowProfile;
+  targetMember: Agent;
   content: string;
-};
-
-const parseWindowDispatchTaskSpec = (
-  rawValue: string
-): WindowDispatchTaskSpec => {
-  const value = rawValue.trim();
-  if (!value) {
-    throw new Error(
-      "批量派发任务不能为空。请使用 --task \"<workerWindow>::<任务内容>\"。"
-    );
-  }
-
-  if (value.startsWith("{")) {
-    try {
-      const parsed = JSON.parse(value) as Record<string, unknown>;
-      const targetWindowName =
-        typeof parsed.to === "string"
-          ? parsed.to.trim()
-          : typeof parsed.windowName === "string"
-            ? parsed.windowName.trim()
-            : typeof parsed.workerWindow === "string"
-              ? parsed.workerWindow.trim()
-              : "";
-      const content =
-        typeof parsed.content === "string" ? parsed.content.trim() : "";
-      if (targetWindowName && content) {
-        return {
-          targetWindowName,
-          content
-        };
-      }
-    } catch (error: unknown) {
-      throw new Error(
-        `无法解析批量派发任务 JSON：${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
-
-    throw new Error(
-      "批量派发任务 JSON 必须包含 to/windowName/workerWindow 之一，以及 content。"
-    );
-  }
-
-  for (const separator of ["::", "=>", "="]) {
-    const index = value.indexOf(separator);
-    if (index <= 0) {
-      continue;
-    }
-
-    const targetWindowName = value.slice(0, index).trim();
-    const content = value.slice(index + separator.length).trim();
-    if (targetWindowName && content) {
-      return {
-        targetWindowName,
-        content
-      };
-    }
-  }
-
-  throw new Error(
-    "批量派发任务格式无效。请使用 --task \"<workerWindow>::<任务内容>\"，或传入包含 to 和 content 的 JSON。"
-  );
-};
-
-const buildMergedDispatchTaskContent = (contents: string[]) => {
-  if (contents.length === 1) {
-    return contents[0]!;
-  }
-
-  return contents
-    .map((content, index) => `任务 ${index + 1}\n${content}`)
-    .join("\n\n---\n\n");
-};
-
-const normalizeWindowDispatchTasks = (
-  rawTasks: WindowDispatchTaskSpec[]
-): WindowDispatchTaskSpec[] => {
-  const grouped = new Map<string, string[]>();
-
-  for (const task of rawTasks) {
-    const existing = grouped.get(task.targetWindowName) ?? [];
-    existing.push(task.content.trim());
-    grouped.set(task.targetWindowName, existing);
-  }
-
-  return Array.from(grouped.entries()).map(([targetWindowName, contents]) => ({
-    targetWindowName,
-    content: buildMergedDispatchTaskContent(
-      contents.filter((value) => value.length > 0)
-    )
-  }));
-};
-
-const resolveWorkerRoleDescription = (
-  role: "worker" | "observer",
-  roleDescription: string | undefined,
-  optionName: string
-): string | undefined => {
-  const normalized = roleDescription?.trim();
-  if (role !== "worker") {
-    return normalized || undefined;
-  }
-
-  if (!normalized) {
-    throw new Error(
-      `当前 worker 加入必须提供角色说明。请通过 ${optionName} \"<说明>\" 告诉系统这个 worker 是干什么用的。`
-    );
-  }
-
-  return normalized;
-};
-
-const ensureMessageType = (value: string): MessageType => {
-  if (SUPPORTED_MESSAGE_TYPES.includes(value as MessageType)) {
-    return value as MessageType;
-  }
-
-  throw new Error(
-    `不支持的消息类型 "${value}"，可选值：${SUPPORTED_MESSAGE_TYPES.join(", ")}`
-  );
 };
 
 const sleep = async (milliseconds: number) => {
@@ -1332,7 +1182,7 @@ const hashStableValue = (value: unknown): string => {
 
 const buildDerivedIdempotencyKey = (
   scope: string,
-  seed: Record<string, unknown>
+  seed: Record<string, unknown>,
 ): string => {
   return `${scope}:${hashStableValue(seed)}`;
 };
@@ -1344,13 +1194,13 @@ const computeAdaptiveSleepMs = (options: {
 }): number => {
   const backoffFactor = Math.min(
     DEFAULT_POLL_BACKOFF_GROWTH ** Math.max(options.round - 1, 0),
-    DEFAULT_POLL_BACKOFF_MAX_FACTOR
+    DEFAULT_POLL_BACKOFF_MAX_FACTOR,
   );
   const baseMilliseconds = options.baseIntervalSeconds * 1000 * backoffFactor;
   const jitterMagnitude = baseMilliseconds * DEFAULT_POLL_JITTER_RATIO;
   const jitterSeed = Number.parseInt(
     hashStableValue([options.seed, options.round]).slice(0, 8),
-    16
+    16,
   );
   const normalized = Number.isNaN(jitterSeed) ? 0.5 : (jitterSeed % 1000) / 999;
   const jitter = (normalized * 2 - 1) * jitterMagnitude;
@@ -1360,12 +1210,14 @@ const computeAdaptiveSleepMs = (options: {
 
 const isSdkErrorCode = (
   error: unknown,
-  code: string
+  code: string,
 ): error is LoopMarshalSdkError => {
   return error instanceof LoopMarshalSdkError && error.code === code;
 };
 
-const isWaitChainControlError = (error: unknown): error is LoopMarshalSdkError => {
+const isWaitChainControlError = (
+  error: unknown,
+): error is LoopMarshalSdkError => {
   return (
     error instanceof LoopMarshalSdkError &&
     (error.code === errorCodes.identityBusy ||
@@ -1384,7 +1236,7 @@ const shellEscape = (value: string): string => {
 const appendCommandOption = (
   parts: string[],
   flag: string,
-  value: string | boolean | string[] | undefined
+  value: string | boolean | string[] | undefined,
 ) => {
   if (value === undefined) {
     return;
@@ -1409,7 +1261,7 @@ const appendCommandOption = (
 
 const buildRuntimeResumeCommand = (
   subcommand: string,
-  options: Array<[string, string | boolean | string[] | undefined]>
+  options: Array<[string, string | boolean | string[] | undefined]>,
 ): string => {
   const parts = ["loopmarshal", "runtime", subcommand];
 
@@ -1456,16 +1308,14 @@ type WindowContinueTokenPayload = {
   expiresAt: string;
 };
 
-const isWindowWaitAliasName = (
-  value: string
-): value is WindowWaitAliasName => {
+const isWindowWaitAliasName = (value: string): value is WindowWaitAliasName => {
   return WINDOW_WAIT_ALIAS_NAMES.includes(value as WindowWaitAliasName);
 };
 
 const parseOptionalPositiveInteger = (
   name: string,
   value: string | undefined,
-  fallback: number
+  fallback: number,
 ): number => {
   if (value === undefined) {
     return fallback;
@@ -1490,7 +1340,7 @@ const buildWindowContinueCommandArgs = (options: {
   const continuation = decodeWindowContinueToken(
     options.token,
     options.windowName,
-    options.sessionName
+    options.sessionName,
   );
 
   return [
@@ -1507,7 +1357,7 @@ const buildWindowContinueCommandArgs = (options: {
     "--continue-budget",
     String(continuation.totalSlices),
     "--continue-origin",
-    continuation.originCommand
+    continuation.originCommand,
   ];
 };
 
@@ -1536,15 +1386,15 @@ const buildWindowContinueToken = (options: {
       String(options.totalSlices),
       options.originCommand,
       String(Date.parse(issuedAt)),
-      String(Date.parse(expiresAt))
-    ].join("|")
+      String(Date.parse(expiresAt)),
+    ].join("|"),
   );
 };
 
 const decodeWindowContinueToken = (
   token: string,
   expectedWindowName: string,
-  expectedSessionName: string
+  expectedSessionName: string,
 ): WindowContinueTokenPayload => {
   const decoded = decodeOpaqueToken(token);
 
@@ -1558,7 +1408,7 @@ const decodeWindowContinueToken = (
       totalSlicesRaw,
       originCommand,
       issuedAtRaw,
-      expiresAtRaw
+      expiresAtRaw,
     ] = decoded.split("|");
 
     if (
@@ -1583,7 +1433,7 @@ const decodeWindowContinueToken = (
     const totalSlices = ensurePositiveInteger(
       "continue-budget",
       totalSlicesRaw,
-      DEFAULT_WINDOW_WAIT_CONTINUATION_BUDGET
+      DEFAULT_WINDOW_WAIT_CONTINUATION_BUDGET,
     );
 
     if (Date.parse(expiresAt) <= Date.now()) {
@@ -1599,7 +1449,7 @@ const decodeWindowContinueToken = (
       totalSlices,
       originCommand,
       issuedAt,
-      expiresAt
+      expiresAt,
     };
   }
 
@@ -1617,7 +1467,10 @@ const decodeWindowContinueToken = (
     typeof parsed.windowName === "string" ? parsed.windowName : null;
   const sessionName =
     typeof parsed.sessionName === "string" ? parsed.sessionName : null;
-  if (windowName !== expectedWindowName || sessionName !== expectedSessionName) {
+  if (
+    windowName !== expectedWindowName ||
+    sessionName !== expectedSessionName
+  ) {
     throw new Error("continue token 与当前 window/session 不匹配。");
   }
 
@@ -1625,24 +1478,23 @@ const decodeWindowContinueToken = (
     typeof parsed.sequenceId === "string" ? parsed.sequenceId : null;
   const originCommand =
     typeof parsed.originCommand === "string" ? parsed.originCommand : null;
-  const issuedAt =
-    typeof parsed.issuedAt === "string" ? parsed.issuedAt : null;
+  const issuedAt = typeof parsed.issuedAt === "string" ? parsed.issuedAt : null;
   const expiresAt =
     typeof parsed.expiresAt === "string" ? parsed.expiresAt : null;
   const step = ensurePositiveInteger(
     "continue-step",
     String(parsed.step ?? ""),
-    1
+    1,
   );
   const pass = ensurePositiveInteger(
     "continue-pass",
     String(parsed.pass ?? ""),
-    1
+    1,
   );
   const totalSlices = ensurePositiveInteger(
     "continue-budget",
     String(parsed.totalSlices ?? ""),
-    DEFAULT_WINDOW_WAIT_CONTINUATION_BUDGET
+    DEFAULT_WINDOW_WAIT_CONTINUATION_BUDGET,
   );
 
   if (!sequenceId || !originCommand || !issuedAt || !expiresAt) {
@@ -1662,26 +1514,24 @@ const decodeWindowContinueToken = (
     totalSlices,
     originCommand,
     issuedAt,
-    expiresAt
+    expiresAt,
   };
 };
 
 const getNextWindowWaitAlias = (
   currentAlias: WindowWaitAliasName,
-  currentPass: number
+  currentPass: number,
 ): {
   alias: WindowWaitAliasName;
   pass: number;
 } => {
   const currentIndex = WINDOW_WAIT_ALIAS_NAMES.indexOf(currentAlias);
   const nextIndex =
-    currentIndex >= 0
-      ? (currentIndex + 1) % WINDOW_WAIT_ALIAS_NAMES.length
-      : 0;
+    currentIndex >= 0 ? (currentIndex + 1) % WINDOW_WAIT_ALIAS_NAMES.length : 0;
 
   return {
     alias: WINDOW_WAIT_ALIAS_NAMES[nextIndex] ?? "await",
-    pass: nextIndex === 0 ? currentPass + 1 : currentPass
+    pass: nextIndex === 0 ? currentPass + 1 : currentPass,
   };
 };
 
@@ -1725,17 +1575,17 @@ const resolveWindowWaitContinuationState = (options: {
   const currentStep = parseOptionalPositiveInteger(
     "continue-step",
     options.continueStep,
-    1
+    1,
   );
   const currentPass = parseOptionalPositiveInteger(
     "continue-pass",
     options.continuePass,
-    1
+    1,
   );
   const totalSlices = parseOptionalPositiveInteger(
     "continue-budget",
     options.continueBudget,
-    DEFAULT_WINDOW_WAIT_CONTINUATION_BUDGET
+    DEFAULT_WINDOW_WAIT_CONTINUATION_BUDGET,
   );
   const originCommand = options.continueOrigin ?? options.originCommand;
   const nextAliasInfo = getNextWindowWaitAlias(options.alias, currentPass);
@@ -1750,14 +1600,14 @@ const resolveWindowWaitContinuationState = (options: {
         step: nextStep,
         pass: nextAliasInfo.pass,
         totalSlices,
-        originCommand
+        originCommand,
       })
     : null;
   const nextCommandArgs = nextToken
     ? buildWindowContinueCommandArgs({
         windowName: options.windowName,
         sessionName: options.sessionName,
-        token: nextToken
+        token: nextToken,
       })
     : null;
   const nextCommand = nextCommandArgs
@@ -1782,13 +1632,11 @@ const resolveWindowWaitContinuationState = (options: {
     nextToken,
     nextCommand,
     nextCommandArgs,
-    nextTerminalCommand
+    nextTerminalCommand,
   };
 };
 
-const buildWaitContinuationPayload = (
-  state: WindowWaitContinuationState
-) => {
+const buildWaitContinuationPayload = (state: WindowWaitContinuationState) => {
   return {
     sequenceId: state.sequenceId,
     originCommand: state.originCommand,
@@ -1805,7 +1653,7 @@ const buildWaitContinuationPayload = (
     ...(state.nextCommand ? { nextCommand: state.nextCommand } : {}),
     ...(state.nextTerminalCommand
       ? { terminalCommand: state.nextTerminalCommand }
-      : {})
+      : {}),
   };
 };
 
@@ -1817,7 +1665,7 @@ const maybeBuildContinuedWaitResult = (
     continueStatus: string;
     automationState: string;
     internalInstruction: string;
-  }
+  },
 ) => {
   const status = getRuntimeStringField(baseResult, "status");
   if (!status || !options.eligibleStatuses.includes(status)) {
@@ -1828,7 +1676,7 @@ const maybeBuildContinuedWaitResult = (
   if (!state.canContinue || !state.nextCommand) {
     return {
       ...baseResult,
-      waitContinuation
+      waitContinuation,
     };
   }
 
@@ -1869,10 +1717,9 @@ const maybeBuildContinuedWaitResult = (
     allowedWaitCommand: state.nextCommand,
     automationState: options.automationState,
     terminalCommand: state.nextTerminalCommand,
-    internalInstruction:
-      `${finalRuntimeResultPreamble}${options.internalInstruction} Execute this command exactly as returned: ${state.nextCommand}. Do not modify the parameters.`,
+    internalInstruction: `${finalRuntimeResultPreamble}${options.internalInstruction} Execute this command exactly as returned: ${state.nextCommand}. Do not modify the parameters.`,
     nextCommand: state.nextCommand,
-    waitContinuation
+    waitContinuation,
   };
 };
 
@@ -1884,12 +1731,13 @@ const buildExecuteInternalCommandResult = (
     internalInstruction: string;
     nextActionRequired?: string;
     workflowDirective?: string;
-  }
+  },
 ) => {
   const terminalCommand = buildLoopMarshalTerminalCommand(options.commandArgs);
-  const nextCommand = ["loopmarshal", ...options.commandArgs.map(shellEscape)].join(
-    " "
-  );
+  const nextCommand = [
+    "loopmarshal",
+    ...options.commandArgs.map(shellEscape),
+  ].join(" ");
 
   return {
     ...baseResult,
@@ -1927,9 +1775,8 @@ const buildExecuteInternalCommandResult = (
     allowedWaitCommand: nextCommand,
     automationState: options.automationState,
     terminalCommand,
-    internalInstruction:
-      `${finalRuntimeResultPreamble}${options.internalInstruction} Execute this command exactly as returned: ${nextCommand}. Do not modify the parameters.`,
-    nextCommand
+    internalInstruction: `${finalRuntimeResultPreamble}${options.internalInstruction} Execute this command exactly as returned: ${nextCommand}. Do not modify the parameters.`,
+    nextCommand,
   };
 };
 
@@ -1971,8 +1818,10 @@ const sliceWaitRounds = (options: {
     options.maxRounds,
     Math.max(
       1,
-      Math.ceil(DEFAULT_WINDOW_WAIT_SLICE_ELAPSED_SECONDS / options.intervalSeconds)
-    )
+      Math.ceil(
+        DEFAULT_WINDOW_WAIT_SLICE_ELAPSED_SECONDS / options.intervalSeconds,
+      ),
+    ),
   );
 
   return {
@@ -1980,18 +1829,18 @@ const sliceWaitRounds = (options: {
     maxRounds: slicedMaxRounds,
     waitWindowSeconds: DEFAULT_WINDOW_WAIT_SLICE_ELAPSED_SECONDS,
     maxElapsedSeconds: DEFAULT_WINDOW_WAIT_SLICE_ELAPSED_SECONDS,
-    sliced: slicedMaxRounds < options.maxRounds
+    sliced: slicedMaxRounds < options.maxRounds,
   };
 };
 
 const buildWaitChainAuth = (
   context: CliIdentityContext,
-  flow: "host" | "worker"
+  flow: "host" | "worker",
 ) => {
   return {
     identity: context.identity,
     flow,
-    ownerToken: cliLeaseOwnerToken
+    ownerToken: cliLeaseOwnerToken,
   };
 };
 
@@ -2002,7 +1851,7 @@ const withCliIdentityLease = async <T>(
     intervalSeconds?: number | undefined;
     maxRounds?: number | undefined;
   },
-  task: () => Promise<T>
+  task: () => Promise<T>,
 ): Promise<T> => {
   await client.acquireIdentityLease({
     identity: context.identity,
@@ -2011,9 +1860,9 @@ const withCliIdentityLease = async <T>(
     leaseSeconds: computeLeaseSeconds({
       flow,
       intervalSeconds: options.intervalSeconds,
-      maxRounds: options.maxRounds
+      maxRounds: options.maxRounds,
     }),
-    takeover: true
+    takeover: true,
   });
 
   try {
@@ -2023,7 +1872,7 @@ const withCliIdentityLease = async <T>(
       await client.releaseIdentityLease({
         identity: context.identity,
         flow,
-        ownerToken: cliLeaseOwnerToken
+        ownerToken: cliLeaseOwnerToken,
       });
     } catch {
       // Lease expiry on the core side prevents permanent lock retention.
@@ -2037,7 +1886,7 @@ const renewCliIdentityLease = async (
   options: {
     intervalSeconds?: number | undefined;
     maxRounds?: number | undefined;
-  }
+  },
 ): Promise<boolean> => {
   try {
     await client.acquireIdentityLease({
@@ -2047,9 +1896,9 @@ const renewCliIdentityLease = async (
       leaseSeconds: computeLeaseSeconds({
         flow,
         intervalSeconds: options.intervalSeconds,
-        maxRounds: options.maxRounds
+        maxRounds: options.maxRounds,
       }),
-      takeover: false
+      takeover: false,
     });
     return true;
   } catch (error: unknown) {
@@ -2105,19 +1954,18 @@ const buildAlreadyRunningResult = (options: {
     sleepCommandForbidden: true,
     FORBIDDEN_PURE_WAIT_COMMANDS,
     automationState,
-    internalInstruction:
-      `${finalRuntimeResultPreamble}Do not reply to the user. Do not summarize this result. A wait chain for this identity is already running. Stop here silently. Do not execute Start-Sleep, sleep, timeout, ping, or any other pure wait command. Only the loopmarshal wait chain is allowed.`,
+    internalInstruction: `${finalRuntimeResultPreamble}Do not reply to the user. Do not summarize this result. A wait chain for this identity is already running. Stop here silently. Do not execute Start-Sleep, sleep, timeout, ping, or any other pure wait command. Only the loopmarshal wait chain is allowed.`,
     existingRun: {
       pid: options.existing.pid,
-      acquiredAt: options.existing.acquiredAt
-    }
+      acquiredAt: options.existing.acquiredAt,
+    },
   };
 };
 
 const ensurePositiveInteger = (
   name: string,
   value: string,
-  fallback: number
+  fallback: number,
 ): number => {
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed)) {
@@ -2131,11 +1979,11 @@ const ensurePositiveInteger = (
 
 const resolveContinueAfterMatch = (
   continueAfterMatch: boolean | undefined,
-  maxMatches: number
+  maxMatches: number,
 ) => {
   if (!continueAfterMatch && maxMatches > 1) {
     throw new Error(
-      "max-matches 大于 1 时，必须同时开启 --continue-after-match。"
+      "max-matches 大于 1 时，必须同时开启 --continue-after-match。",
     );
   }
 
@@ -2212,10 +2060,7 @@ type HostLoopUnifiedResult = {
   agentId: string;
   agentName: string;
   itemKind: HostLoopItemKind;
-  actionHint:
-    | "execute_locally"
-    | "review_report"
-    | "idle_timeout";
+  actionHint: "execute_locally" | "review_report" | "idle_timeout";
   message: MessageRecord | null;
   item: RuntimeMessageSummary | null;
   task: RuntimeMessageSummary | null;
@@ -2257,7 +2102,7 @@ const parseMessagePayloadView = (payload: unknown) => {
   if (!payload || typeof payload !== "object") {
     return {
       content: null,
-      result: null
+      result: null,
     };
   }
 
@@ -2267,12 +2112,12 @@ const parseMessagePayloadView = (payload: unknown) => {
     content:
       typeof payloadRecord.content === "string" ? payloadRecord.content : null,
     result:
-      typeof payloadRecord.result === "string" ? payloadRecord.result : null
+      typeof payloadRecord.result === "string" ? payloadRecord.result : null,
   };
 };
 
 const extractPayloadRecord = (
-  payload: unknown
+  payload: unknown,
 ): Record<string, unknown> | null => {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return null;
@@ -2295,7 +2140,7 @@ const summarizeMessage = (message: MessageRecord): RuntimeMessageSummary => {
     content: payloadView.content,
     result: payloadView.result,
     payload: message.payload,
-    createdAt: message.createdAt
+    createdAt: message.createdAt,
   };
 };
 
@@ -2320,32 +2165,69 @@ const isWorkerWaitingOrIdle = (binding: WindowBinding): boolean => {
 };
 
 const assessSessionIdleForHost = async (context: CliIdentityContext) => {
-  const [bindings, queueStats] = await Promise.all([
+  const [bindings, queueStats, sessionConsole] = await Promise.all([
     client.listWindowBindings(context.sessionName),
-    client.getSessionQueueStats(context.sessionId)
+    client.getSessionQueueStats(context.sessionId),
+    client.getSessionConsole(context.sessionId),
   ]);
-  const workers = bindings.filter((binding) => binding.role === "worker");
-  const hasQueuedMessages = queueStats.some(
-    (stats) => stats.pending > 0 || stats.claimed > 0
+  const proxyMembers = sessionConsole.members.filter(
+    (member) => member.route?.accessMode === "managed_proxy",
   );
-  const workerStates = workers.map((worker) => ({
+  const proxyActivity = proxyMembers.flatMap((member) =>
+    member.activity ? [member.activity] : [],
+  );
+  const proxyByAgent = new Map(
+    proxyMembers.map((member) => [member.agentId, member]),
+  );
+  const workers = bindings.filter(
+    (binding) =>
+      binding.role === "worker" && !proxyByAgent.has(binding.agentId),
+  );
+  const hasQueuedMessages =
+    proxyActivity.some(
+      (item) => item.queued + item.running + item.blocked + item.unknown > 0,
+    ) || queueStats.some((stats) => stats.pending > 0 || stats.claimed > 0);
+  const workerStates: Array<{
+    agentId: string;
+    agentName: string;
+    windowName: string;
+    waitingOrIdle: boolean;
+    runtimeState: WindowBinding["runtimeState"] | null;
+  }> = workers.map((worker) => ({
     agentId: worker.agentId,
     agentName: worker.agentName,
     windowName: worker.windowName,
     waitingOrIdle: isWorkerWaitingOrIdle(worker),
-    runtimeState: worker.runtimeState
+    runtimeState: worker.runtimeState,
   }));
+  for (const member of proxyMembers.filter(
+    (member) => member.route?.bindingStatus !== "disabled",
+  )) {
+    workerStates.push({
+      agentId: member.agentId,
+      agentName: member.agentName,
+      windowName: member.agentName,
+      waitingOrIdle:
+        member.route?.bindingStatus === "ready" &&
+        !proxyActivity.some(
+          (item) =>
+            item.agentId === member.agentId &&
+            item.queued + item.running + item.blocked + item.unknown > 0,
+        ),
+      runtimeState: null,
+    });
+  }
   const allWorkersWaiting =
-    workers.length > 0 &&
+    workerStates.length > 0 &&
     !hasQueuedMessages &&
     workerStates.every((worker) => worker.waitingOrIdle);
 
   return {
     allWorkersWaiting,
-    workerCount: workers.length,
+    workerCount: workerStates.length,
     hasQueuedMessages,
     workerStates,
-    queueStats
+    queueStats,
   };
 };
 
@@ -2357,7 +2239,7 @@ const runWorkerAwaitTask = async (
     intervalSeconds: number;
     maxRounds: number;
     maxElapsedSeconds?: number | undefined;
-  }
+  },
 ) => {
   const loopResult = await runWorkerAwaitLoop(context, {
     profile: options.profile,
@@ -2366,7 +2248,7 @@ const runWorkerAwaitTask = async (
     maxRounds: options.maxRounds,
     maxElapsedSeconds: options.maxElapsedSeconds,
     continueAfterMatch: false,
-    maxMatches: 1
+    maxMatches: 1,
   });
   const taskMessage = loopResult.messages[0] as MessageRecord | undefined;
   const task = taskMessage ? summarizeMessage(taskMessage) : null;
@@ -2442,7 +2324,7 @@ const runWorkerAwaitTask = async (
         ? `${finalRuntimeResultPreamble}Do not reply to the user. This wait chain has been superseded by a newer wait command from the same window. Stop here silently and let the newer wait chain continue. Do not execute Start-Sleep, sleep, timeout, ping, or any other pure wait command.`
         : `${finalRuntimeResultPreamble}Do not reply to the user. No task arrived in this round. If collaboration is still active, continue waiting silently. Do not execute Start-Sleep, sleep, timeout, ping, or any other pure wait command. Only loopmarshal await is allowed for waiting.`,
     startedAt: loopResult.startedAt,
-    finishedAt: loopResult.finishedAt
+    finishedAt: loopResult.finishedAt,
   };
 };
 
@@ -2457,7 +2339,7 @@ const submitWorkerResult = async (
     idempotencyKey?: string | undefined;
     failReason?: string | undefined;
     markAs: "completed" | "failed" | "contested";
-  }
+  },
 ) => {
   const markAs = options.markAs;
   const resolvedType =
@@ -2478,7 +2360,7 @@ const submitWorkerResult = async (
     result: resolvedResult,
     type: resolvedType,
     correlationId: resolvedCorrelationId,
-    idempotencyKey: options.idempotencyKey
+    idempotencyKey: options.idempotencyKey,
   });
   let processedMessage: MessageRecord;
 
@@ -2488,11 +2370,11 @@ const submitWorkerResult = async (
         ? await client.failMessage(options.messageId, {
             agentId: context.agentId,
             ...(options.failReason ? { reason: options.failReason } : {}),
-            ...buildWaitChainAuth(context, "worker")
+            ...buildWaitChainAuth(context, "worker"),
           })
         : await client.completeMessage(options.messageId, {
             agentId: context.agentId,
-            ...buildWaitChainAuth(context, "worker")
+            ...buildWaitChainAuth(context, "worker"),
           });
   } catch (error: unknown) {
     if (!isSdkErrorCode(error, errorCodes.messageAlreadyFinished)) {
@@ -2515,7 +2397,7 @@ const submitWorkerResult = async (
     markAs,
     correlationId: resolvedCorrelationId ?? null,
     report,
-    processedMessage
+    processedMessage,
   };
 };
 
@@ -2529,7 +2411,7 @@ const waitForHostReport = async (
     fromAgentId?: string | undefined;
     type?: MessageType | undefined;
     correlationId?: string | undefined;
-  }
+  },
 ) => {
   const loopResult = await runHostReportAwaitLoop(context, {
     intervalSeconds: options.intervalSeconds,
@@ -2544,7 +2426,7 @@ const waitForHostReport = async (
     continueAfterMatch: false,
     maxMatches: 1,
     excludeMessageIds: [],
-    ackMatched: true
+    ackMatched: true,
   });
   const reportMessage = loopResult.messages[0] as MessageRecord | undefined;
   const report = reportMessage ? summarizeMessage(reportMessage) : null;
@@ -2569,7 +2451,7 @@ const waitForHostReport = async (
     message: report,
     acknowledgedMessageIds: loopResult.acknowledgedMessageIds,
     startedAt: loopResult.startedAt,
-    finishedAt: loopResult.finishedAt
+    finishedAt: loopResult.finishedAt,
   };
 };
 
@@ -2585,7 +2467,7 @@ const runHostAwaitMessage = async (
     fromAgentId?: string | undefined;
     type?: MessageType | undefined;
     correlationId?: string | undefined;
-  }
+  },
 ) => {
   const loopResult = await runHostAwaitLoop(context, {
     profile: options.profile,
@@ -2600,7 +2482,7 @@ const runHostAwaitMessage = async (
     type: options.type,
     correlationId: options.correlationId,
     excludeMessageIds: [],
-    ackMatched: true
+    ackMatched: true,
   });
   const idleAssessment =
     !loopResult.matched && !loopResult.superseded
@@ -2623,7 +2505,7 @@ const runHostAwaitMessage = async (
         : ("review_claimed_report_now" as const)
       : allWorkersWaiting
         ? ("continue_host_planning" as const)
-      : ("stop_silently" as const),
+        : ("stop_silently" as const),
     workflowModel: "message_loop" as const,
     workflowContract: "wait_receive_process_report_wait" as const,
     workflowRole: "host" as const,
@@ -2631,25 +2513,26 @@ const runHostAwaitMessage = async (
       ? ("message_received" as const)
       : allWorkersWaiting
         ? ("session_idle_detected" as const)
-      : ("waiting" as const),
-    messageKind: loopResult.itemKind ?? (allWorkersWaiting ? "session_idle" : null),
+        : ("waiting" as const),
+    messageKind:
+      loopResult.itemKind ?? (allWorkersWaiting ? "session_idle" : null),
     mode: "await" as const,
     status: loopResult.matched
       ? ("message_claimed" as const)
       : allWorkersWaiting
         ? ("all_workers_waiting" as const)
-      : loopResult.superseded
-        ? ("wait_chain_superseded" as const)
-        : ("wait_timeout" as const),
+        : loopResult.superseded
+          ? ("wait_chain_superseded" as const)
+          : ("wait_timeout" as const),
     action: loopResult.matched
       ? loopResult.itemKind === "task"
         ? ("process_local_task" as const)
         : ("review_report" as const)
       : allWorkersWaiting
         ? ("continue_host_planning" as const)
-      : loopResult.superseded
-        ? ("stop_silently" as const)
-        : ("wait" as const),
+        : loopResult.superseded
+          ? ("stop_silently" as const)
+          : ("wait" as const),
     matched: loopResult.matched,
     superseded: loopResult.superseded,
     identity: context.identity,
@@ -2676,16 +2559,18 @@ const runHostAwaitMessage = async (
         : ("review_received_report" as const)
       : allWorkersWaiting
         ? ("continue_host_planning" as const)
-      : ("continue_silently" as const),
+        : ("continue_silently" as const),
     silenceRequired: !allWorkersWaiting,
-    userVisibleReplyMode: allWorkersWaiting ? ("host_action_required" as const) : ("none" as const),
+    userVisibleReplyMode: allWorkersWaiting
+      ? ("host_action_required" as const)
+      : ("none" as const),
     replySuppressed: !allWorkersWaiting,
     userVisibleSummaryAllowed: allWorkersWaiting,
     turnDisposition: loopResult.matched
       ? ("silent_handoff" as const)
       : allWorkersWaiting
         ? ("host_continue" as const)
-      : ("silent_hold" as const),
+        : ("silent_hold" as const),
     waitStrategy: "runtime_only" as const,
     sleepCommandForbidden: true,
     FORBIDDEN_PURE_WAIT_COMMANDS,
@@ -2696,9 +2581,9 @@ const runHostAwaitMessage = async (
         : ("host_report_received" as const)
       : allWorkersWaiting
         ? ("host_session_idle_detected" as const)
-      : loopResult.superseded
-        ? ("host_wait_chain_superseded" as const)
-        : ("host_wait_loop_active" as const),
+        : loopResult.superseded
+          ? ("host_wait_chain_superseded" as const)
+          : ("host_wait_loop_active" as const),
     internalInstruction: loopResult.matched
       ? loopResult.itemKind === "task"
         ? `${finalRuntimeResultPreamble}Do not reply to the user. This command has already claimed a host task, so the current turn must continue immediately into host-side processing. After finishing, resolve it with loopmarshal resolve. Do not insert Start-Sleep, sleep, timeout, ping, or any pure wait command.`
@@ -2707,19 +2592,19 @@ const runHostAwaitMessage = async (
         ? `${finalRuntimeResultPreamble}Do not reply to the user. This wait chain has been superseded by a newer wait command from the same window. Stop here silently and let the newer wait chain continue. Do not execute Start-Sleep, sleep, timeout, ping, or any other pure wait command.`
         : allWorkersWaiting
           ? `${finalRuntimeResultPreamble}All workers in this session are waiting or idle and there are no pending or claimed messages. Do not continue the wait loop. Continue host planning now: check whether the user intent has been satisfied, decide whether knowledge needs to be updated, dispatch the next tasks if work remains, or report closure to the user.`
-        : `${finalRuntimeResultPreamble}Do not reply to the user. No host message arrived in this round. If collaboration is still active, continue waiting silently. Do not execute Start-Sleep, sleep, timeout, ping, or any other pure wait command. Only loopmarshal await is allowed for waiting.`,
+          : `${finalRuntimeResultPreamble}Do not reply to the user. No host message arrived in this round. If collaboration is still active, continue waiting silently. Do not execute Start-Sleep, sleep, timeout, ping, or any other pure wait command. Only loopmarshal await is allowed for waiting.`,
     acknowledgedMessageIds: loopResult.acknowledgedMessageIds,
     startedAt: loopResult.startedAt,
-    finishedAt: loopResult.finishedAt
+    finishedAt: loopResult.finishedAt,
   };
 };
 
 const resolveSessionMemberByName = async (
   sessionId: string,
-  agentName: string
+  agentName: string,
 ): Promise<Agent> => {
   const matchedMember = (await client.getMembers(sessionId)).find(
-    (member) => member.agentName === agentName
+    (member) => member.agentName === agentName,
   );
 
   if (!matchedMember) {
@@ -2735,13 +2620,13 @@ const buildCliDispatchPayload = (options: {
 }) => {
   return {
     content: options.content,
-    result: options.result
+    result: options.result,
   };
 };
 
 const mergeCliDispatchPayloads = (
   existingMessages: MessageRecord[],
-  nextPayload: ReturnType<typeof buildCliDispatchPayload>
+  nextPayload: ReturnType<typeof buildCliDispatchPayload>,
 ) => {
   if (existingMessages.length === 0) {
     return nextPayload;
@@ -2751,17 +2636,19 @@ const mergeCliDispatchPayloads = (
     ...existingMessages
       .map((message) => {
         const payload = extractPayloadRecord(message.payload);
-        return typeof payload?.content === "string" ? payload.content.trim() : "";
+        return typeof payload?.content === "string"
+          ? payload.content.trim()
+          : "";
       })
       .filter((value) => value.length > 0),
-    nextPayload.content.trim()
+    nextPayload.content.trim(),
   ].filter((value) => value.length > 0);
 
   return {
     ...nextPayload,
     content: mergedContentBlocks.join("\n\n---\n\n"),
     mergedFromMessageIds: existingMessages.map((message) => message.id),
-    mergedMode: "merge" as const
+    mergedMode: "merge" as const,
   };
 };
 
@@ -2771,10 +2658,10 @@ const findClaimedMessageForContext = async (
     types?: MessageType[] | undefined;
     fromAgentId?: string | undefined;
     correlationId?: string | undefined;
-  } = {}
+  } = {},
 ): Promise<MessageRecord | null> => {
   const claimedInbox = await client.getInboxWithOptions(context.agentId, {
-    claimedOnly: true
+    claimedOnly: true,
   });
 
   return (
@@ -2805,7 +2692,7 @@ const claimOrReuseHostReport = async (
     fromAgentId?: string | undefined;
     correlationId?: string | undefined;
     type?: MessageType | undefined;
-  }
+  },
 ): Promise<{
   message: MessageRecord | null;
   acknowledgedMessageIds: string[];
@@ -2813,13 +2700,13 @@ const claimOrReuseHostReport = async (
   const claimedReport = await findClaimedMessageForContext(context, {
     types: HOST_REPORT_MESSAGE_TYPES,
     fromAgentId: options.fromAgentId,
-    correlationId: options.correlationId
+    correlationId: options.correlationId,
   });
 
   if (claimedReport) {
     return {
       message: claimedReport,
-      acknowledgedMessageIds: [claimedReport.id]
+      acknowledgedMessageIds: [claimedReport.id],
     };
   }
 
@@ -2830,19 +2717,19 @@ const claimOrReuseHostReport = async (
         : HOST_REPORT_MESSAGE_TYPES,
     ...(options.fromAgentId ? { fromAgentId: options.fromAgentId } : {}),
     ...(options.correlationId ? { correlationId: options.correlationId } : {}),
-    ...buildWaitChainAuth(context, "host")
+    ...buildWaitChainAuth(context, "host"),
   });
 
   if (!claimedNext) {
     return {
       message: null,
-      acknowledgedMessageIds: []
+      acknowledgedMessageIds: [],
     };
   }
 
   return {
     message: claimedNext,
-    acknowledgedMessageIds: [claimedNext.id]
+    acknowledgedMessageIds: [claimedNext.id],
   };
 };
 
@@ -2856,7 +2743,7 @@ const runWorkerAwaitLoop = async (
     maxElapsedSeconds?: number | undefined;
     continueAfterMatch: boolean;
     maxMatches: number;
-  }
+  },
 ): Promise<WorkerLoopResult> => {
   const startedAt = new Date().toISOString();
   const startedAtMs = Date.now();
@@ -2866,7 +2753,7 @@ const runWorkerAwaitLoop = async (
   let lastClaimAt: string | null = null;
   let backlog = {
     pendingInboxCount: 0,
-    claimedInboxCount: 0
+    claimedInboxCount: 0,
   };
   const buildSupersededResult = (round: number): WorkerLoopResult => ({
     mode: "worker-await-loop",
@@ -2887,13 +2774,13 @@ const runWorkerAwaitLoop = async (
     lastPollAt,
     lastClaimAt,
     startedAt,
-    finishedAt: new Date().toISOString()
+    finishedAt: new Date().toISOString(),
   });
 
   for (let round = 1; round <= options.maxRounds; round += 1) {
     const leaseStillOwned = await renewCliIdentityLease(context, "worker", {
       intervalSeconds: options.intervalSeconds,
-      maxRounds: options.maxRounds
+      maxRounds: options.maxRounds,
     });
     if (!leaseStillOwned) {
       return buildSupersededResult(Math.max(round - 1, 0));
@@ -2905,7 +2792,7 @@ const runWorkerAwaitLoop = async (
         (await findClaimedMessageForContext(context)) ??
         (await client.claimNext(
           context.agentId,
-          buildWaitChainAuth(context, "worker")
+          buildWaitChainAuth(context, "worker"),
         ));
     } catch (error: unknown) {
       if (isWaitChainControlError(error)) {
@@ -2929,7 +2816,7 @@ const runWorkerAwaitLoop = async (
         message,
         messageKind: message ? "task" : null,
         markClaimed: Boolean(message),
-        inboxCounts: backlog
+        inboxCounts: backlog,
       });
     }
     options.trace?.step(message ? "wait_claimed" : "wait_poll", {
@@ -2937,13 +2824,16 @@ const runWorkerAwaitLoop = async (
       round,
       matched: Boolean(message),
       messageId: message?.id ?? null,
-      backlog
+      backlog,
     });
-    if (!message && (backlog.pendingInboxCount > 0 || backlog.claimedInboxCount > 0)) {
+    if (
+      !message &&
+      (backlog.pendingInboxCount > 0 || backlog.claimedInboxCount > 0)
+    ) {
       options.trace?.step("wait_backlog", {
         flow: "worker-cycle",
         round,
-        backlog
+        backlog,
       });
     }
 
@@ -2975,7 +2865,7 @@ const runWorkerAwaitLoop = async (
           lastPollAt,
           lastClaimAt,
           startedAt,
-          finishedAt: new Date().toISOString()
+          finishedAt: new Date().toISOString(),
         };
       }
     }
@@ -2990,8 +2880,8 @@ const runWorkerAwaitLoop = async (
         computeAdaptiveSleepMs({
           baseIntervalSeconds: options.intervalSeconds,
           round,
-          seed: `${context.identity}:worker-await-loop`
-        })
+          seed: `${context.identity}:worker-await-loop`,
+        }),
       );
     }
   }
@@ -3015,7 +2905,7 @@ const runWorkerAwaitLoop = async (
     lastPollAt,
     lastClaimAt,
     startedAt,
-    finishedAt: new Date().toISOString()
+    finishedAt: new Date().toISOString(),
   };
 };
 
@@ -3037,28 +2927,28 @@ const runHostReportAwaitLoop = async (
     maxMatches: number;
     excludeMessageIds: string[];
     ackMatched: boolean;
-  }
+  },
 ): Promise<HostLoopResult> => {
   const startedAt = new Date().toISOString();
   const startedAtMs = Date.now();
   if (!options.ackMatched) {
     throw new Error(
-      "host-report-await-loop 已收口为原子 claim 模式，不支持 --no-ack-matched。"
+      "host-report-await-loop 已收口为原子 claim 模式，不支持 --no-ack-matched。",
     );
   }
   if (options.includeAcknowledged) {
     throw new Error(
-      "host-report-await-loop 已收口为原子 claim 模式，不支持 --include-acknowledged。"
+      "host-report-await-loop 已收口为原子 claim 模式，不支持 --include-acknowledged。",
     );
   }
   if (options.excludeMessageIds.length > 0) {
     throw new Error(
-      "host-report-await-loop 已收口为原子 claim 模式，不支持 --exclude-message-id。"
+      "host-report-await-loop 已收口为原子 claim 模式，不支持 --exclude-message-id。",
     );
   }
   if (options.type && !HOST_REPORT_MESSAGE_TYPES.includes(options.type)) {
     throw new Error(
-      `host-report-await-loop 仅支持 host 回报消息类型：${HOST_REPORT_MESSAGE_TYPES.join(", ")}。`
+      `host-report-await-loop 仅支持 host 回报消息类型：${HOST_REPORT_MESSAGE_TYPES.join(", ")}。`,
     );
   }
 
@@ -3070,19 +2960,19 @@ const runHostReportAwaitLoop = async (
   let lastClaimAt: string | null = null;
   let backlog = {
     pendingInboxCount: 0,
-    claimedInboxCount: 0
+    claimedInboxCount: 0,
   };
   let expectedFromAgentId = options.fromAgentId;
 
   if (options.fromName) {
     const matchedMember = await resolveSessionMemberByName(
       context.sessionId,
-      options.fromName
+      options.fromName,
     );
 
     if (expectedFromAgentId && expectedFromAgentId !== matchedMember.id) {
       throw new Error(
-        `from-name "${options.fromName}" 与 from-agent-id "${expectedFromAgentId}" 不一致。`
+        `from-name "${options.fromName}" 与 from-agent-id "${expectedFromAgentId}" 不一致。`,
       );
     }
 
@@ -3106,23 +2996,23 @@ const runHostReportAwaitLoop = async (
       correlationId: options.correlationId ?? null,
       pendingOnly: true,
       includeAcknowledged: false,
-      ackMatched: true
+      ackMatched: true,
     },
-      messageCount: collectedMessages.length,
-      messages: collectedMessages,
-      matchedRounds,
-      acknowledgedMessageIds,
-      backlog,
-      lastPollAt,
-      lastClaimAt,
-      startedAt,
-      finishedAt: new Date().toISOString()
+    messageCount: collectedMessages.length,
+    messages: collectedMessages,
+    matchedRounds,
+    acknowledgedMessageIds,
+    backlog,
+    lastPollAt,
+    lastClaimAt,
+    startedAt,
+    finishedAt: new Date().toISOString(),
   });
 
   for (let round = 1; round <= options.maxRounds; round += 1) {
     const leaseStillOwned = await renewCliIdentityLease(context, "host", {
       intervalSeconds: options.intervalSeconds,
-      maxRounds: options.maxRounds
+      maxRounds: options.maxRounds,
     });
     if (!leaseStillOwned) {
       return buildSupersededResult(Math.max(round - 1, 0));
@@ -3134,7 +3024,7 @@ const runHostReportAwaitLoop = async (
       const claimed = await claimOrReuseHostReport(context, {
         fromAgentId: expectedFromAgentId,
         correlationId: options.correlationId,
-        type: options.type
+        type: options.type,
       });
       message = claimed.message;
       claimedIds = claimed.acknowledgedMessageIds;
@@ -3155,12 +3045,14 @@ const runHostReportAwaitLoop = async (
         commandName: "await",
         status: message ? "report_claimed" : "wait_polling",
         workflowStep: message ? "message_received" : "waiting",
-        automationState: message ? "host_report_received" : "host_wait_loop_active",
+        automationState: message
+          ? "host_report_received"
+          : "host_wait_loop_active",
         turnDisposition: message ? "silent_handoff" : "silent_hold",
         message,
         messageKind: message ? "report" : null,
         markClaimed: Boolean(message),
-        inboxCounts: backlog
+        inboxCounts: backlog,
       });
     }
     options.trace?.step(message ? "wait_claimed" : "wait_poll", {
@@ -3168,13 +3060,16 @@ const runHostReportAwaitLoop = async (
       round,
       matched: Boolean(message),
       messageId: message?.id ?? null,
-      backlog
+      backlog,
     });
-    if (!message && (backlog.pendingInboxCount > 0 || backlog.claimedInboxCount > 0)) {
+    if (
+      !message &&
+      (backlog.pendingInboxCount > 0 || backlog.claimedInboxCount > 0)
+    ) {
       options.trace?.step("wait_backlog", {
         flow: "host-report-cycle",
         round,
-        backlog
+        backlog,
       });
     }
 
@@ -3206,7 +3101,7 @@ const runHostReportAwaitLoop = async (
             correlationId: options.correlationId ?? null,
             pendingOnly: true,
             includeAcknowledged: false,
-            ackMatched: true
+            ackMatched: true,
           },
           messageCount: collectedMessages.length,
           messages: collectedMessages,
@@ -3216,7 +3111,7 @@ const runHostReportAwaitLoop = async (
           lastPollAt,
           lastClaimAt,
           startedAt,
-          finishedAt: new Date().toISOString()
+          finishedAt: new Date().toISOString(),
         };
       }
     }
@@ -3231,8 +3126,8 @@ const runHostReportAwaitLoop = async (
         computeAdaptiveSleepMs({
           baseIntervalSeconds: options.intervalSeconds,
           round,
-          seed: `${context.identity}:host-report-await-loop`
-        })
+          seed: `${context.identity}:host-report-await-loop`,
+        }),
       );
     }
   }
@@ -3254,7 +3149,7 @@ const runHostReportAwaitLoop = async (
       correlationId: options.correlationId ?? null,
       pendingOnly: true,
       includeAcknowledged: false,
-      ackMatched: true
+      ackMatched: true,
     },
     messageCount: collectedMessages.length,
     messages: collectedMessages,
@@ -3264,7 +3159,7 @@ const runHostReportAwaitLoop = async (
     lastPollAt,
     lastClaimAt,
     startedAt,
-    finishedAt: new Date().toISOString()
+    finishedAt: new Date().toISOString(),
   };
 };
 
@@ -3284,23 +3179,23 @@ const runHostAwaitLoop = async (
     correlationId?: string | undefined;
     excludeMessageIds: string[];
     ackMatched: boolean;
-  }
+  },
 ): Promise<HostLoopUnifiedResult> => {
   const startedAt = new Date().toISOString();
   const startedAtMs = Date.now();
   if (!options.ackMatched) {
     throw new Error(
-      "host-await-loop 已收口为原子 claim 模式，不支持 --no-ack-matched。"
+      "host-await-loop 已收口为原子 claim 模式，不支持 --no-ack-matched。",
     );
   }
   if (options.includeAcknowledged) {
     throw new Error(
-      "host-await-loop 已收口为原子 claim 模式，不支持 --include-acknowledged。"
+      "host-await-loop 已收口为原子 claim 模式，不支持 --include-acknowledged。",
     );
   }
   if (options.excludeMessageIds.length > 0) {
     throw new Error(
-      "host-await-loop 已收口为原子 claim 模式，不支持 --exclude-message-id。"
+      "host-await-loop 已收口为原子 claim 模式，不支持 --exclude-message-id。",
     );
   }
 
@@ -3311,19 +3206,19 @@ const runHostAwaitLoop = async (
   let lastClaimAt: string | null = null;
   let backlog = {
     pendingInboxCount: 0,
-    claimedInboxCount: 0
+    claimedInboxCount: 0,
   };
   let expectedFromAgentId = options.fromAgentId;
 
   if (options.fromName) {
     const matchedMember = await resolveSessionMemberByName(
       context.sessionId,
-      options.fromName
+      options.fromName,
     );
 
     if (expectedFromAgentId && expectedFromAgentId !== matchedMember.id) {
       throw new Error(
-        `from-name "${options.fromName}" 与 from-agent-id "${expectedFromAgentId}" 不一致。`
+        `from-name "${options.fromName}" 与 from-agent-id "${expectedFromAgentId}" 不一致。`,
       );
     }
 
@@ -3357,14 +3252,14 @@ const runHostAwaitLoop = async (
     defaults: {
       intervalSeconds: DEFAULT_LOOP_INTERVAL_SECONDS,
       maxRounds: DEFAULT_LOOP_MAX_ROUNDS,
-      ackMatched: DEFAULT_HOST_LOOP_ACK_MATCHED
-    }
+      ackMatched: DEFAULT_HOST_LOOP_ACK_MATCHED,
+    },
   });
 
   for (let round = 1; round <= options.maxRounds; round += 1) {
     const leaseStillOwned = await renewCliIdentityLease(context, "host", {
       intervalSeconds: options.intervalSeconds,
-      maxRounds: options.maxRounds
+      maxRounds: options.maxRounds,
     });
     if (!leaseStillOwned) {
       return buildSupersededResult(Math.max(round - 1, 0));
@@ -3374,11 +3269,11 @@ const runHostAwaitLoop = async (
     try {
       claimedTask =
         (await findClaimedMessageForContext(context, {
-          types: HOST_EXECUTABLE_MESSAGE_TYPES
+          types: HOST_EXECUTABLE_MESSAGE_TYPES,
         })) ??
         (await client.claimNext(context.agentId, {
           types: HOST_EXECUTABLE_MESSAGE_TYPES,
-          ...buildWaitChainAuth(context, "host")
+          ...buildWaitChainAuth(context, "host"),
         }));
     } catch (error: unknown) {
       if (isWaitChainControlError(error)) {
@@ -3406,7 +3301,7 @@ const runHostAwaitLoop = async (
           message: claimedTask,
           messageKind: "task",
           markClaimed: true,
-          inboxCounts: backlog
+          inboxCounts: backlog,
         });
       }
       options.trace?.step("wait_claimed", {
@@ -3415,7 +3310,7 @@ const runHostAwaitLoop = async (
         matched: true,
         messageId: claimedTask.id,
         messageKind: "task",
-        backlog
+        backlog,
       });
       const task = summarizeMessage(claimedTask);
 
@@ -3446,8 +3341,8 @@ const runHostAwaitLoop = async (
         defaults: {
           intervalSeconds: DEFAULT_LOOP_INTERVAL_SECONDS,
           maxRounds: DEFAULT_LOOP_MAX_ROUNDS,
-          ackMatched: DEFAULT_HOST_LOOP_ACK_MATCHED
-        }
+          ackMatched: DEFAULT_HOST_LOOP_ACK_MATCHED,
+        },
       };
     }
 
@@ -3463,11 +3358,11 @@ const runHostAwaitLoop = async (
           ? await claimOrReuseHostReport(context, {
               fromAgentId: expectedFromAgentId,
               correlationId: options.correlationId,
-              type: options.type
+              type: options.type,
             })
           : {
               message: null,
-              acknowledgedMessageIds: []
+              acknowledgedMessageIds: [],
             };
     } catch (error: unknown) {
       if (isWaitChainControlError(error)) {
@@ -3492,7 +3387,7 @@ const runHostAwaitLoop = async (
           workflowStep: "waiting",
           automationState: "host_wait_loop_active",
           turnDisposition: "silent_hold",
-          inboxCounts: backlog
+          inboxCounts: backlog,
         });
       }
       options.trace?.step("wait_poll", {
@@ -3500,20 +3395,22 @@ const runHostAwaitLoop = async (
         round,
         matched: false,
         messageId: null,
-        backlog
+        backlog,
       });
       if (backlog.pendingInboxCount > 0 || backlog.claimedInboxCount > 0) {
         options.trace?.step("wait_backlog", {
           flow: "host-cycle",
           round,
-          backlog
+          backlog,
         });
       }
     }
 
     if (matchedReport) {
       excludedIds.add(matchedReport.id);
-      acknowledgedMessageIds.push(...claimedReportResult.acknowledgedMessageIds);
+      acknowledgedMessageIds.push(
+        ...claimedReportResult.acknowledgedMessageIds,
+      );
       matchedRounds.push(round);
       lastClaimAt = lastPollAt;
       if (options.profile) {
@@ -3529,7 +3426,7 @@ const runHostAwaitLoop = async (
           message: matchedReport,
           messageKind: "report",
           markClaimed: true,
-          inboxCounts: backlog
+          inboxCounts: backlog,
         });
       }
       options.trace?.step("wait_claimed", {
@@ -3538,7 +3435,7 @@ const runHostAwaitLoop = async (
         matched: true,
         messageId: matchedReport.id,
         messageKind: "report",
-        backlog
+        backlog,
       });
       const report = summarizeMessage(matchedReport);
 
@@ -3569,8 +3466,8 @@ const runHostAwaitLoop = async (
         defaults: {
           intervalSeconds: DEFAULT_LOOP_INTERVAL_SECONDS,
           maxRounds: DEFAULT_LOOP_MAX_ROUNDS,
-          ackMatched: DEFAULT_HOST_LOOP_ACK_MATCHED
-        }
+          ackMatched: DEFAULT_HOST_LOOP_ACK_MATCHED,
+        },
       };
     }
 
@@ -3584,8 +3481,8 @@ const runHostAwaitLoop = async (
         computeAdaptiveSleepMs({
           baseIntervalSeconds: options.intervalSeconds,
           round,
-          seed: `${context.identity}:host-await-loop`
-        })
+          seed: `${context.identity}:host-await-loop`,
+        }),
       );
     }
   }
@@ -3617,8 +3514,8 @@ const runHostAwaitLoop = async (
     defaults: {
       intervalSeconds: DEFAULT_LOOP_INTERVAL_SECONDS,
       maxRounds: DEFAULT_LOOP_MAX_ROUNDS,
-      ackMatched: DEFAULT_HOST_LOOP_ACK_MATCHED
-    }
+      ackMatched: DEFAULT_HOST_LOOP_ACK_MATCHED,
+    },
   };
 };
 
@@ -3630,7 +3527,7 @@ const sendStandardHostReport = async (
     type: MessageType;
     correlationId?: string | undefined;
     idempotencyKey?: string | undefined;
-  }
+  },
 ) => {
   const session = await client.getSession(context.sessionId);
   const resolvedIdempotencyKey =
@@ -3641,7 +3538,7 @@ const sendStandardHostReport = async (
       toAgentId: session.hostAgentId,
       type: options.type,
       content: options.content,
-      result: options.result
+      result: options.result,
     });
   const message = await client.sendMessage({
     sessionId: context.sessionId,
@@ -3650,17 +3547,16 @@ const sendStandardHostReport = async (
     type: options.type,
     payload: {
       content: options.content,
-      result: options.result
+      result: options.result,
     },
     correlationId:
-      options.correlationId ??
-      `${context.sessionId}:${resolvedIdempotencyKey}`,
-    idempotencyKey: resolvedIdempotencyKey
+      options.correlationId ?? `${context.sessionId}:${resolvedIdempotencyKey}`,
+    idempotencyKey: resolvedIdempotencyKey,
   });
 
   return {
     hostAgentId: session.hostAgentId,
-    message
+    message,
   };
 };
 
@@ -3674,16 +3570,16 @@ const dispatchCliTaskMessage = async (
     type: MessageType;
     correlationId?: string | undefined;
     idempotencyKey?: string | undefined;
-  }
+  },
 ) => {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     const targetMember = await resolveSessionMemberByName(
       context.sessionId,
-      options.toName
+      options.toName,
     );
     const basePayload = buildCliDispatchPayload({
       content: options.content,
-      result: options.result
+      result: options.result,
     });
     let payload = basePayload;
     let supersededMessageIds: string[] = [];
@@ -3693,22 +3589,22 @@ const dispatchCliTaskMessage = async (
     if (targetMember.role === "worker") {
       const [pendingInbox, claimedInbox] = await Promise.all([
         client.getInboxWithOptions(targetMember.id, {
-          pendingOnly: true
+          pendingOnly: true,
         }),
         client.getInboxWithOptions(targetMember.id, {
-          claimedOnly: true
-        })
+          claimedOnly: true,
+        }),
       ]);
       const pendingTasks = pendingInbox.filter(
         (message) =>
           message.toAgentId === targetMember.id &&
-          HOST_EXECUTABLE_MESSAGE_TYPES.includes(message.type)
+          HOST_EXECUTABLE_MESSAGE_TYPES.includes(message.type),
       );
       options.trace?.step("dispatch_queue_state", {
         toName: targetMember.agentName,
         pendingInboxCount: pendingInbox.length,
         claimedInboxCount: claimedInbox.length,
-        pendingExecutableCount: pendingTasks.length
+        pendingExecutableCount: pendingTasks.length,
       });
 
       if (pendingTasks.length > 0) {
@@ -3727,7 +3623,7 @@ const dispatchCliTaskMessage = async (
         fromAgentId: context.agentId,
         toAgentId: targetMember.id,
         type: options.type,
-        payload
+        payload,
       });
     const stableCorrelationId =
       resolvedCorrelationId ??
@@ -3744,7 +3640,7 @@ const dispatchCliTaskMessage = async (
         idempotencyKey: resolvedIdempotencyKey,
         ...(supersededMessageIds.length > 0
           ? { supersedeMessageIds: supersededMessageIds }
-          : {})
+          : {}),
       });
 
       return {
@@ -3754,7 +3650,7 @@ const dispatchCliTaskMessage = async (
         payload,
         dispatchMode,
         supersededMessageIds,
-        correlationId: stableCorrelationId
+        correlationId: stableCorrelationId,
       };
     } catch (error: unknown) {
       if (
@@ -3779,18 +3675,21 @@ const prepareWindowDispatchTasks = async (options: {
 
   const normalizedTasks = normalizeWindowDispatchTasks(options.rawTasks);
   const preparedTasks: PreparedWindowDispatchTask[] = [];
+  const session = await client.getSessionByName(options.sessionName);
+  const members = await client.getMembers(session.id);
 
   for (const task of normalizedTasks) {
-    const targetProfile = await requireWindowProfile(
-      projectRoot,
-      options.sessionName,
-      task.targetWindowName
+    const targetMember = members.find(
+      (member) => member.agentName === task.targetWindowName,
     );
-    ensureWindowRole(targetProfile, "worker");
+    if (!targetMember)
+      throw new Error(`未找到名称为 "${task.targetWindowName}" 的协作成员。`);
+    if (targetMember.role !== "worker")
+      throw new Error(`成员 "${task.targetWindowName}" 不是 worker。`);
     preparedTasks.push({
       targetWindowName: task.targetWindowName,
-      targetProfile,
-      content: task.content
+      targetMember,
+      content: task.content,
     });
   }
 
@@ -3812,118 +3711,113 @@ const executeWindowHostDispatchCommand = async (options: {
       sessionName: options.sessionName,
       windowName: options.windowName,
       tasks: options.rawTasks.map((task) => ({
-        to: task.targetWindowName
-      }))
-    }
+        to: task.targetWindowName,
+      })),
+    },
   });
 
   try {
     const { profile, context } = await requireLiveWindowContext(
       options.sessionName,
       options.windowName,
-      "host"
+      "host",
     );
     trace.step("binding_loaded", buildWindowProfileSummary(profile));
     const preparedTasks = await prepareWindowDispatchTasks({
       sessionName: options.sessionName,
-      rawTasks: options.rawTasks
+      rawTasks: options.rawTasks,
     });
     trace.step("binding_validated", {
       fromWindow: profile.windowName,
       targets: preparedTasks.map((task) => ({
         toWindow: task.targetWindowName,
-        toAgentName: task.targetProfile.agentName
-      }))
+        toAgentName: task.targetMember.agentName,
+      })),
     });
     const locked = await withLocalLoopLock(
       projectRoot,
       {
         identity: profile.identity,
         flow: "host-cycle",
-        takeover: true
+        takeover: true,
       },
       async () =>
-        withCliIdentityLease(
-          context,
-          "host",
-          {},
-          async () => {
-            const dispatchedItems: Array<{
-              toWindow: string;
-              toAgentId: string;
-              toName: string;
-              correlationId: string;
-              message: MessageRecord;
-              payload: unknown;
-              dispatchMode: "new" | "merged";
-              supersededMessageIds: string[];
-            }> = [];
+        withCliIdentityLease(context, "host", {}, async () => {
+          const dispatchedItems: Array<{
+            toWindow: string;
+            toAgentId: string;
+            toName: string;
+            correlationId: string;
+            message: MessageRecord;
+            payload: unknown;
+            dispatchMode: "new" | "merged";
+            supersededMessageIds: string[];
+          }> = [];
 
-            for (const preparedTask of preparedTasks) {
-              const dispatchResult = await dispatchCliTaskMessage(context, {
-                trace,
-                toName: preparedTask.targetProfile.agentName,
-                content: preparedTask.content,
-                result: "pending",
-                type: DEFAULT_WORKER_TASK_TYPE
-              });
-              trace.step(
-                dispatchResult.dispatchMode === "merged"
-                  ? "message_merged"
-                  : "message_sent",
-                {
-                  toWindow: preparedTask.targetWindowName,
-                  correlationId: dispatchResult.correlationId,
-                  dispatchMode: dispatchResult.dispatchMode,
-                  supersededMessageIds: dispatchResult.supersededMessageIds
-                }
-              );
-              dispatchedItems.push({
+          for (const preparedTask of preparedTasks) {
+            const dispatchResult = await dispatchCliTaskMessage(context, {
+              trace,
+              toName: preparedTask.targetMember.agentName,
+              content: preparedTask.content,
+              result: "pending",
+              type: DEFAULT_WORKER_TASK_TYPE,
+            });
+            trace.step(
+              dispatchResult.dispatchMode === "merged"
+                ? "message_merged"
+                : "message_sent",
+              {
                 toWindow: preparedTask.targetWindowName,
-                toAgentId: dispatchResult.toAgentId,
-                toName: dispatchResult.toName,
                 correlationId: dispatchResult.correlationId,
-                message: dispatchResult.message,
-                payload: dispatchResult.payload,
                 dispatchMode: dispatchResult.dispatchMode,
-                supersededMessageIds: dispatchResult.supersededMessageIds
-              });
-            }
-            const backlog = await getInboxCountsForContext(context);
-            const firstDispatchedItem = dispatchedItems[0] ?? null;
-
-            return {
-              commandResultState: "completed" as const,
-              commandResultIsFinal: true,
-              ignoreIntermediateCommandStateText: true,
-              intermediateCommandStateTextIsNotAuthoritative: true,
-              runtimeTerminalProgressHints,
-              userReplyForbidden: true,
-              workflowModel: "message_loop" as const,
-              workflowContract: "wait_receive_process_report_wait" as const,
-              workflowRole: "host" as const,
-              workflowStep: "command_handoff" as const,
-              messageKind: null,
-              mode: options.commandName,
-              matched: false,
-              status: "dispatched" as const,
-              action: "dispatch_completed" as const,
-              identity: context.identity,
-              agentId: context.agentId,
-              agentName: context.agentName,
-              backlog,
-              dispatchedCount: dispatchedItems.length,
-              dispatchedTargets: dispatchedItems.map((item) => item.toWindow),
-              ...(firstDispatchedItem
-                ? {
-                    dispatched: firstDispatchedItem
-                  }
-                : {}),
-              dispatchedBatch: dispatchedItems,
-              turnDisposition: "silent_continue" as const
-            };
+                supersededMessageIds: dispatchResult.supersededMessageIds,
+              },
+            );
+            dispatchedItems.push({
+              toWindow: preparedTask.targetWindowName,
+              toAgentId: dispatchResult.toAgentId,
+              toName: dispatchResult.toName,
+              correlationId: dispatchResult.correlationId,
+              message: dispatchResult.message,
+              payload: dispatchResult.payload,
+              dispatchMode: dispatchResult.dispatchMode,
+              supersededMessageIds: dispatchResult.supersededMessageIds,
+            });
           }
-        )
+          const backlog = await getInboxCountsForContext(context);
+          const firstDispatchedItem = dispatchedItems[0] ?? null;
+
+          return {
+            commandResultState: "completed" as const,
+            commandResultIsFinal: true,
+            ignoreIntermediateCommandStateText: true,
+            intermediateCommandStateTextIsNotAuthoritative: true,
+            runtimeTerminalProgressHints,
+            userReplyForbidden: true,
+            workflowModel: "message_loop" as const,
+            workflowContract: "wait_receive_process_report_wait" as const,
+            workflowRole: "host" as const,
+            workflowStep: "command_handoff" as const,
+            messageKind: null,
+            mode: options.commandName,
+            matched: false,
+            status: "dispatched" as const,
+            action: "dispatch_completed" as const,
+            identity: context.identity,
+            agentId: context.agentId,
+            agentName: context.agentName,
+            backlog,
+            dispatchedCount: dispatchedItems.length,
+            dispatchedTargets: dispatchedItems.map((item) => item.toWindow),
+            ...(firstDispatchedItem
+              ? {
+                  dispatched: firstDispatchedItem,
+                }
+              : {}),
+            dispatchedBatch: dispatchedItems,
+            turnDisposition: "silent_continue" as const,
+          };
+        }),
     );
 
     const rawResult =
@@ -3934,8 +3828,8 @@ const executeWindowHostDispatchCommand = async (options: {
             flow: "host-cycle",
             existing: {
               pid: locked.lock.metadata?.pid ?? null,
-              acquiredAt: locked.lock.metadata?.acquiredAt ?? null
-            }
+              acquiredAt: locked.lock.metadata?.acquiredAt ?? null,
+            },
           })
         : buildExecuteInternalCommandResult(
             locked.value as Record<string, unknown>,
@@ -3944,21 +3838,21 @@ const executeWindowHostDispatchCommand = async (options: {
                 "await",
                 options.windowName,
                 "--session",
-                options.sessionName
+                options.sessionName,
               ],
               automationState: "host_dispatch_handoff",
               internalInstruction:
-                "Do not reply to the user. The task batch has already been dispatched. Continue immediately by entering the host wait command."
-            }
+                "Do not reply to the user. The task batch has already been dispatched. Continue immediately by entering the host wait command.",
+            },
           );
     const runtimeState = await updateWindowStateFromResult(
       profile,
       options.commandName,
-      rawResult as Record<string, unknown>
+      rawResult as Record<string, unknown>,
     );
     trace.step(
       getWindowWaitTraceEvent(rawResult as Record<string, unknown>),
-      rawResult
+      rawResult,
     );
     trace.step("runtime_state_updated", runtimeState);
     const response = buildWindowCommandOutputs(
@@ -3968,8 +3862,8 @@ const executeWindowHostDispatchCommand = async (options: {
       runtimeState,
       {
         commandRunId: trace.commandRunId,
-        tracePath: getCommandTraceStorePath(projectRoot)
-      }
+        tracePath: getCommandTraceStorePath(projectRoot),
+      },
     );
     trace.finish(response.debug);
     printJson(response.control);
@@ -3979,8 +3873,8 @@ const executeWindowHostDispatchCommand = async (options: {
       error: renderSdkError(error),
       commandTrace: {
         commandRunId: trace.commandRunId,
-        tracePath: getCommandTraceStorePath(projectRoot)
-      }
+        tracePath: getCommandTraceStorePath(projectRoot),
+      },
     });
     process.exitCode = 1;
   }
@@ -3988,7 +3882,7 @@ const executeWindowHostDispatchCommand = async (options: {
 
 const findMessageForAgent = async (
   context: CliIdentityContext,
-  messageId: string
+  messageId: string,
 ): Promise<MessageRecord | null> => {
   const message = await client.getMessageById(messageId);
   return message.toAgentId === context.agentId ? message : null;
@@ -4005,12 +3899,12 @@ const resolveHostMessage = async (
     replyType?: string | undefined;
     correlationId?: string | undefined;
     idempotencyKey?: string | undefined;
-  }
+  },
 ) => {
   const sourceMessage = await findMessageForAgent(context, options.messageId);
   if (!sourceMessage) {
     throw new Error(
-      `未找到 messageId 为 "${options.messageId}" 的 host 任务。`
+      `未找到 messageId 为 "${options.messageId}" 的 host 任务。`,
     );
   }
 
@@ -4032,11 +3926,11 @@ const resolveHostMessage = async (
         ? await client.failMessage(options.messageId, {
             agentId: context.agentId,
             reason: options.summary,
-            ...buildWaitChainAuth(context, "host")
+            ...buildWaitChainAuth(context, "host"),
           })
         : await client.completeMessage(options.messageId, {
             agentId: context.agentId,
-            ...buildWaitChainAuth(context, "host")
+            ...buildWaitChainAuth(context, "host"),
           });
   } catch (error: unknown) {
     if (!isSdkErrorCode(error, errorCodes.messageAlreadyFinished)) {
@@ -4056,7 +3950,14 @@ const resolveHostMessage = async (
   }
 
   let replyMessage: MessageRecord | null = null;
-  if (options.replyContent) {
+  const isClientInput =
+    sourceMessage.payload &&
+    typeof sourceMessage.payload === "object" &&
+    "kind" in sourceMessage.payload &&
+    sourceMessage.payload.kind === "web_user_message";
+  const replyContent =
+    options.replyContent ?? (isClientInput ? options.summary : undefined);
+  if (replyContent) {
     const resolvedReplyType = options.replyType
       ? ensureMessageType(options.replyType)
       : action === "failed"
@@ -4079,8 +3980,8 @@ const resolveHostMessage = async (
         messageId: options.messageId,
         action,
         replyType: resolvedReplyType,
-        replyContent: options.replyContent,
-        replyResult: resolvedReplyResult
+        replyContent,
+        replyResult: resolvedReplyResult,
       });
     replyMessage = await client.sendMessage({
       sessionId: context.sessionId,
@@ -4088,14 +3989,18 @@ const resolveHostMessage = async (
       toAgentId: sourceMessage.fromAgentId,
       type: resolvedReplyType,
       payload: {
-        content: options.replyContent,
-        result: resolvedReplyResult
+        content: replyContent,
+        ...(isClientInput
+          ? { kind: "host_reply", inReplyTo: sourceMessage.id }
+          : {}),
+        result: resolvedReplyResult,
       },
       correlationId:
         options.correlationId ??
         sourceMessage.correlationId ??
+        (isClientInput ? sourceMessage.id : undefined) ??
         `${context.sessionId}:${resolvedReplyIdempotencyKey}`,
-      idempotencyKey: resolvedReplyIdempotencyKey
+      idempotencyKey: resolvedReplyIdempotencyKey,
     });
   }
 
@@ -4103,7 +4008,7 @@ const resolveHostMessage = async (
     action,
     sourceMessage,
     processedMessage,
-    replyMessage
+    replyMessage,
   };
 };
 
@@ -4118,18 +4023,18 @@ const renderSdkError = (error: unknown) => {
     return {
       message: sdkError.message,
       statusCode: sdkError.statusCode,
-      code: sdkError.code ?? null
+      code: sdkError.code ?? null,
     };
   }
 
   if (error instanceof Error) {
     return {
-      message: error.message
+      message: error.message,
     };
   }
 
   return {
-    message: "Unknown CLI error."
+    message: "Unknown CLI error.",
   };
 };
 
@@ -4140,11 +4045,20 @@ program
 
 program
   .command("attach")
-  .description("Attach the current member to one collaboration session as host, worker, or knowledge_keeper")
+  .description(
+    "Attach the current member to one collaboration session as host, worker, or knowledge_keeper",
+  )
   .argument("<name>", "Stable unique member name inside the session")
-  .requiredOption("--session <sessionName>", "Explicit collaboration session name")
+  .requiredOption(
+    "--session <sessionName>",
+    "Explicit collaboration session name",
+  )
   .requiredOption("--role <role>", "host, worker, or knowledge_keeper")
   .requiredOption("--duty <roleDescription>", "Stable duty for this member")
+  .option(
+    "--project <path>",
+    "Host project directory (defaults to the current directory)",
+  )
   .action(
     async (
       name: string,
@@ -4152,18 +4066,26 @@ program
         session: string;
         role: "host" | "worker" | "knowledge_keeper";
         duty: string;
-      }
+        project?: string;
+      },
     ) => {
       try {
-        if (options.role !== "host" && options.role !== "worker" && options.role !== "knowledge_keeper") {
-          throw new Error('role 仅支持 "host"、"worker" 或 "knowledge_keeper"。');
+        if (
+          options.role !== "host" &&
+          options.role !== "worker" &&
+          options.role !== "knowledge_keeper"
+        ) {
+          throw new Error(
+            'role 仅支持 "host"、"worker" 或 "knowledge_keeper"。',
+          );
         }
 
         const attached = await attachNamedMember({
           sessionName: options.session,
+          ...(options.project ? { projectPath: options.project } : {}),
           name,
           role: options.role,
-          duty: options.duty
+          duty: options.duty,
         });
 
         printControlJson({
@@ -4173,34 +4095,37 @@ program
             sessionName: attached.profile.sessionName,
             role: attached.profile.role,
             roleDescription: attached.profile.roleDescription,
-            identity: attached.profile.identity
+            identity: attached.profile.identity,
           },
           session: attached.result.session,
           agent: attached.result.agent,
           reusedExistingSession: attached.result.reusedExistingSession,
           runtimeState: attached.runtimeState,
           resultType: "session_ready",
-          status: "ready"
+          status: "ready",
         });
       } catch (error: unknown) {
         printJson({
-          error: renderSdkError(error)
+          error: renderSdkError(error),
         });
         process.exitCode = 1;
       }
-    }
+    },
   );
 
 program
   .command("reset")
   .description("Reset one attached member locally and remotely")
   .argument("<name>", "Stable unique member name inside the session")
-  .requiredOption("--session <sessionName>", "Explicit collaboration session name")
+  .requiredOption(
+    "--session <sessionName>",
+    "Explicit collaboration session name",
+  )
   .action(async (name: string, options: { session: string }) => {
     try {
       const reset = await resetNamedMember({
         sessionName: options.session,
-        name
+        name,
       });
 
       printControlJson({
@@ -4208,26 +4133,77 @@ program
         member: {
           name,
           sessionName: options.session,
-          identity: buildIdentity(options.session, name)
+          identity: buildIdentity(options.session, name),
         },
         localReset: reset.localReset,
         remoteReset: reset.remoteReset,
         resultType: "cleanup_done",
-        status: "reset"
+        status: "reset",
       });
     } catch (error: unknown) {
       printJson({
-        error: renderSdkError(error)
+        error: renderSdkError(error),
       });
       process.exitCode = 1;
     }
   });
 
 program
+  .command("messages")
+  .description("Host only: read recorded member messages without claiming work")
+  .argument("<name>", "Attached Host member name")
+  .requiredOption("--session <sessionName>", "Collaboration session name")
+  .option("--member <memberName>", "Exact Worker, Keeper or Host name")
+  .option("--correlation <correlationId>", "Task thread filter")
+  .option("--before <messageId>", "Pagination cursor")
+  .option("--limit <count>", "Page size, 1–50", "20")
+  .action(
+    async (
+      name: string,
+      options: {
+        session: string;
+        member?: string;
+        correlation?: string;
+        before?: string;
+        limit: string;
+      },
+    ) => {
+      try {
+        const { context } = await requireLiveWindowContext(
+          options.session,
+          name,
+          "host",
+        );
+        const result = await client.callMcpTool({
+          sessionId: context.sessionId,
+          agentId: context.agentId,
+          toolName: "query_messages",
+          arguments: {
+            ...(options.member ? { memberName: options.member } : {}),
+            ...(options.correlation
+              ? { correlationId: options.correlation }
+              : {}),
+            ...(options.before ? { beforeMessageId: options.before } : {}),
+            limit: Number(options.limit),
+          },
+        });
+        printJson(result);
+        if (!result.success) process.exitCode = 1;
+      } catch (error: unknown) {
+        printJson({ error: renderSdkError(error) });
+        process.exitCode = 1;
+      }
+    },
+  );
+
+program
   .command("members")
   .description("List current session members for one attached host member")
   .argument("<name>", "Stable unique host member name inside the session")
-  .requiredOption("--session <sessionName>", "Explicit collaboration session name")
+  .requiredOption(
+    "--session <sessionName>",
+    "Explicit collaboration session name",
+  )
   .action(async (name: string, options: { session: string }) => {
     const trace = createCommandTrace(projectRoot, {
       commandName: "members",
@@ -4235,15 +4211,15 @@ program
       windowName: name,
       input: {
         sessionName: options.session,
-        name
-      }
+        name,
+      },
     });
 
     try {
       const { profile, context } = await requireLiveWindowContext(
         options.session,
         name,
-        "host"
+        "host",
       );
       trace.step("binding_loaded", buildWindowProfileSummary(profile));
       const members = (await client.getMembers(context.sessionId))
@@ -4255,7 +4231,7 @@ program
           return left.agentName.localeCompare(right.agentName);
         });
       trace.step("binding_validated", {
-        memberCount: members.length
+        memberCount: members.length,
       });
 
       const result = {
@@ -4265,11 +4241,11 @@ program
           name: profile.agentName,
           role: profile.role,
           duty: profile.roleDescription,
-          identity: profile.identity
+          identity: profile.identity,
         },
         members: members.map((member) =>
-          buildSessionMemberView(options.session, member)
-        )
+          buildSessionMemberView(options.session, member),
+        ),
       };
       trace.finish(result);
       printJson(result);
@@ -4279,8 +4255,8 @@ program
         error: renderSdkError(error),
         commandTrace: {
           commandRunId: trace.commandRunId,
-          tracePath: getCommandTraceStorePath(projectRoot)
-        }
+          tracePath: getCommandTraceStorePath(projectRoot),
+        },
       });
       process.exitCode = 1;
     }
@@ -4290,12 +4266,24 @@ program
   .command("await")
   .description("Wait for the next actionable item for one attached member")
   .argument("<name>", "Stable unique member name inside the session")
-  .requiredOption("--session <sessionName>", "Explicit collaboration session name")
-  .option("--continue-seq <sequenceId>", "Internal wait continuation sequence id")
+  .requiredOption(
+    "--session <sessionName>",
+    "Explicit collaboration session name",
+  )
+  .option(
+    "--continue-seq <sequenceId>",
+    "Internal wait continuation sequence id",
+  )
   .option("--continue-step <step>", "Internal wait continuation step number")
   .option("--continue-pass <pass>", "Internal wait continuation pass number")
-  .option("--continue-budget <budget>", "Internal wait continuation slice budget")
-  .option("--continue-origin <origin>", "Internal wait continuation origin command")
+  .option(
+    "--continue-budget <budget>",
+    "Internal wait continuation slice budget",
+  )
+  .option(
+    "--continue-origin <origin>",
+    "Internal wait continuation origin command",
+  )
   .action(
     async (
       name: string,
@@ -4306,7 +4294,7 @@ program
         continuePass?: string;
         continueBudget?: string;
         continueOrigin?: string;
-      }
+      },
     ) => {
       await executeWindowWaitCommand({
         commandName: "await",
@@ -4317,29 +4305,32 @@ program
         traceInput: {
           sessionName: options.session,
           windowName: name,
-          commandAlias: "await"
+          commandAlias: "await",
         },
         continuation: {
           continueSeq: options.continueSeq,
           continueStep: options.continueStep,
           continuePass: options.continuePass,
           continueBudget: options.continueBudget,
-          continueOrigin: options.continueOrigin
-        }
+          continueOrigin: options.continueOrigin,
+        },
       });
-    }
+    },
   );
 
 program
   .command("dispatch-many")
   .description("Dispatch one or more tasks from one host member")
   .argument("<name>", "Stable unique host member name inside the session")
-  .requiredOption("--session <sessionName>", "Explicit collaboration session name")
+  .requiredOption(
+    "--session <sessionName>",
+    "Explicit collaboration session name",
+  )
   .requiredOption(
     "--task <taskSpec>",
     "Repeatable. Use <workerName>::<task content> or a JSON object with to/content.",
     parseListOption,
-    [] as string[]
+    [] as string[],
   )
   .action(
     async (
@@ -4347,26 +4338,32 @@ program
       options: {
         session: string;
         task: string[];
-      }
+      },
     ) => {
       await executeWindowHostDispatchCommand({
         commandName: "dispatch-many",
         traceCommandName: "dispatch-many",
         windowName: name,
         sessionName: options.session,
-        rawTasks: options.task.map((task) => parseWindowDispatchTaskSpec(task))
+        rawTasks: options.task.map((task) => parseWindowDispatchTaskSpec(task)),
       });
-    }
+    },
   );
 
 program
   .command("submit")
   .description("Submit one worker result by attached member name")
   .argument("<name>", "Stable unique worker member name inside the session")
-  .requiredOption("--session <sessionName>", "Explicit collaboration session name")
+  .requiredOption(
+    "--session <sessionName>",
+    "Explicit collaboration session name",
+  )
   .requiredOption("--content <content>", "Result content text")
   .option("--result <result>", "Payload result marker")
-  .option("--type <type>", `Message type: ${SUPPORTED_MESSAGE_TYPES.join(", ")}`)
+  .option(
+    "--type <type>",
+    `Message type: ${SUPPORTED_MESSAGE_TYPES.join(", ")}`,
+  )
   .option("--fail-reason <reason>", "Failure reason for the claimed message")
   .option("--mark-as <state>", "completed, failed, or contested", "completed")
   .action(
@@ -4379,7 +4376,7 @@ program
         type?: string;
         failReason?: string;
         markAs: "completed" | "failed" | "contested";
-      }
+      },
     ) => {
       const trace = createCommandTrace(projectRoot, {
         commandName: "submit",
@@ -4388,36 +4385,38 @@ program
         input: {
           sessionName: options.session,
           name,
-          markAs: options.markAs
-        }
+          markAs: options.markAs,
+        },
       });
 
       try {
         const { profile, context } = await requireLiveWindowContext(
           options.session,
           name,
-          "worker"
+          "worker",
         );
         trace.step("binding_loaded", buildWindowProfileSummary(profile));
         const rememberedState = await readWindowRuntimeState(
           projectRoot,
           options.session,
-          name
+          name,
         );
         const claimedMessage =
           (rememberedState?.currentMessageId
-            ? await findMessageForAgent(context, rememberedState.currentMessageId)
-            : null) ??
-          (await findClaimedMessageForContext(context));
+            ? await findMessageForAgent(
+                context,
+                rememberedState.currentMessageId,
+              )
+            : null) ?? (await findClaimedMessageForContext(context));
 
         if (!claimedMessage) {
           throw new Error(
-            `name="${name}" 当前没有已领取的 worker 任务，不能执行 submit。请先执行 loopmarshal await ${name} --session ${options.session}。`
+            `name="${name}" 当前没有已领取的 worker 任务，不能执行 submit。请先执行 loopmarshal await ${name} --session ${options.session}。`,
           );
         }
         trace.step("binding_validated", {
           messageId: claimedMessage.id,
-          correlationId: claimedMessage.correlationId ?? null
+          correlationId: claimedMessage.correlationId ?? null,
         });
 
         const locked = await withLocalLoopLock(
@@ -4425,55 +4424,51 @@ program
           {
             identity: profile.identity,
             flow: "worker-cycle",
-            takeover: true
+            takeover: true,
           },
           async () =>
-            withCliIdentityLease(
-              context,
-              "worker",
-              {},
-              async () =>
-                submitWorkerResult(context, {
-                  messageId: claimedMessage.id,
-                  content: options.content,
-                  result: options.result,
-                  type: options.type
-                    ? ensureMessageType(options.type)
-                    : undefined,
-                  failReason: options.failReason,
-                  markAs: options.markAs
-                }).then((submission) => ({
-                  commandResultState: "completed" as const,
-                  commandResultIsFinal: true,
-                  ignoreIntermediateCommandStateText: true,
-                  intermediateCommandStateTextIsNotAuthoritative: true,
-                  runtimeTerminalProgressHints,
-                  workflowModel: "message_loop" as const,
-                  workflowContract: "wait_receive_process_report_wait" as const,
-                  workflowRole: "worker" as const,
-                  workflowStep: "command_handoff" as const,
-                  messageKind: null,
-                  userReplyForbidden: true,
-                  mode: "submit" as const,
-                  matched: false,
-                  status: "reported" as const,
-                  action: "submit_completed" as const,
-                  identity: context.identity,
-                  agentId: context.agentId,
-                  agentName: context.agentName,
-                  submittedAt:
-                    submission.processedMessage.processedAt ??
-                    submission.processedMessage.failedAt ??
-                    submission.report.message.createdAt,
-                  submitted: {
-                    markAs: submission.markAs,
-                    correlationId: submission.correlationId,
-                    reportMessage: submission.report.message,
-                    processedMessage: submission.processedMessage
-                  },
-                  turnDisposition: "silent_continue" as const
-                }))
-            )
+            withCliIdentityLease(context, "worker", {}, async () =>
+              submitWorkerResult(context, {
+                messageId: claimedMessage.id,
+                content: options.content,
+                result: options.result,
+                type: options.type
+                  ? ensureMessageType(options.type)
+                  : undefined,
+                failReason: options.failReason,
+                markAs: options.markAs,
+              }).then((submission) => ({
+                commandResultState: "completed" as const,
+                commandResultIsFinal: true,
+                ignoreIntermediateCommandStateText: true,
+                intermediateCommandStateTextIsNotAuthoritative: true,
+                runtimeTerminalProgressHints,
+                workflowModel: "message_loop" as const,
+                workflowContract: "wait_receive_process_report_wait" as const,
+                workflowRole: "worker" as const,
+                workflowStep: "command_handoff" as const,
+                messageKind: null,
+                userReplyForbidden: true,
+                mode: "submit" as const,
+                matched: false,
+                status: "reported" as const,
+                action: "submit_completed" as const,
+                identity: context.identity,
+                agentId: context.agentId,
+                agentName: context.agentName,
+                submittedAt:
+                  submission.processedMessage.processedAt ??
+                  submission.processedMessage.failedAt ??
+                  submission.report.message.createdAt,
+                submitted: {
+                  markAs: submission.markAs,
+                  correlationId: submission.correlationId,
+                  reportMessage: submission.report.message,
+                  processedMessage: submission.processedMessage,
+                },
+                turnDisposition: "silent_continue" as const,
+              })),
+            ),
         );
 
         const rawResult =
@@ -4484,8 +4479,8 @@ program
                 flow: "worker-cycle",
                 existing: {
                   pid: locked.lock.metadata?.pid ?? null,
-                  acquiredAt: locked.lock.metadata?.acquiredAt ?? null
-                }
+                  acquiredAt: locked.lock.metadata?.acquiredAt ?? null,
+                },
               })
             : buildExecuteInternalCommandResult(
                 locked.value as Record<string, unknown>,
@@ -4493,15 +4488,18 @@ program
                   commandArgs: ["await", name, "--session", options.session],
                   automationState: "worker_submit_handoff",
                   internalInstruction:
-                    "Do not reply to the user. The current worker result has already been submitted. Continue immediately by entering the worker wait command."
-                }
+                    "Do not reply to the user. The current worker result has already been submitted. Continue immediately by entering the worker wait command.",
+                },
               );
         const runtimeState = await updateWindowStateFromResult(
           profile,
           "submit",
-          rawResult as Record<string, unknown>
+          rawResult as Record<string, unknown>,
         );
-        trace.step(getWindowWaitTraceEvent(rawResult as Record<string, unknown>), rawResult);
+        trace.step(
+          getWindowWaitTraceEvent(rawResult as Record<string, unknown>),
+          rawResult,
+        );
         trace.step("runtime_state_updated", runtimeState);
         const response = buildWindowCommandOutputs(
           profile,
@@ -4510,8 +4508,8 @@ program
           runtimeState,
           {
             commandRunId: trace.commandRunId,
-            tracePath: getCommandTraceStorePath(projectRoot)
-          }
+            tracePath: getCommandTraceStorePath(projectRoot),
+          },
         );
         trace.finish(response.debug);
         printJson(response.control);
@@ -4521,24 +4519,33 @@ program
           error: renderSdkError(error),
           commandTrace: {
             commandRunId: trace.commandRunId,
-            tracePath: getCommandTraceStorePath(projectRoot)
-          }
+            tracePath: getCommandTraceStorePath(projectRoot),
+          },
         });
         process.exitCode = 1;
       }
-    }
+    },
   );
 
 program
   .command("resolve")
   .description("Resolve one claimed host message by attached member name")
   .argument("<name>", "Stable unique host member name inside the session")
-  .requiredOption("--session <sessionName>", "Explicit collaboration session name")
+  .requiredOption(
+    "--session <sessionName>",
+    "Explicit collaboration session name",
+  )
   .requiredOption("--summary <summary>", "Host-side processing summary")
   .option("--action <action>", "completed, failed, or delegated", "completed")
-  .option("--reply-content <content>", "Optional reply content back to the original sender")
+  .option(
+    "--reply-content <content>",
+    "Optional reply content back to the original sender",
+  )
   .option("--reply-result <result>", "Reply payload result marker")
-  .option("--reply-type <type>", `Reply message type: ${SUPPORTED_MESSAGE_TYPES.join(", ")}`)
+  .option(
+    "--reply-type <type>",
+    `Reply message type: ${SUPPORTED_MESSAGE_TYPES.join(", ")}`,
+  )
   .action(
     async (
       name: string,
@@ -4549,7 +4556,7 @@ program
         replyContent?: string;
         replyResult?: string;
         replyType?: string;
-      }
+      },
     ) => {
       const trace = createCommandTrace(projectRoot, {
         commandName: "resolve",
@@ -4558,33 +4565,36 @@ program
         input: {
           sessionName: options.session,
           name,
-          action: options.action
-        }
+          action: options.action,
+        },
       });
 
       try {
         const { profile, context } = await requireLiveWindowContext(
           options.session,
           name,
-          "host"
+          "host",
         );
         trace.step("binding_loaded", buildWindowProfileSummary(profile));
         const rememberedState = await readWindowRuntimeState(
           projectRoot,
           options.session,
-          name
+          name,
         );
         const claimedMessage =
           (rememberedState?.currentMessageId
-            ? await findMessageForAgent(context, rememberedState.currentMessageId)
+            ? await findMessageForAgent(
+                context,
+                rememberedState.currentMessageId,
+              )
             : null) ??
           (await findClaimedMessageForContext(context, {
-            types: HOST_RESOLVABLE_MESSAGE_TYPES
+            types: HOST_RESOLVABLE_MESSAGE_TYPES,
           }));
 
         if (!claimedMessage) {
           throw new Error(
-            `name="${name}" 当前没有已领取的 host 消息，不能执行 resolve。请先执行 loopmarshal await ${name} --session ${options.session}。`
+            `name="${name}" 当前没有已领取的 host 消息，不能执行 resolve。请先执行 loopmarshal await ${name} --session ${options.session}。`,
           );
         }
 
@@ -4593,7 +4603,7 @@ program
           {
             identity: profile.identity,
             flow: "host-cycle",
-            takeover: true
+            takeover: true,
           },
           async () =>
             withCliIdentityLease(context, "host", {}, async () =>
@@ -4603,7 +4613,7 @@ program
                 summary: options.summary,
                 replyContent: options.replyContent,
                 replyResult: options.replyResult,
-                replyType: options.replyType
+                replyType: options.replyType,
               }).then((resolution) => ({
                 commandResultState: "completed" as const,
                 commandResultIsFinal: true,
@@ -4624,9 +4634,9 @@ program
                 agentId: context.agentId,
                 agentName: context.agentName,
                 resolved: resolution,
-                turnDisposition: "silent_continue" as const
-              }))
-            )
+                turnDisposition: "silent_continue" as const,
+              })),
+            ),
         );
 
         const rawResult =
@@ -4637,8 +4647,8 @@ program
                 flow: "host-cycle",
                 existing: {
                   pid: locked.lock.metadata?.pid ?? null,
-                  acquiredAt: locked.lock.metadata?.acquiredAt ?? null
-                }
+                  acquiredAt: locked.lock.metadata?.acquiredAt ?? null,
+                },
               })
             : buildExecuteInternalCommandResult(
                 locked.value as Record<string, unknown>,
@@ -4646,15 +4656,18 @@ program
                   commandArgs: ["await", name, "--session", options.session],
                   automationState: "host_resolve_handoff",
                   internalInstruction:
-                    "Do not reply to the user. The current host message has already been resolved. Continue immediately by entering the host wait command."
-                }
+                    "Do not reply to the user. The current host message has already been resolved. Continue immediately by entering the host wait command.",
+                },
               );
         const runtimeState = await updateWindowStateFromResult(
           profile,
           "resolve",
-          rawResult as Record<string, unknown>
+          rawResult as Record<string, unknown>,
         );
-        trace.step(getWindowWaitTraceEvent(rawResult as Record<string, unknown>), rawResult);
+        trace.step(
+          getWindowWaitTraceEvent(rawResult as Record<string, unknown>),
+          rawResult,
+        );
         trace.step("runtime_state_updated", runtimeState);
         const response = buildWindowCommandOutputs(
           profile,
@@ -4663,8 +4676,8 @@ program
           runtimeState,
           {
             commandRunId: trace.commandRunId,
-            tracePath: getCommandTraceStorePath(projectRoot)
-          }
+            tracePath: getCommandTraceStorePath(projectRoot),
+          },
         );
         trace.finish(response.debug);
         printJson(response.control);
@@ -4674,12 +4687,12 @@ program
           error: renderSdkError(error),
           commandTrace: {
             commandRunId: trace.commandRunId,
-            tracePath: getCommandTraceStorePath(projectRoot)
-          }
+            tracePath: getCommandTraceStorePath(projectRoot),
+          },
         });
         process.exitCode = 1;
       }
-    }
+    },
   );
 
 const knowledgeCommand = program
@@ -4690,8 +4703,14 @@ knowledgeCommand
   .command("read")
   .description("Read one knowledge document by member name")
   .argument("<name>", "Stable member name inside the session")
-  .requiredOption("--session <sessionName>", "Explicit collaboration session name")
-  .option("--ref <ref>", "Knowledge ref, for example L1/session-direction#current-goal")
+  .requiredOption(
+    "--session <sessionName>",
+    "Explicit collaboration session name",
+  )
+  .option(
+    "--ref <ref>",
+    "Knowledge ref, for example L1/session-direction#current-goal",
+  )
   .option("--level <level>", "Knowledge level: l1, l2, or l3")
   .option("--slug <slug>", "Knowledge slug")
   .option("--summary-only", "Return summary and metadata without full content")
@@ -4706,22 +4725,29 @@ knowledgeCommand
         slug?: string;
         summaryOnly?: boolean;
         maxChars?: string;
-      }
+      },
     ) => {
       try {
-        await requireLiveWindowContext(options.session, name);
+        const { context } = await requireLiveWindowContext(
+          options.session,
+          name,
+        );
         const parsed = options.ref
           ? parseKnowledgeRef(options.ref)
           : {
               level: ensureKnowledgeLevel(options.level),
               slug: options.slug ?? "",
-              fragment: null
+              fragment: null,
             };
         if (!parsed.slug) {
           throw new Error("必须提供 --ref，或同时提供 --level 与 --slug。");
         }
 
-        const document = await client.getKnowledge(parsed.level, parsed.slug);
+        const document = await client.getKnowledge(
+          parsed.level,
+          parsed.slug,
+          context.sessionId,
+        );
         const maxChars = options.maxChars
           ? Number.parseInt(options.maxChars, 10)
           : undefined;
@@ -4739,22 +4765,27 @@ knowledgeCommand
           document: document
             ? {
                 ...document,
-                ...(content !== undefined ? { content } : { content: undefined })
+                ...(content !== undefined
+                  ? { content }
+                  : { content: undefined }),
               }
-            : null
+            : null,
         });
       } catch (error: unknown) {
         printJson({ error: renderSdkError(error) });
         process.exitCode = 1;
       }
-    }
+    },
   );
 
 knowledgeCommand
   .command("list")
   .description("List knowledge documents by member name")
   .argument("<name>", "Stable member name inside the session")
-  .requiredOption("--session <sessionName>", "Explicit collaboration session name")
+  .requiredOption(
+    "--session <sessionName>",
+    "Explicit collaboration session name",
+  )
   .option("--level <level>", "Knowledge level: l1, l2, or l3")
   .option("--tag <tag>", "Filter by tag")
   .option("--query <query>", "Search query")
@@ -4766,31 +4797,45 @@ knowledgeCommand
         level?: string;
         tag?: string;
         query?: string;
-      }
+      },
     ) => {
       try {
-        await requireLiveWindowContext(options.session, name);
+        const { context } = await requireLiveWindowContext(
+          options.session,
+          name,
+        );
         const items = await client.listKnowledge({
-          ...(options.level ? { level: ensureKnowledgeLevel(options.level) } : {}),
+          sessionId: context.sessionId,
+          ...(options.level
+            ? { level: ensureKnowledgeLevel(options.level) }
+            : {}),
           ...(options.tag ? { tag: options.tag } : {}),
-          ...(options.query ? { query: options.query } : {})
+          ...(options.query ? { query: options.query } : {}),
         });
         printJson({
           op: "KNOWLEDGE_LIST",
-          items
+          items,
         });
       } catch (error: unknown) {
         printJson({ error: renderSdkError(error) });
         process.exitCode = 1;
       }
-    }
+    },
   );
 
 knowledgeCommand
   .command("upsert")
-  .description("Create or update one knowledge document as host or knowledge_keeper")
-  .argument("<name>", "Stable member name inside the session (host or knowledge_keeper)")
-  .requiredOption("--session <sessionName>", "Explicit collaboration session name")
+  .description(
+    "Create or update one knowledge document as host or knowledge_keeper",
+  )
+  .argument(
+    "<name>",
+    "Stable member name inside the session (host or knowledge_keeper)",
+  )
+  .requiredOption(
+    "--session <sessionName>",
+    "Explicit collaboration session name",
+  )
   .requiredOption("--level <level>", "Knowledge level: l1, l2, or l3")
   .requiredOption("--slug <slug>", "Knowledge slug")
   .requiredOption("--title <title>", "Knowledge title")
@@ -4800,7 +4845,7 @@ knowledgeCommand
   .option("--change-summary <summary>", "Change summary")
   .option(
     "--source-kind <kind>",
-    "Knowledge change source: host_update, user_feedback, worker_report, manual, or system"
+    "Knowledge change source: host_update, user_feedback, worker_report, manual, or system",
   )
   .action(
     async (
@@ -4815,37 +4860,40 @@ knowledgeCommand
         tags?: string;
         changeSummary?: string;
         sourceKind?: string;
-      }
+      },
     ) => {
       try {
         const { profile, context } = await requireLiveWindowContext(
           options.session,
-          name
+          name,
         );
         ensureWindowRoleAny(profile, ["host", "knowledge_keeper"]);
         const document = await client.upsertKnowledge({
+          sessionId: context.sessionId,
           level: ensureKnowledgeLevel(options.level),
           slug: options.slug,
           title: options.title,
           content: options.content,
-          ...(options.summary !== undefined ? { summary: options.summary } : {}),
+          ...(options.summary !== undefined
+            ? { summary: options.summary }
+            : {}),
           tags: parseTagsOption(options.tags),
           ownerAgentId: context.agentId,
           sourceKind: ensureKnowledgeSourceKind(options.sourceKind),
           sourceAgentId: context.agentId,
           ...(options.changeSummary !== undefined
             ? { changeSummary: options.changeSummary }
-            : {})
+            : {}),
         });
         printJson({
           op: "KNOWLEDGE_UPSERTED",
-          document
+          document,
         });
       } catch (error: unknown) {
         printJson({ error: renderSdkError(error) });
         process.exitCode = 1;
       }
-    }
+    },
   );
 
 const executeWindowWaitCommand = async (options: {
@@ -4873,20 +4921,20 @@ const executeWindowWaitCommand = async (options: {
     commandName: options.commandName,
     sessionName: options.sessionName,
     windowName: options.windowName,
-    input: options.traceInput
+    input: options.traceInput,
   });
 
   try {
     const { profile, context } = await requireLiveWindowContext(
       options.sessionName,
-      options.windowName
+      options.windowName,
     );
     trace.step("binding_loaded", buildWindowProfileSummary(profile));
     const intervalSeconds = profile.defaults.intervalSeconds;
     const maxRounds = profile.defaults.maxRounds;
     const slicedWait = sliceWaitRounds({
       intervalSeconds,
-      maxRounds
+      maxRounds,
     });
     const continuationState = resolveWindowWaitContinuationState({
       alias: options.waitAlias,
@@ -4897,28 +4945,28 @@ const executeWindowWaitCommand = async (options: {
       continueStep: options.continuation?.continueStep,
       continuePass: options.continuation?.continuePass,
       continueBudget: options.continuation?.continueBudget,
-      continueOrigin: options.continuation?.continueOrigin
+      continueOrigin: options.continuation?.continueOrigin,
     });
 
     if (profile.role === "worker") {
       trace.step("binding_validated", {
         identity: profile.identity,
         role: profile.role,
-        waitPolicy: profile.defaults
+        waitPolicy: profile.defaults,
       });
       trace.step("wait_started", {
         flow: "worker-cycle",
         alias: options.waitAlias,
         sequenceId: continuationState.sequenceId,
         step: continuationState.currentStep,
-        pass: continuationState.currentPass
+        pass: continuationState.currentPass,
       });
       const locked = await withLocalLoopLock(
         projectRoot,
         {
           identity: profile.identity,
           flow: "worker-cycle",
-          takeover: true
+          takeover: true,
         },
         async () =>
           withCliIdentityLease(
@@ -4926,7 +4974,7 @@ const executeWindowWaitCommand = async (options: {
             "worker",
             {
               intervalSeconds: slicedWait.intervalSeconds,
-              maxRounds: slicedWait.maxRounds
+              maxRounds: slicedWait.maxRounds,
             },
             () =>
               runWorkerAwaitTask(context, {
@@ -4934,9 +4982,9 @@ const executeWindowWaitCommand = async (options: {
                 trace,
                 intervalSeconds: slicedWait.intervalSeconds,
                 maxRounds: slicedWait.maxRounds,
-                maxElapsedSeconds: slicedWait.maxElapsedSeconds
-              })
-          )
+                maxElapsedSeconds: slicedWait.maxElapsedSeconds,
+              }),
+          ),
       );
 
       const rawResult =
@@ -4947,8 +4995,8 @@ const executeWindowWaitCommand = async (options: {
               flow: "worker-cycle",
               existing: {
                 pid: locked.lock.metadata?.pid ?? null,
-                acquiredAt: locked.lock.metadata?.acquiredAt ?? null
-              }
+                acquiredAt: locked.lock.metadata?.acquiredAt ?? null,
+              },
             })
           : maybeBuildContinuedWaitResult(
               locked.value as Record<string, unknown>,
@@ -4958,15 +5006,18 @@ const executeWindowWaitCommand = async (options: {
                 continueStatus: "wait_timeout_continue",
                 automationState: "wait_loop_continue",
                 internalInstruction:
-                  "Do not reply to the user. No worker task arrived in this wait slice. Continue the same wait chain silently."
-              }
+                  "Do not reply to the user. No worker task arrived in this wait slice. Continue the same wait chain silently.",
+              },
             );
       const runtimeState = await updateWindowStateFromResult(
         profile,
         options.displayCommandName,
-        rawResult as Record<string, unknown>
+        rawResult as Record<string, unknown>,
       );
-      trace.step(getWindowWaitTraceEvent(rawResult as Record<string, unknown>), rawResult);
+      trace.step(
+        getWindowWaitTraceEvent(rawResult as Record<string, unknown>),
+        rawResult,
+      );
       trace.step("runtime_state_updated", runtimeState);
       const response = buildWindowCommandOutputs(
         profile,
@@ -4975,8 +5026,8 @@ const executeWindowWaitCommand = async (options: {
         runtimeState,
         {
           commandRunId: trace.commandRunId,
-          tracePath: getCommandTraceStorePath(projectRoot)
-        }
+          tracePath: getCommandTraceStorePath(projectRoot),
+        },
       );
       trace.finish(response.debug);
       printJson(response.control);
@@ -4987,21 +5038,21 @@ const executeWindowWaitCommand = async (options: {
     trace.step("binding_validated", {
       identity: profile.identity,
       role: profile.role,
-      waitPolicy: profile.defaults
+      waitPolicy: profile.defaults,
     });
     trace.step("queue_drain_started", {
       flow: "host-cycle",
       alias: options.waitAlias,
       sequenceId: continuationState.sequenceId,
       step: continuationState.currentStep,
-      pass: continuationState.currentPass
+      pass: continuationState.currentPass,
     });
     const locked = await withLocalLoopLock(
       projectRoot,
       {
         identity: profile.identity,
         flow: "host-cycle",
-        takeover: true
+        takeover: true,
       },
       async () =>
         withCliIdentityLease(
@@ -5009,7 +5060,7 @@ const executeWindowWaitCommand = async (options: {
           "host",
           {
             intervalSeconds: slicedWait.intervalSeconds,
-            maxRounds: slicedWait.maxRounds
+            maxRounds: slicedWait.maxRounds,
           },
           () =>
             runHostAwaitMessage(context, {
@@ -5017,9 +5068,9 @@ const executeWindowWaitCommand = async (options: {
               trace,
               intervalSeconds: slicedWait.intervalSeconds,
               maxRounds: slicedWait.maxRounds,
-              maxElapsedSeconds: slicedWait.maxElapsedSeconds
-            })
-        )
+              maxElapsedSeconds: slicedWait.maxElapsedSeconds,
+            }),
+        ),
     );
 
     const rawResult =
@@ -5030,8 +5081,8 @@ const executeWindowWaitCommand = async (options: {
             flow: "host-cycle",
             existing: {
               pid: locked.lock.metadata?.pid ?? null,
-              acquiredAt: locked.lock.metadata?.acquiredAt ?? null
-            }
+              acquiredAt: locked.lock.metadata?.acquiredAt ?? null,
+            },
           })
         : maybeBuildContinuedWaitResult(
             locked.value as Record<string, unknown>,
@@ -5041,15 +5092,18 @@ const executeWindowWaitCommand = async (options: {
               continueStatus: "wait_timeout_continue",
               automationState: "host_wait_loop_continue",
               internalInstruction:
-                "Do not reply to the user. No host message arrived in this wait slice. Continue the same wait chain silently."
-            }
+                "Do not reply to the user. No host message arrived in this wait slice. Continue the same wait chain silently.",
+            },
           );
     const runtimeState = await updateWindowStateFromResult(
       profile,
       options.displayCommandName,
-      rawResult as Record<string, unknown>
+      rawResult as Record<string, unknown>,
     );
-    trace.step(getWindowWaitTraceEvent(rawResult as Record<string, unknown>), rawResult);
+    trace.step(
+      getWindowWaitTraceEvent(rawResult as Record<string, unknown>),
+      rawResult,
+    );
     trace.step("runtime_state_updated", runtimeState);
     const response = buildWindowCommandOutputs(
       profile,
@@ -5058,8 +5112,8 @@ const executeWindowWaitCommand = async (options: {
       runtimeState,
       {
         commandRunId: trace.commandRunId,
-        tracePath: getCommandTraceStorePath(projectRoot)
-      }
+        tracePath: getCommandTraceStorePath(projectRoot),
+      },
     );
     trace.finish(response.debug);
     printJson(response.control);
@@ -5069,8 +5123,8 @@ const executeWindowWaitCommand = async (options: {
       error: renderSdkError(error),
       commandTrace: {
         commandRunId: trace.commandRunId,
-        tracePath: getCommandTraceStorePath(projectRoot)
-      }
+        tracePath: getCommandTraceStorePath(projectRoot),
+      },
     });
     process.exitCode = 1;
   }
@@ -5080,7 +5134,10 @@ program
   .command("start")
   .description("Start the local loopmarshal core service and web dashboard")
   .option("--daemon", "Start the local core as a background process")
-  .option("--core-only", "Start only the core service without the web dashboard")
+  .option(
+    "--core-only",
+    "Start only the core service without the web dashboard",
+  )
   .action(async (options: { daemon?: boolean; coreOnly?: boolean }) => {
     const runtime = await loadRuntimeModule();
     if (options.daemon) {
@@ -5092,30 +5149,34 @@ program
             state: status.state,
             reachable: status.reachable,
             pid: status.metadata?.pid ?? null,
-            dashboardUrl: runtime.getDashboardUrl(status.metadata)
+            dashboardUrl: runtime.getDashboardUrl(status.metadata),
           },
           null,
-          2
-        )
+          2,
+        ),
       );
       return;
     }
 
     const webDir = path.resolve(projectRoot, "apps", "web");
-    const startWeb = !options.coreOnly && fs.existsSync(path.join(webDir, "package.json"));
+    const startWeb =
+      !options.coreOnly && fs.existsSync(path.join(webDir, "package.json"));
 
     console.log(
       JSON.stringify(
         {
           mode: "foreground",
-          message: "Starting loopmarshal core in the foreground. Press Ctrl+C to stop.",
+          message:
+            "Starting loopmarshal core in the foreground. Press Ctrl+C to stop.",
           dashboardUrl: runtime.getDashboardUrl(),
-          webDashboardUrl: startWeb ? `http://${process.env.LOOPMARSHAL_HOST ?? "localhost"}:${process.env.LOOPMARSHAL_WEB_PORT ?? "5173"}` : null,
-          webDir: startWeb ? webDir : null
+          webDashboardUrl: startWeb
+            ? `http://${process.env.LOOPMARSHAL_HOST ?? "localhost"}:${process.env.LOOPMARSHAL_WEB_PORT ?? "5173"}`
+            : null,
+          webDir: startWeb ? webDir : null,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
     await runtime.runCoreForeground(projectRoot, startWeb ? webDir : undefined);
   });
@@ -5130,11 +5191,11 @@ program
       JSON.stringify(
         {
           state: status.state,
-          reachable: status.reachable
+          reachable: status.reachable,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   });
 
@@ -5147,7 +5208,7 @@ program
     const mcpServers = status.reachable
       ? await runtime.getRegisteredMcpServers(
           status.metadata?.host,
-          status.metadata?.port
+          status.metadata?.port,
         )
       : [];
     console.log(
@@ -5155,11 +5216,11 @@ program
         {
           ...status,
           mcpServers,
-          dashboardUrl: runtime.getDashboardUrl(status.metadata)
+          dashboardUrl: runtime.getDashboardUrl(status.metadata),
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   });
 
@@ -5177,31 +5238,32 @@ mcpCommand
       console.log(
         JSON.stringify(
           {
-            error: "loopmarshal core is not running. Start it with 'loopmarshal start --daemon'."
+            error:
+              "loopmarshal core is not running. Start it with 'loopmarshal start --daemon'.",
           },
           null,
-          2
-        )
+          2,
+        ),
       );
       return;
     }
     const servers = await runtime.getRegisteredMcpServers(
       status.metadata?.host,
-      status.metadata?.port
+      status.metadata?.port,
     );
     console.log(
       JSON.stringify(
         {
           core: {
             state: status.state,
-            pid: status.metadata?.pid ?? null
+            pid: status.metadata?.pid ?? null,
           },
           mcpServers: servers,
-          mcpServerCount: servers.length
+          mcpServerCount: servers.length,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   });
 
@@ -5222,7 +5284,7 @@ program
     const runtime = await loadRuntimeModule();
     const count = Number.parseInt(options.lines, 10);
     console.log(
-      runtime.readLogs(projectRoot, Number.isNaN(count) ? 100 : count)
+      runtime.readLogs(projectRoot, Number.isNaN(count) ? 100 : count),
     );
   });
 
@@ -5235,11 +5297,11 @@ program
     console.log(
       JSON.stringify(
         {
-          configPath
+          configPath,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   });
 
@@ -5249,31 +5311,31 @@ mcpCommand
   .option("--target <target>", "auto, claude, codex, cursor, or trae", "auto")
   .option("--timeout <seconds>", "MCP client tool timeout seconds", "3600")
   .option("--dry-run", "Print planned changes without writing files", false)
-  .action(async (options: {
-    target: string;
-    timeout: string;
-    dryRun?: boolean;
-  }) => {
-    const target = options.target as McpTimeoutConfigureTarget;
-    if (!["auto", "claude", "codex", "cursor", "trae"].includes(target)) {
-      throw new Error(`Unknown MCP timeout target: ${options.target}`);
-    }
-    const timeoutSeconds = Number(options.timeout);
-    if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
-      throw new Error(`Invalid timeout seconds: ${options.timeout}`);
-    }
-    const results = await configureMcpTimeouts({
-      projectRoot,
-      target,
-      timeoutSeconds,
-      dryRun: Boolean(options.dryRun)
-    });
-    console.log(JSON.stringify({ results }, null, 2));
-  });
+  .action(
+    async (options: { target: string; timeout: string; dryRun?: boolean }) => {
+      const target = options.target as McpTimeoutConfigureTarget;
+      if (!["auto", "claude", "codex", "cursor", "trae"].includes(target)) {
+        throw new Error(`Unknown MCP timeout target: ${options.target}`);
+      }
+      const timeoutSeconds = Number(options.timeout);
+      if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
+        throw new Error(`Invalid timeout seconds: ${options.timeout}`);
+      }
+      const results = await configureMcpTimeouts({
+        projectRoot,
+        target,
+        timeoutSeconds,
+        dryRun: Boolean(options.dryRun),
+      });
+      console.log(JSON.stringify({ results }, null, 2));
+    },
+  );
 
 mcpCommand
   .command("serve")
-  .description("Start the loopmarshal MCP stdio server (for IDE MCP integration)")
+  .description(
+    "Start the loopmarshal MCP stdio server (for IDE MCP integration)",
+  )
   .action(async () => {
     // The MCP server module self-starts on import.
     await import("./mcp-stdio-server.js");
@@ -5281,110 +5343,166 @@ mcpCommand
 
 mcpCommand
   .command("setup")
-  .description("One-click setup: configure MCP server entry and timeouts for AI IDEs")
+  .description(
+    "One-click setup: configure MCP server entry and timeouts for AI IDEs",
+  )
   .option("--target <target>", "auto, claude, codex, or cursor", "auto")
   .option("--timeout <seconds>", "MCP tool timeout seconds", "3600")
-  .option("--role <role>", "Pre-declare role for tool isolation: host or worker")
+  .option(
+    "--role <role>",
+    "Pre-declare role for tool isolation: host or worker",
+  )
   .option("--dry-run", "Print planned changes without writing files", false)
-  .action(async (options: {
-    target: string;
-    timeout: string;
-    role?: string;
-    dryRun?: boolean;
-  }) => {
-    const target = options.target as McpSetupTarget;
-    if (!["auto", "claude", "codex", "cursor"].includes(target)) {
-      throw new Error(`Unknown MCP setup target: ${options.target}`);
-    }
-    const timeoutSeconds = Number(options.timeout);
-    if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
-      throw new Error(`Invalid timeout seconds: ${options.timeout}`);
-    }
-    let role: "host" | "worker" | undefined;
-    if (options.role) {
-      if (options.role !== "host" && options.role !== "worker") {
-        throw new Error(`Invalid role: ${options.role}. Must be 'host' or 'worker'.`);
+  .action(
+    async (options: {
+      target: string;
+      timeout: string;
+      role?: string;
+      dryRun?: boolean;
+    }) => {
+      const target = options.target as McpSetupTarget;
+      if (!["auto", "claude", "codex", "cursor"].includes(target)) {
+        throw new Error(`Unknown MCP setup target: ${options.target}`);
       }
-      role = options.role;
-    }
-    const results = await setupMcp({
-      projectRoot,
-      target,
-      timeoutSeconds,
-      dryRun: Boolean(options.dryRun),
-      ...(role ? { role } : {})
-    });
-    console.log(JSON.stringify({ results }, null, 2));
-  });
+      const timeoutSeconds = Number(options.timeout);
+      if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
+        throw new Error(`Invalid timeout seconds: ${options.timeout}`);
+      }
+      let role: "host" | "worker" | undefined;
+      if (options.role) {
+        if (options.role !== "host" && options.role !== "worker") {
+          throw new Error(
+            `Invalid role: ${options.role}. Must be 'host' or 'worker'.`,
+          );
+        }
+        role = options.role;
+      }
+      const results = await setupMcp({
+        projectRoot,
+        target,
+        timeoutSeconds,
+        dryRun: Boolean(options.dryRun),
+        ...(role ? { role } : {}),
+      });
+      console.log(JSON.stringify({ results }, null, 2));
+    },
+  );
 
 program
   .command("start-agent")
-  .description("One-command launch: inject skills + MCP config, create session, and start IDE with first prompt")
-  .argument("<ide>", "IDE/tool: claude, codex, cursor, trae, opencode, gemini, aider, windsurf, qoder, github, cline, crusher, lov, mimo")
+  .description(
+    "One-command launch: inject skills + MCP config, create session, and start IDE with first prompt",
+  )
+  .argument(
+    "<ide>",
+    "IDE/tool: claude, codex, cursor, trae, opencode, gemini, aider, windsurf, qoder, github, cline, crusher, lov, mimo",
+  )
   .requiredOption("--role <role>", "Role: host, worker, or knowledge_keeper")
   .requiredOption("--duty <duty>", "Stable duty/responsibility for this member")
-  .option("--session <sessionName>", "Session name (defaults to project dir name)")
+  .option(
+    "--session <sessionName>",
+    "Session name (defaults to project dir name)",
+  )
   .option("--name <memberName>", "Member name (defaults to <ide>-<role>)")
   .option("--timeout <seconds>", "MCP tool timeout seconds", "3600")
-  .option("--dry-run", "Print planned actions without writing files or spawning IDE", false)
-  .action(async (ide: string, options: {
-    role: string;
-    duty: string;
-    session?: string;
-    name?: string;
-    timeout: string;
-    dryRun?: boolean;
-  }) => {
-    const supportedIdes: SupportedIde[] = ["claude", "codex", "cursor", "trae", "opencode", "gemini", "aider", "windsurf", "qoder", "github", "cline", "crusher", "lov", "mimo"];
-    if (!supportedIdes.includes(ide as SupportedIde)) {
-      console.error(`Unsupported IDE: ${ide}. Supported: ${supportedIdes.join(", ")}`);
-      process.exitCode = 1;
-      return;
-    }
+  .option(
+    "--dry-run",
+    "Print planned actions without writing files or spawning IDE",
+    false,
+  )
+  .action(
+    async (
+      ide: string,
+      options: {
+        role: string;
+        duty: string;
+        session?: string;
+        name?: string;
+        timeout: string;
+        dryRun?: boolean;
+      },
+    ) => {
+      const supportedIdes: SupportedIde[] = [
+        "claude",
+        "codex",
+        "cursor",
+        "trae",
+        "opencode",
+        "gemini",
+        "aider",
+        "windsurf",
+        "qoder",
+        "github",
+        "cline",
+        "crusher",
+        "lov",
+        "mimo",
+      ];
+      if (!supportedIdes.includes(ide as SupportedIde)) {
+        console.error(
+          `Unsupported IDE: ${ide}. Supported: ${supportedIdes.join(", ")}`,
+        );
+        process.exitCode = 1;
+        return;
+      }
 
-    if (options.role !== "host" && options.role !== "worker" && options.role !== "knowledge_keeper") {
-      console.error(`Invalid role: ${options.role}. Must be 'host', 'worker', or 'knowledge_keeper'.`);
-      process.exitCode = 1;
-      return;
-    }
+      if (
+        options.role !== "host" &&
+        options.role !== "worker" &&
+        options.role !== "knowledge_keeper"
+      ) {
+        console.error(
+          `Invalid role: ${options.role}. Must be 'host', 'worker', or 'knowledge_keeper'.`,
+        );
+        process.exitCode = 1;
+        return;
+      }
 
-    const timeoutSeconds = Number(options.timeout);
-    if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
-      console.error(`Invalid timeout: ${options.timeout}`);
-      process.exitCode = 1;
-      return;
-    }
+      const timeoutSeconds = Number(options.timeout);
+      if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
+        console.error(`Invalid timeout: ${options.timeout}`);
+        process.exitCode = 1;
+        return;
+      }
 
-    const result = await startAgent({
-      ide: ide as SupportedIde,
-      role: options.role as "host" | "worker" | "knowledge_keeper",
-      duty: options.duty,
-      session: options.session,
-      name: options.name,
-      timeoutSeconds,
-      dryRun: Boolean(options.dryRun)
-    });
+      const result = await startAgent({
+        ide: ide as SupportedIde,
+        role: options.role as "host" | "worker" | "knowledge_keeper",
+        duty: options.duty,
+        session: options.session,
+        name: options.name,
+        timeoutSeconds,
+        dryRun: Boolean(options.dryRun),
+      });
 
-    // Output JSON result
-    console.log(JSON.stringify(result, null, 2));
+      // Output JSON result
+      console.log(JSON.stringify(result, null, 2));
 
-    // Output formatted setup guide for the user
-    console.log(formatSetupGuide(result.setupGuide));
+      // Output formatted setup guide for the user
+      console.log(formatSetupGuide(result.setupGuide));
 
-    // Output warnings
-    if (result.warning) {
-      console.error(`\n⚠️ ${result.warning}\n`);
-    }
-  });
+      // Output warnings
+      if (result.warning) {
+        console.error(`\n⚠️ ${result.warning}\n`);
+      }
+    },
+  );
 
 program
   .command("auto-accept")
-  .description("Configure auto-accept / YOLO mode for AI coding tools (merge-write, preserves existing config)")
-  .argument("[ides...]", "AI tools to configure: claude, codex, cursor, aider, or 'all' for all supported")
+  .description(
+    "Configure auto-accept / YOLO mode for AI coding tools (merge-write, preserves existing config)",
+  )
+  .argument(
+    "[ides...]",
+    "AI tools to configure: claude, codex, cursor, aider, or 'all' for all supported",
+  )
   .option("--dry-run", "Print planned changes without writing files", false)
   .action(async (ides: string[], options: { dryRun?: boolean }) => {
     if (ides.length === 0) {
-      console.error("Error: at least one IDE name is required. Usage: loopmarshal auto-accept claude cursor");
+      console.error(
+        "Error: at least one IDE name is required. Usage: loopmarshal auto-accept claude cursor",
+      );
       console.error("  Supported: claude, codex, cursor, aider, or 'all'");
       process.exitCode = 1;
       return;
@@ -5398,17 +5516,24 @@ program
     } else {
       targetIdes = ides;
       // 验证
-      const invalid = targetIdes.filter(i => !allSupported.includes(i));
+      const invalid = targetIdes.filter((i) => !allSupported.includes(i));
       if (invalid.length > 0) {
         console.error(`Unsupported IDE(s): ${invalid.join(", ")}`);
-        console.error(`Supported for auto-accept: ${allSupported.join(", ")}, or 'all'`);
+        console.error(
+          `Supported for auto-accept: ${allSupported.join(", ")}, or 'all'`,
+        );
         process.exitCode = 1;
         return;
       }
     }
 
     const { setupAutoAccept } = await import("./start-agent.js");
-    const results: Array<{ ide: string; status: string; path: string | null; error?: string }> = [];
+    const results: Array<{
+      ide: string;
+      status: string;
+      path: string | null;
+      error?: string;
+    }> = [];
 
     for (const ide of targetIdes) {
       try {
@@ -5419,9 +5544,13 @@ program
         });
         results.push({
           ide,
-          status: result.success ? (options.dryRun ? "dry-run" : "configured") : "skipped",
+          status: result.success
+            ? options.dryRun
+              ? "dry-run"
+              : "configured"
+            : "skipped",
           path: result.path,
-          ...result.message ? { error: result.message } : {},
+          ...(result.message ? { error: result.message } : {}),
         });
       } catch (error: unknown) {
         results.push({
@@ -5441,8 +5570,17 @@ program
     console.log("  Auto-Accept 配置结果");
     console.log("════════════════════════════════════════");
     for (const r of results) {
-      const icon = r.status === "configured" ? "✅" : r.status === "error" ? "❌" : r.status === "skipped" ? "⏭️" : "🔍";
-      console.log(`${icon} ${r.ide}: ${r.status}${r.path ? ` → ${r.path}` : ""}${r.error ? ` (${r.error})` : ""}`);
+      const icon =
+        r.status === "configured"
+          ? "✅"
+          : r.status === "error"
+            ? "❌"
+            : r.status === "skipped"
+              ? "⏭️"
+              : "🔍";
+      console.log(
+        `${icon} ${r.ide}: ${r.status}${r.path ? ` → ${r.path}` : ""}${r.error ? ` (${r.error})` : ""}`,
+      );
     }
     console.log("");
 
@@ -5452,5 +5590,5 @@ program
     }
   });
 
+registerProxyCommands(program, client);
 await program.parseAsync();
-

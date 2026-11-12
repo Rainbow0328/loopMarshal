@@ -13,10 +13,7 @@
  * limitations under the License.
  */
 import { startCoreServer } from "@loopmarshal/core";
-import {
-  LoopMarshalSdkError,
-  createLoopMarshalClient
-} from "@loopmarshal/sdk";
+import { LoopMarshalSdkError, createLoopMarshalClient } from "@loopmarshal/sdk";
 
 const smokePort = 42700;
 const smokeBaseUrl = `http://127.0.0.1:${smokePort}`;
@@ -31,7 +28,7 @@ const main = async () => {
   const instance = await startCoreServer({
     host: "127.0.0.1",
     port: smokePort,
-    databasePath: ".loopmarshal-test/smoke-duplicate-agent-name.sqlite"
+    databasePath: ".loopmarshal-test/smoke-duplicate-agent-name.sqlite",
   });
 
   try {
@@ -43,7 +40,7 @@ const main = async () => {
       displayName: "Duplicate Host",
       platform: "codex",
       capabilities: ["planning"],
-      connectionMode: "skill-bridge"
+      connectionMode: "skill-bridge",
     });
 
     const firstWorker = await client.joinNamedSession(sessionName, {
@@ -51,21 +48,36 @@ const main = async () => {
       displayName: "Worker One",
       platform: "claude",
       role: "worker",
+      roleDescription: "验证同名成员约束",
       capabilities: ["backend"],
-      connectionMode: "skill-bridge"
+      connectionMode: "skill-bridge",
     });
 
     let duplicateErrorCode = null;
     let duplicateStatusCode = null;
+
+    const reattached = await client.joinNamedSession(sessionName, {
+      agentName: "dup-worker",
+      displayName: "Worker Reattached",
+      platform: "claude",
+      role: "worker",
+      roleDescription: "验证重连保留成员身份",
+      capabilities: ["backend"],
+      connectionMode: "skill-bridge",
+    });
+    assert(
+      reattached.agent.id === firstWorker.agent.id,
+      "same-role reattachment must preserve the stable member ID",
+    );
 
     try {
       await client.joinNamedSession(sessionName, {
         agentName: "dup-worker",
         displayName: "Worker Two",
         platform: "cursor",
-        role: "worker",
+        role: "observer",
         capabilities: ["frontend"],
-        connectionMode: "skill-bridge"
+        connectionMode: "skill-bridge",
       });
     } catch (error) {
       if (error instanceof LoopMarshalSdkError) {
@@ -76,12 +88,18 @@ const main = async () => {
       }
     }
 
-    assert(firstWorker.agent.agentName === "dup-worker", "first worker should join successfully");
+    assert(
+      firstWorker.agent.agentName === "dup-worker",
+      "first worker should join successfully",
+    );
     assert(
       duplicateErrorCode === "DUPLICATE_AGENT_NAME",
-      "duplicate join should return DUPLICATE_AGENT_NAME"
+      "joining the same name with a conflicting role should return DUPLICATE_AGENT_NAME",
     );
-    assert(duplicateStatusCode === 409, "duplicate join should return status 409");
+    assert(
+      duplicateStatusCode === 409,
+      "duplicate join should return status 409",
+    );
 
     console.log(
       JSON.stringify(
@@ -89,11 +107,11 @@ const main = async () => {
           sessionName,
           firstWorkerAgentId: firstWorker.agent.id,
           duplicateErrorCode,
-          duplicateStatusCode
+          duplicateStatusCode,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } finally {
     await instance.close();

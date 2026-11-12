@@ -12,8 +12,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { FastifyReply, FastifyRequest } from "fastify";
 import { appendProjectLogEntry } from "@loopmarshal/shared";
+import type { FastifyReply, FastifyRequest } from "fastify";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -91,14 +91,14 @@ const shouldAuditRoute = (route: string, method: string) => {
     "/api/messages/:messageId/process-complete",
     "/api/messages/:messageId/process-fail",
     "/api/identity-leases/acquire",
-    "/api/identity-leases/release"
+    "/api/identity-leases/release",
   ].includes(route);
 };
 
 const summarizeAudit = (
   request: FastifyRequest,
   reply: FastifyReply,
-  payload: unknown
+  payload: unknown,
 ): AuditSummary | null => {
   const route = request.routeOptions.url ?? request.url;
   if (!shouldAuditRoute(route, request.method)) {
@@ -112,7 +112,8 @@ const summarizeAudit = (
   const tool = asString(request.headers["x-loopmarshal-tool"]);
   const toolCallId = asString(request.headers["x-loopmarshal-tool-call-id"]);
   const phase = asString(request.headers["x-loopmarshal-phase"]);
-  const processHeader = asString(request.headers["x-loopmarshal-process"]) ?? null;
+  const processHeader =
+    asString(request.headers["x-loopmarshal-process"]) ?? null;
   const identityHeader = asString(request.headers["x-loopmarshal-identity"]);
   const flowHeader = asString(request.headers["x-loopmarshal-flow"]);
   const roundHeader = asString(request.headers["x-loopmarshal-round"]);
@@ -131,7 +132,7 @@ const summarizeAudit = (
     ...(phase ? { phase } : {}),
     process: processHeader,
     remotePort,
-    statusCode: reply.statusCode
+    statusCode: reply.statusCode,
   };
 
   switch (route) {
@@ -146,7 +147,7 @@ const summarizeAudit = (
         agentName:
           asString(body.agentName) ??
           asString(asRecord(responseBody.agent).agentName),
-        ...base
+        ...base,
       };
     case "/api/sessions/join-by-name":
       return {
@@ -159,7 +160,7 @@ const summarizeAudit = (
         agentName:
           asString(body.agentName) ??
           asString(asRecord(responseBody.agent).agentName),
-        ...base
+        ...base,
       };
     case "/api/sessions/:sessionId":
       return {
@@ -169,7 +170,7 @@ const summarizeAudit = (
         agentId: asString(body.requesterAgentId),
         result: reply.statusCode < 400 ? "deleted" : "rejected",
         errorCode: asString(responseBody.code),
-        ...base
+        ...base,
       };
     case "/api/sessions/by-name/:sessionName":
       return {
@@ -180,7 +181,7 @@ const summarizeAudit = (
         agentId: asString(body.requesterAgentId),
         result: reply.statusCode < 400 ? "deleted" : "rejected",
         errorCode: asString(responseBody.code),
-        ...base
+        ...base,
       };
     case "/api/agents/:agentId/leave":
       return {
@@ -190,7 +191,7 @@ const summarizeAudit = (
         sessionName: asString(responseBody.sessionName),
         result: reply.statusCode < 400 ? "left" : "rejected",
         errorCode: asString(responseBody.code),
-        ...base
+        ...base,
       };
     case "/api/sessions/:sessionId/members/:agentId/remove":
       return {
@@ -200,7 +201,7 @@ const summarizeAudit = (
         targetAgentId: asString(params.agentId),
         result: reply.statusCode < 400 ? "removed" : "rejected",
         errorCode: asString(responseBody.code),
-        ...base
+        ...base,
       };
     case "/api/messages/send":
       return {
@@ -217,7 +218,7 @@ const summarizeAudit = (
         idempotencyKey: asString(body.idempotencyKey),
         result: reply.statusCode < 400 ? "sent" : "rejected",
         errorCode: asString(responseBody.code),
-        ...base
+        ...base,
       };
     case "/api/messages/claim-next":
       return {
@@ -231,7 +232,7 @@ const summarizeAudit = (
           asString(asRecord(responseBody.message).correlationId),
         result: asRecord(responseBody.message).id ? "claimed" : "empty",
         errorCode: asString(responseBody.code),
-        ...base
+        ...base,
       };
     case "/api/messages/:messageId/process-complete":
       return {
@@ -242,7 +243,7 @@ const summarizeAudit = (
         agentId: asString(body.agentId),
         result: reply.statusCode < 400 ? "completed" : "rejected",
         errorCode: asString(responseBody.code),
-        ...base
+        ...base,
       };
     case "/api/messages/:messageId/process-fail":
       return {
@@ -253,7 +254,7 @@ const summarizeAudit = (
         agentId: asString(body.agentId),
         result: reply.statusCode < 400 ? "failed" : "rejected",
         errorCode: asString(responseBody.code),
-        ...base
+        ...base,
       };
     case "/api/identity-leases/acquire":
       return {
@@ -266,7 +267,7 @@ const summarizeAudit = (
         ownerToken: asString(body.ownerToken),
         result: reply.statusCode < 400 ? "acquired" : "busy",
         errorCode: asString(responseBody.code),
-        ...base
+        ...base,
       };
     case "/api/identity-leases/release":
       return {
@@ -279,7 +280,7 @@ const summarizeAudit = (
         ownerToken: asString(body.ownerToken),
         result: reply.statusCode < 400 ? "released" : "rejected",
         errorCode: asString(responseBody.code),
-        ...base
+        ...base,
       };
     default:
       return null;
@@ -305,7 +306,7 @@ const shouldEmitAudit = (summary: AuditSummary) => {
 export const logApiAudit = (
   request: FastifyRequest,
   reply: FastifyReply,
-  payload: unknown
+  payload: unknown,
 ): void => {
   const summary = summarizeAudit(request, reply, payload);
   if (!summary || !shouldEmitAudit(summary)) {
@@ -320,8 +321,8 @@ export const logApiAudit = (
   appendProjectLogEntry(
     {
       source: "core.api_audit",
-      ...summary
+      ...summary,
     },
-    process.cwd()
+    process.cwd(),
   );
 };

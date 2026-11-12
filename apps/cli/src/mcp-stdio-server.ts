@@ -62,7 +62,7 @@ const sendError = (
   id: number | string,
   code: number,
   message: string,
-  data?: unknown
+  data?: unknown,
 ): void => {
   send({ jsonrpc: "2.0", id, error: { code, message, data } });
 };
@@ -71,7 +71,7 @@ const sendProgress = (
   progressToken: string | number,
   message: string,
   progress: number,
-  total?: number
+  total?: number,
 ): void => {
   send({
     jsonrpc: "2.0",
@@ -80,8 +80,8 @@ const sendProgress = (
       progressToken,
       progress,
       ...(total !== undefined ? { total } : {}),
-      message
-    }
+      message,
+    },
   });
 };
 
@@ -107,14 +107,14 @@ const runCliCommand = (
     progressToken?: string | number | undefined;
     progressLabel?: string | undefined;
     progressIntervalMs?: number | undefined;
-  } = {}
+  } = {},
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> => {
   return new Promise((resolve, reject) => {
     const binPath = getCliBinPath();
     const child = spawn(process.execPath, [binPath, ...args], {
       cwd: process.cwd(),
       env: process.env,
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: ["ignore", "pipe", "pipe"],
     });
 
     let stdout = "";
@@ -140,7 +140,7 @@ const runCliCommand = (
           options.progressToken!,
           `${options.progressLabel ?? "Waiting"} (${seconds}s)`,
           elapsed,
-          undefined
+          undefined,
         );
       }, interval);
     }
@@ -155,7 +155,7 @@ const runCliCommand = (
       resolve({
         stdout,
         stderr,
-        exitCode: code ?? -1
+        exitCode: code ?? -1,
       });
     });
   });
@@ -180,7 +180,7 @@ const parseCliOutput = (stdout: string): unknown => {
  * and only return the final actionable result to the model.
  */
 const isExecuteInternalCmd = (
-  parsed: unknown
+  parsed: unknown,
 ): parsed is { op: "EXECUTE_INTERNAL_CMD"; cmd: string } => {
   return (
     parsed !== null &&
@@ -217,12 +217,25 @@ const parseCmdString = (cmd: string): string[] => {
       while (i < cmd.length && cmd[i] !== '"') {
         if (cmd[i] === "\\" && i + 1 < cmd.length) {
           const next = cmd[i + 1];
-          if (next === '"') { value += '"'; i += 2; }
-          else if (next === "\\") { value += "\\"; i += 2; }
-          else if (next === "n") { value += "\n"; i += 2; }
-          else if (next === "t") { value += "\t"; i += 2; }
-          else if (next === "r") { value += "\r"; i += 2; }
-          else { value += next; i += 2; }
+          if (next === '"') {
+            value += '"';
+            i += 2;
+          } else if (next === "\\") {
+            value += "\\";
+            i += 2;
+          } else if (next === "n") {
+            value += "\n";
+            i += 2;
+          } else if (next === "t") {
+            value += "\t";
+            i += 2;
+          } else if (next === "r") {
+            value += "\r";
+            i += 2;
+          } else {
+            value += next;
+            i += 2;
+          }
         } else {
           value += cmd[i];
           i++;
@@ -253,14 +266,16 @@ const parseCmdString = (cmd: string): string[] => {
  * Used by the `resume` tool to restore compact session context.
  */
 const runMultiCliCommands = async (
-  commands: { args: string[]; label: string }[]
+  commands: { args: string[]; label: string }[],
 ): Promise<Record<string, unknown>> => {
   const results: Record<string, unknown> = {};
   for (const cmd of commands) {
     const result = await runCliCommand(cmd.args, {});
     if (result.exitCode !== 0) {
       // Non-fatal: continue with other commands
-      results[cmd.label] = { error: result.stderr.trim() || result.stdout.trim() };
+      results[cmd.label] = {
+        error: result.stderr.trim() || result.stdout.trim(),
+      };
     } else {
       results[cmd.label] = parseCliOutput(result.stdout);
     }
@@ -274,14 +289,20 @@ const runMultiCliCommands = async (
 
 const str = (description: string) => ({
   type: "string",
-  description
+  description,
 });
 
 /**
  * Tools that are only available to the host role.
  * Workers never see these in tools/list and cannot call them.
  */
-const HOST_ONLY_TOOLS = new Set(["dispatch_many", "resolve", "knowledge_upsert", "start_worker"]);
+const HOST_ONLY_TOOLS = new Set([
+  "dispatch_many",
+  "resolve",
+  "knowledge_upsert",
+  "start_worker",
+  "query_messages",
+]);
 
 /**
  * Resolve the effective role for tool filtering.
@@ -322,35 +343,40 @@ const tools: ToolDef[] = [
       properties: {
         name: str("Stable unique member name inside the session"),
         session: str("Collaboration session name"),
+        projectPath: str(
+          "Host project directory; defaults to the MCP server working directory. Supply the actual project when different.",
+        ),
         role: str("Member role: host or worker"),
-        duty: str("Stable long-term responsibility (not a single task)")
+        duty: str("Stable long-term responsibility (not a single task)"),
       },
-      required: ["name", "session", "role", "duty"]
-    }
+      required: ["name", "session", "role", "duty"],
+    },
   },
   {
     name: "reset",
-    description: "Reset a member's state in the session (clears claimed messages).",
+    description:
+      "Reset a member's state in the session (clears claimed messages).",
     inputSchema: {
       type: "object",
       properties: {
         name: str("Member name"),
-        session: str("Session name")
+        session: str("Session name"),
       },
-      required: ["name", "session"]
-    }
+      required: ["name", "session"],
+    },
   },
   {
     name: "members",
-    description: "List all members in the session with their roles and statuses.",
+    description:
+      "List all members in the session with their roles and statuses.",
     inputSchema: {
       type: "object",
       properties: {
         name: str("Your member name"),
-        session: str("Session name")
+        session: str("Session name"),
       },
-      required: ["name", "session"]
-    }
+      required: ["name", "session"],
+    },
   },
   {
     name: "await",
@@ -362,10 +388,10 @@ const tools: ToolDef[] = [
       type: "object",
       properties: {
         name: str("Your member name"),
-        session: str("Session name")
+        session: str("Session name"),
       },
-      required: ["name", "session"]
-    }
+      required: ["name", "session"],
+    },
   },
   {
     name: "dispatch_many",
@@ -379,11 +405,11 @@ const tools: ToolDef[] = [
         tasks: {
           type: "array",
           description: "Array of 'workerName::taskContent' strings",
-          items: { type: "string" }
-        }
+          items: { type: "string" },
+        },
       },
-      required: ["name", "session", "tasks"]
-    }
+      required: ["name", "session", "tasks"],
+    },
   },
   {
     name: "submit",
@@ -394,11 +420,30 @@ const tools: ToolDef[] = [
       properties: {
         name: str("Worker member name"),
         session: str("Session name"),
-        content: str("Worker report JSON string (loopmarshal.worker-report.v1)"),
-        result: str("Payload result marker: completed, failed, or contested")
+        content: str(
+          "Worker report JSON string (loopmarshal.worker-report.v1)",
+        ),
+        result: str("Payload result marker: completed, failed, or contested"),
       },
-      required: ["name", "session", "content"]
-    }
+      required: ["name", "session", "content"],
+    },
+  },
+  {
+    name: "query_messages",
+    description:
+      "Host only. Read recorded collaboration messages without claiming them. Optional exact member name or task correlation filter. Newest first, with pagination; private native tool history is not included.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: str("Host member name"),
+        session: str("Session name"),
+        memberName: str("Exact member name"),
+        correlationId: str("Task correlation id"),
+        beforeMessageId: str("Older-page cursor"),
+        limit: { type: "number", minimum: 1, maximum: 50 },
+      },
+      required: ["name", "session"],
+    },
   },
   {
     name: "resolve",
@@ -408,37 +453,39 @@ const tools: ToolDef[] = [
       properties: {
         name: str("Host member name"),
         session: str("Session name"),
-        summary: str("Resolution summary")
+        summary: str("Resolution summary"),
       },
-      required: ["name", "session", "summary"]
-    }
+      required: ["name", "session", "summary"],
+    },
   },
   {
     name: "knowledge_read",
-    description: "Read a knowledge document by reference (e.g. 'l1/session-direction' or 'l2/message-protocol').",
+    description:
+      "Read a knowledge document by reference (e.g. 'l1/session-direction' or 'l2/message-protocol').",
     inputSchema: {
       type: "object",
       properties: {
         name: str("Your member name"),
         session: str("Session name"),
-        ref: str("Knowledge reference like 'l1/slug' or 'l2/slug'")
+        ref: str("Knowledge reference like 'l1/slug' or 'l2/slug'"),
       },
-      required: ["name", "session", "ref"]
-    }
+      required: ["name", "session", "ref"],
+    },
   },
   {
     name: "knowledge_list",
-    description: "List knowledge documents, optionally filtered by level or search query.",
+    description:
+      "List knowledge documents, optionally filtered by level or search query.",
     inputSchema: {
       type: "object",
       properties: {
         name: str("Your member name"),
         session: str("Session name"),
         level: str("Filter by level: l1, l2, or l3"),
-        query: str("Search query")
+        query: str("Search query"),
       },
-      required: ["name", "session"]
-    }
+      required: ["name", "session"],
+    },
   },
   {
     name: "knowledge_upsert",
@@ -454,10 +501,10 @@ const tools: ToolDef[] = [
         content: str("Document content (markdown)"),
         summary: str("Optional short summary"),
         changeSummary: str("Optional change summary"),
-        sourceKind: str("Source kind: host_update or user_feedback")
+        sourceKind: str("Source kind: host_update or user_feedback"),
       },
-      required: ["name", "session", "level", "slug", "title", "content"]
-    }
+      required: ["name", "session", "level", "slug", "title", "content"],
+    },
   },
   {
     name: "resume",
@@ -473,10 +520,15 @@ const tools: ToolDef[] = [
         session: str("Session name"),
         role: str("Member role: host or worker"),
         duty: str("Stable long-term responsibility"),
-        l1Slug: str("Optional L1 knowledge slug to read for direction recovery (default: session-direction)")
+        l1Slug: str(
+          "Optional L1 knowledge slug to read for direction recovery (default: session-direction)",
+        ),
+        projectPath: str(
+          "Host project directory; defaults to the MCP server working directory",
+        ),
       },
-      required: ["name", "session", "role", "duty"]
-    }
+      required: ["name", "session", "role", "duty"],
+    },
   },
   {
     name: "status",
@@ -488,10 +540,10 @@ const tools: ToolDef[] = [
       type: "object",
       properties: {
         name: str("Your member name"),
-        session: str("Session name")
+        session: str("Session name"),
       },
-      required: ["name", "session"]
-    }
+      required: ["name", "session"],
+    },
   },
   {
     name: "start_worker",
@@ -506,20 +558,40 @@ const tools: ToolDef[] = [
       properties: {
         ide: {
           type: "string",
-          description: "AI tool/IDE to launch as worker: claude, codex, cursor, trae, opencode, gemini, aider, windsurf, qoder, github, cline, crusher, lov, mimo",
-          enum: ["claude", "codex", "cursor", "trae", "opencode", "gemini", "aider", "windsurf", "qoder", "github", "cline", "crusher", "lov", "mimo"]
+          description:
+            "AI tool/IDE to launch as worker: claude, codex, cursor, trae, opencode, gemini, aider, windsurf, qoder, github, cline, crusher, lov, mimo",
+          enum: [
+            "claude",
+            "codex",
+            "cursor",
+            "trae",
+            "opencode",
+            "gemini",
+            "aider",
+            "windsurf",
+            "qoder",
+            "github",
+            "cline",
+            "crusher",
+            "lov",
+            "mimo",
+          ],
         },
-        duty: str("Stable long-term responsibility for this worker (e.g. 'frontend development', 'backend API', 'database layer')"),
-        name: str("Optional member name for the worker (defaults to <ide>-worker)"),
+        duty: str(
+          "Stable long-term responsibility for this worker (e.g. 'frontend development', 'backend API', 'database layer')",
+        ),
+        name: str(
+          "Optional member name for the worker (defaults to <ide>-worker)",
+        ),
         session: str("Session name (inherits current session if omitted)"),
         timeout: {
           type: "number",
-          description: "MCP tool timeout seconds (default 3600)"
-        }
+          description: "MCP tool timeout seconds (default 3600)",
+        },
       },
-      required: ["ide", "duty"]
-    }
-  }
+      required: ["ide", "duty"],
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -529,7 +601,7 @@ const tools: ToolDef[] = [
 const handleToolCall = async (
   toolName: string,
   args: Record<string, unknown>,
-  progressToken?: string | number
+  progressToken?: string | number,
 ): Promise<unknown> => {
   const buildArgs = (): string[] => {
     switch (toolName) {
@@ -537,19 +609,48 @@ const handleToolCall = async (
         return [
           "attach",
           String(args.name),
-          "--session", String(args.session),
-          "--role", String(args.role),
-          "--duty", String(args.duty)
+          "--session",
+          String(args.session),
+          "--role",
+          String(args.role),
+          "--duty",
+          String(args.duty),
+          ...(args.projectPath ? ["--project", String(args.projectPath)] : []),
         ];
       case "reset":
         return ["reset", String(args.name), "--session", String(args.session)];
       case "members":
-        return ["members", String(args.name), "--session", String(args.session)];
+        return [
+          "members",
+          String(args.name),
+          "--session",
+          String(args.session),
+        ];
+      case "query_messages":
+        return [
+          "messages",
+          String(args.name),
+          "--session",
+          String(args.session),
+          ...(args.memberName ? ["--member", String(args.memberName)] : []),
+          ...(args.correlationId
+            ? ["--correlation", String(args.correlationId)]
+            : []),
+          ...(args.beforeMessageId
+            ? ["--before", String(args.beforeMessageId)]
+            : []),
+          ...(args.limit !== undefined ? ["--limit", String(args.limit)] : []),
+        ];
       case "await":
         return ["await", String(args.name), "--session", String(args.session)];
       case "dispatch_many": {
         const tasks = (args.tasks as string[]) ?? [];
-        const cliArgs = ["dispatch-many", String(args.name), "--session", String(args.session)];
+        const cliArgs = [
+          "dispatch-many",
+          String(args.name),
+          "--session",
+          String(args.session),
+        ];
         for (const task of tasks) {
           cliArgs.push("--task", task);
         }
@@ -557,27 +658,40 @@ const handleToolCall = async (
       }
       case "submit":
         return [
-          "submit", String(args.name),
-          "--session", String(args.session),
-          "--content", String(args.content),
-          ...(args.result ? ["--result", String(args.result)] : [])
+          "submit",
+          String(args.name),
+          "--session",
+          String(args.session),
+          "--content",
+          String(args.content),
+          ...(args.result ? ["--result", String(args.result)] : []),
         ];
       case "resolve":
         return [
-          "resolve", String(args.name),
-          "--session", String(args.session),
-          "--summary", String(args.summary)
+          "resolve",
+          String(args.name),
+          "--session",
+          String(args.session),
+          "--summary",
+          String(args.summary),
         ];
       case "knowledge_read":
         return [
-          "knowledge", "read", String(args.name),
-          "--session", String(args.session),
-          "--ref", String(args.ref)
+          "knowledge",
+          "read",
+          String(args.name),
+          "--session",
+          String(args.session),
+          "--ref",
+          String(args.ref),
         ];
       case "knowledge_list": {
         const cliArgs = [
-          "knowledge", "list", String(args.name),
-          "--session", String(args.session)
+          "knowledge",
+          "list",
+          String(args.name),
+          "--session",
+          String(args.session),
         ];
         if (args.level) cliArgs.push("--level", String(args.level));
         if (args.query) cliArgs.push("--query", String(args.query));
@@ -585,16 +699,25 @@ const handleToolCall = async (
       }
       case "knowledge_upsert": {
         const cliArgs = [
-          "knowledge", "upsert", String(args.name),
-          "--session", String(args.session),
-          "--level", String(args.level),
-          "--slug", String(args.slug),
-          "--title", String(args.title),
-          "--content", String(args.content)
+          "knowledge",
+          "upsert",
+          String(args.name),
+          "--session",
+          String(args.session),
+          "--level",
+          String(args.level),
+          "--slug",
+          String(args.slug),
+          "--title",
+          String(args.title),
+          "--content",
+          String(args.content),
         ];
         if (args.summary) cliArgs.push("--summary", String(args.summary));
-        if (args.changeSummary) cliArgs.push("--change-summary", String(args.changeSummary));
-        if (args.sourceKind) cliArgs.push("--source-kind", String(args.sourceKind));
+        if (args.changeSummary)
+          cliArgs.push("--change-summary", String(args.changeSummary));
+        if (args.sourceKind)
+          cliArgs.push("--source-kind", String(args.sourceKind));
         return cliArgs;
       }
       case "resume":
@@ -619,27 +742,32 @@ const handleToolCall = async (
         args: [
           "attach",
           String(args.name),
-          "--session", String(args.session),
-          "--role", String(args.role),
-          "--duty", String(args.duty)
+          "--session",
+          String(args.session),
+          "--role",
+          String(args.role),
+          "--duty",
+          String(args.duty),
+          ...(args.projectPath ? ["--project", String(args.projectPath)] : []),
         ],
-        label: "attach"
+        label: "attach",
       },
       {
         args: [
-          "knowledge", "read", String(args.name),
-          "--session", String(args.session),
-          "--ref", `l1/${l1Slug}`
+          "knowledge",
+          "read",
+          String(args.name),
+          "--session",
+          String(args.session),
+          "--ref",
+          `l1/${l1Slug}`,
         ],
-        label: "l1_direction"
+        label: "l1_direction",
       },
       {
-        args: [
-          "members", String(args.name),
-          "--session", String(args.session)
-        ],
-        label: "members"
-      }
+        args: ["members", String(args.name), "--session", String(args.session)],
+        label: "members",
+      },
     ];
     return runMultiCliCommands(commands);
   }
@@ -647,20 +775,21 @@ const handleToolCall = async (
   if (toolName === "status") {
     const commands = [
       {
-        args: [
-          "members", String(args.name),
-          "--session", String(args.session)
-        ],
-        label: "members"
+        args: ["members", String(args.name), "--session", String(args.session)],
+        label: "members",
       },
       {
         args: [
-          "knowledge", "list", String(args.name),
-          "--session", String(args.session),
-          "--level", "l1"
+          "knowledge",
+          "list",
+          String(args.name),
+          "--session",
+          String(args.session),
+          "--level",
+          "l1",
         ],
-        label: "knowledge_l1"
-      }
+        label: "knowledge_l1",
+      },
     ];
     return runMultiCliCommands(commands);
   }
@@ -672,16 +801,21 @@ const handleToolCall = async (
     const ide = String(args.ide);
     const duty = String(args.duty);
     const workerName = (args.name as string) || `${ide}-worker`;
-    const sessionName = (args.session as string) || process.env.LOOPMARSHAL_SESSION || "";
+    const sessionName =
+      (args.session as string) || process.env.LOOPMARSHAL_SESSION || "";
     const timeoutSeconds = (args.timeout as number) || 3600;
 
     const cliArgs = [
       "start-agent",
       ide,
-      "--role", "worker",
-      "--duty", duty,
-      "--name", workerName,
-      "--timeout", String(timeoutSeconds)
+      "--role",
+      "worker",
+      "--duty",
+      duty,
+      "--name",
+      workerName,
+      "--timeout",
+      String(timeoutSeconds),
     ];
 
     if (sessionName) {
@@ -691,13 +825,13 @@ const handleToolCall = async (
     const result = await runCliCommand(cliArgs, {
       progressToken,
       progressLabel: `Starting ${ide} worker`,
-      progressIntervalMs: 10_000
+      progressIntervalMs: 10_000,
     });
 
     if (result.exitCode !== 0) {
       const errorOutput = result.stderr.trim() || result.stdout.trim();
       throw new Error(
-        `Failed to start ${ide} worker (exit ${result.exitCode}): ${errorOutput}`
+        `Failed to start ${ide} worker (exit ${result.exitCode}): ${errorOutput}`,
       );
     }
 
@@ -708,7 +842,7 @@ const handleToolCall = async (
       duty,
       workerName,
       sessionName: sessionName || undefined,
-      details: parsed
+      details: parsed,
     };
   }
 
@@ -747,7 +881,7 @@ const handleToolCall = async (
           progressToken,
           `Waiting for next actionable item (${seconds}s)`,
           totalElapsed,
-          undefined
+          undefined,
         );
       }, progressIntervalMs);
     }
@@ -760,7 +894,7 @@ const handleToolCall = async (
         if (result.exitCode !== 0) {
           const errorOutput = result.stderr.trim() || result.stdout.trim();
           throw new Error(
-            `loopmarshal ${toolName} failed (exit ${result.exitCode}): ${errorOutput}`
+            `loopmarshal ${toolName} failed (exit ${result.exitCode}): ${errorOutput}`,
           );
         }
 
@@ -778,7 +912,7 @@ const handleToolCall = async (
       }
 
       throw new Error(
-        `loopmarshal await exceeded maximum continuation iterations (${MAX_ITERATIONS})`
+        `loopmarshal await exceeded maximum continuation iterations (${MAX_ITERATIONS})`,
       );
     } finally {
       if (progressTimer) clearInterval(progressTimer);
@@ -793,7 +927,9 @@ const handleToolCall = async (
 
   if (result.exitCode !== 0) {
     const errorOutput = result.stderr.trim() || result.stdout.trim();
-    throw new Error(`loopmarshal ${toolName} failed (exit ${result.exitCode}): ${errorOutput}`);
+    throw new Error(
+      `loopmarshal ${toolName} failed (exit ${result.exitCode}): ${errorOutput}`,
+    );
   }
 
   return parseCliOutput(result.stdout);
@@ -813,12 +949,12 @@ const handleMessage = async (message: JsonRpcRequest): Promise<void> => {
           protocolVersion: "2024-11-05",
           capabilities: {
             tools: { listChanged: false },
-            logging: {}
+            logging: {},
           },
           serverInfo: {
             name: "loopmarshal",
-            version: "0.1.0"
-          }
+            version: "0.1.0",
+          },
         });
         break;
       }
@@ -836,7 +972,9 @@ const handleMessage = async (message: JsonRpcRequest): Promise<void> => {
       case "tools/call": {
         const toolName = params.name as string;
         const toolArgs = (params.arguments as Record<string, unknown>) ?? {};
-        const meta = params._meta as { progressToken?: string | number } | undefined;
+        const meta = params._meta as
+          | { progressToken?: string | number }
+          | undefined;
         const progressToken = meta?.progressToken;
 
         // --- Role-based guard (Scheme C) ---
@@ -846,11 +984,13 @@ const handleMessage = async (message: JsonRpcRequest): Promise<void> => {
         const effectiveRole = getEffectiveRole();
         if (effectiveRole === "worker" && HOST_ONLY_TOOLS.has(toolName)) {
           sendResult(id, {
-            content: [{
-              type: "text",
-              text: `Error: Tool "${toolName}" is host-only and cannot be used by a worker. Available tools exclude: ${Array.from(HOST_ONLY_TOOLS).join(", ")}.`
-            }],
-            isError: true
+            content: [
+              {
+                type: "text",
+                text: `Error: Tool "${toolName}" is host-only and cannot be used by a worker. Available tools exclude: ${Array.from(HOST_ONLY_TOOLS).join(", ")}.`,
+              },
+            ],
+            isError: true,
           });
           break;
         }
@@ -866,21 +1006,25 @@ const handleMessage = async (message: JsonRpcRequest): Promise<void> => {
         }
 
         try {
-          const result = await handleToolCall(toolName, toolArgs, progressToken);
+          const result = await handleToolCall(
+            toolName,
+            toolArgs,
+            progressToken,
+          );
           sendResult(id, {
             content: [
               {
                 type: "text",
-                text: JSON.stringify(result, null, 2)
-              }
-            ]
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
           });
         } catch (toolError: unknown) {
           const errorMessage =
             toolError instanceof Error ? toolError.message : String(toolError);
           sendResult(id, {
             content: [{ type: "text", text: `Error: ${errorMessage}` }],
-            isError: true
+            isError: true,
           });
         }
         break;
@@ -917,7 +1061,7 @@ const checkCoreHealth = async (): Promise<boolean> => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
     const response = await fetch(`${CORE_BASE_URL}/health`, {
-      signal: controller.signal
+      signal: controller.signal,
     });
     clearTimeout(timer);
     return response.ok;
@@ -935,9 +1079,9 @@ const registerWithCore = async (): Promise<boolean> => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         pid: process.pid,
-        ideLabel: process.env.LOOPMARSHAL_IDE_LABEL ?? null
+        ideLabel: process.env.LOOPMARSHAL_IDE_LABEL ?? null,
       }),
-      signal: controller.signal
+      signal: controller.signal,
     });
     clearTimeout(timer);
     return response.ok;
@@ -951,7 +1095,7 @@ const unregisterFromCore = async (): Promise<void> => {
     await fetch(`${CORE_BASE_URL}/api/mcp-stdio/unregister`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pid: process.pid })
+      body: JSON.stringify({ pid: process.pid }),
     });
   } catch {
     // Best-effort: core may already be down
@@ -966,7 +1110,7 @@ const sendHeartbeat = async (): Promise<boolean> => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pid: process.pid }),
-      signal: controller.signal
+      signal: controller.signal,
     });
     clearTimeout(timer);
     return response.ok;
@@ -984,7 +1128,7 @@ const startHeartbeat = (): void => {
     if (!ok && coreAlive) {
       coreAlive = false;
       process.stderr.write(
-        "loopmarshal core service is no longer reachable. Shutting down MCP server.\n"
+        "loopmarshal core service is no longer reachable. Shutting down MCP server.\n",
       );
       void gracefulShutdown();
     }
@@ -1008,7 +1152,7 @@ const main = async (): Promise<void> => {
   // Use raw mode to avoid mangling stdin
   if (process.stdin.isTTY) {
     process.stderr.write(
-      "loopmarshal MCP server must be launched by an MCP client (stdio mode).\n"
+      "loopmarshal MCP server must be launched by an MCP client (stdio mode).\n",
     );
     process.exit(1);
   }
@@ -1017,7 +1161,7 @@ const main = async (): Promise<void> => {
   const coreHealthy = await checkCoreHealth();
   if (!coreHealthy) {
     process.stderr.write(
-      "loopmarshal core service is not running. Start it with `loopmarshal start --daemon` first.\n"
+      "loopmarshal core service is not running. Start it with `loopmarshal start --daemon` first.\n",
     );
     process.exit(1);
   }
@@ -1026,7 +1170,7 @@ const main = async (): Promise<void> => {
   const registered = await registerWithCore();
   if (!registered) {
     process.stderr.write(
-      "Failed to register with loopmarshal core service. Shutting down.\n"
+      "Failed to register with loopmarshal core service. Shutting down.\n",
     );
     process.exit(1);
   }
@@ -1045,7 +1189,7 @@ const main = async (): Promise<void> => {
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
-    terminal: false
+    terminal: false,
   });
 
   // Buffer for incomplete lines is handled by readline

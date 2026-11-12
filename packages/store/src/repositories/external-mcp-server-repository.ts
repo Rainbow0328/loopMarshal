@@ -24,7 +24,7 @@ export class ExternalMcpServerRepository {
   public list(): McpServerConfig[] {
     const rows = this.db
       .prepare(
-        "SELECT id, name, description, transport, url, headers_json AS headersJson, enabled, created_at AS createdAt, updated_at AS updatedAt FROM mcp_servers ORDER BY name"
+        "SELECT id, name, description, transport, url, headers_json AS headersJson, enabled, created_at AS createdAt, updated_at AS updatedAt FROM mcp_servers ORDER BY name",
       )
       .all() as McpServerRow[];
     return rows.map((row) => this.toConfig(row));
@@ -33,7 +33,7 @@ export class ExternalMcpServerRepository {
   public findById(id: string): McpServerConfig | null {
     const row = this.db
       .prepare(
-        "SELECT id, name, description, transport, url, headers_json AS headersJson, enabled, created_at AS createdAt, updated_at AS updatedAt FROM mcp_servers WHERE id = ?"
+        "SELECT id, name, description, transport, url, headers_json AS headersJson, enabled, created_at AS createdAt, updated_at AS updatedAt FROM mcp_servers WHERE id = ?",
       )
       .get(id) as McpServerRow | undefined;
     return row ? this.toConfig(row) : null;
@@ -43,7 +43,7 @@ export class ExternalMcpServerRepository {
     this.db
       .prepare(
         `INSERT INTO mcp_servers (id, name, description, transport, url, headers_json, enabled, created_at, updated_at)
-         VALUES (@id, @name, @description, @transport, @url, @headersJson, @enabled, @createdAt, @updatedAt)`
+         VALUES (@id, @name, @description, @transport, @url, @headersJson, @enabled, @createdAt, @updatedAt)`,
       )
       .run({
         id: config.id,
@@ -63,7 +63,7 @@ export class ExternalMcpServerRepository {
       .prepare(
         `UPDATE mcp_servers
          SET name = @name, description = @description, transport = @transport, url = @url, headers_json = @headersJson, enabled = @enabled, updated_at = @updatedAt
-         WHERE id = @id`
+         WHERE id = @id`,
       )
       .run({
         id: config.id,
@@ -78,7 +78,9 @@ export class ExternalMcpServerRepository {
   }
 
   public delete(id: string): boolean {
-    const result = this.db.prepare("DELETE FROM mcp_servers WHERE id = ?").run(id);
+    const result = this.db
+      .prepare("DELETE FROM mcp_servers WHERE id = ?")
+      .run(id);
     return result.changes > 0;
   }
 
@@ -89,7 +91,9 @@ export class ExternalMcpServerRepository {
       description: row.description,
       transport: row.transport as "sse",
       url: row.url,
-      headers: row.headersJson ? (JSON.parse(row.headersJson) as Record<string, string>) : null,
+      headers: row.headersJson
+        ? (JSON.parse(row.headersJson) as Record<string, string>)
+        : null,
       enabled: row.enabled === 1,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

@@ -148,7 +148,9 @@ export type TokenBudgetConfig = {
 export function computeInputBudget(config: TokenBudgetConfig): number {
   return Math.max(
     0,
-    config.contextWindowTokens - config.maxOutputTokens - config.contextReserveTokens
+    config.contextWindowTokens -
+      config.maxOutputTokens -
+      config.contextReserveTokens,
   );
 }
 
@@ -161,7 +163,7 @@ export const BUDGET_RATIOS = {
   sessionSnapshotAndSummary: 0.25,
   relevantKnowledge: 0.25,
   recentTurns: 0.15,
-  currentEvent: 0.20,
+  currentEvent: 0.2,
 } as const;
 
 /**

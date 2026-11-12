@@ -2,16 +2,16 @@
   "name": "loopmarshal",
   "version": "0.1.0",
   "private": true,
-  "description": "Multi-Agent AI coding orchestration framework — one command to orchestrate multiple AI coding agents via MCP protocol.",
+  "description": "Local-first desktop workspace for coding-agent collaboration through native CLI proxies, model agents, and MCP.",
   "license": "Apache-2.0",
   "author": "LoopMarshal Team",
-  "homepage": "https://github.com/your-org/loopmarshal",
+  "homepage": "https://github.com/Rainbow0328/loopmarshal",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-org/loopmarshal.git"
+    "url": "https://github.com/Rainbow0328/loopmarshal.git"
   },
   "bugs": {
-    "url": "https://github.com/your-org/loopmarshal/issues"
+    "url": "https://github.com/Rainbow0328/loopmarshal/issues"
   },
   "keywords": [
     "multi-agent",
@@ -30,7 +30,7 @@
     "ai-workflow"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13.0"
   },
   "packageManager": "pnpm@10.10.0",
   "workspaces": [
@@ -45,19 +45,25 @@
     "@loopmarshal/shared": "workspace:*",
     "@loopmarshal/store": "workspace:*",
     "@types/node": "^24.3.0",
+    "prettier": "3.6.2",
     "typescript": "^5.9.2"
   },
   "scripts": {
-    "start": "node loopmarshal-start.js",
-    "dev": "node loopmarshal-start.js",
+    "desktop:prepare": "npm run build && node scripts/prepare-desktop.mjs",
+    "desktop:dev": "npm run desktop:prepare && node scripts/desktop.mjs dev",
+    "desktop:unpacked": "npm run desktop:prepare && node scripts/desktop.mjs unpacked",
+    "desktop:dist": "npm run desktop:prepare && node scripts/desktop.mjs dist",
+    "desktop:test": "pnpm --filter @loopmarshal/desktop test",
+    "start": "pnpm run start:core",
+    "dev": "pnpm run desktop:dev",
     "start:web": "cd apps/web && pnpm dev",
     "start:core": "cd apps/core && node dist/apps/core/src/index.js",
-    "build": "npm run build --workspaces --if-present",
+    "build": "pnpm -r --workspace-concurrency=1 --if-present run build",
     "clean": "node -e \"const{rmSync}=require('fs');for(const p of['apps/cli/dist','apps/core/dist','packages/protocol/dist','packages/shared/dist','packages/sdk/dist','packages/store/dist']){try{rmSync(p,{recursive:true,force:true})}catch{}}\"",
     "link:cli": "npm run build && npm link --workspace apps/cli",
     "pack:user": "npm run clean && npm run build && node scripts/pack-user-package.mjs && npm pack ./release/loopmarshal --json --cache .npm-cache --pack-destination ./release/loopmarshal",
     "unlink:cli": "npm unlink -g loopmarshal",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "typecheck": "pnpm -r --workspace-concurrency=2 --if-present run typecheck",
     "smoke": "npm run build && node scripts/smoke.mjs",
     "smoke:named": "npm run build && node scripts/smoke-named.mjs",
     "smoke:cli:loop": "npm run build && node scripts/smoke-cli-loop.mjs",
@@ -79,7 +85,9 @@
     "smoke:session:lifecycle": "npm run build && node scripts/smoke-session-lifecycle.mjs",
     "smoke:cli:stale-identity": "npm run build && node scripts/smoke-cli-stale-identity.mjs",
     "smoke:regression": "npm run build && node scripts/smoke-message-fail.mjs && node scripts/smoke-duplicate-agent-name.mjs && node scripts/smoke-inbox-filters.mjs",
-    "test": "npm run test --workspaces --if-present",
-    "lint": "npm run lint --workspaces --if-present"
+    "test": "pnpm -r --workspace-concurrency=1 --if-present run test",
+    "lint": "pnpm run format:check && pnpm run typecheck",
+    "format": "prettier --write \"{apps,packages,adapters}/*/src/**/*.{ts,tsx,js,cjs,mjs,css}\" \"apps/*/*.{json,ts,cjs,js}\" \"packages/*/*.json\" \"scripts/*.{mjs,js}\" \"*.{json,yaml}\" \".prettierrc.json\"",
+    "format:check": "prettier --check \"{apps,packages,adapters}/*/src/**/*.{ts,tsx,js,cjs,mjs,css}\" \"apps/*/*.{json,ts,cjs,js}\" \"packages/*/*.json\" \"scripts/*.{mjs,js}\" \"*.{json,yaml}\" \".prettierrc.json\""
   }
 }

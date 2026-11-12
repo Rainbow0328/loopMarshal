@@ -7,6 +7,12 @@
  */
 
 import type { DatabaseSync } from "node:sqlite";
+import {
+  memberRoutingDDL,
+  backfillMemberRoutes,
+} from "./member-routing-schema.js";
+import { deliveryDDL } from "./delivery-schema.js";
+import { memberCredentialDDL } from "./member-credential-schema.js";
 
 export type MigrationFn = (db: DatabaseSync) => void;
 
@@ -23,78 +29,133 @@ export type Migration = {
 export const migrations: Migration[] = [
   {
     version: 1,
-    description: "Initial schema: sessions, agents, messages, tasks, model_configs, web_agent_runtimes, workflow_definitions, operation_dedup, identity_leases, session_insights, mcp_servers",
+    description:
+      "Initial schema: sessions, agents, messages, tasks, model_configs, web_agent_runtimes, workflow_definitions, operation_dedup, identity_leases, session_insights, mcp_servers",
     up: () => {
       // 初始 schema 由 schemaDDL 在 migrate() 中执行，这里不做额外操作。
-    }
+    },
   },
   {
     version: 2,
-    description: "Add model_configs columns: model_id, api_key, base_url, created_at, updated_at",
+    description:
+      "Add model_configs columns: model_id, api_key, base_url, created_at, updated_at",
     up: (db) => {
-      ensureColumnIfExists(db, "model_configs", "model_id", "TEXT NOT NULL DEFAULT ''");
+      ensureColumnIfExists(
+        db,
+        "model_configs",
+        "model_id",
+        "TEXT NOT NULL DEFAULT ''",
+      );
       ensureColumnIfExists(db, "model_configs", "api_key", "TEXT");
       ensureColumnIfExists(db, "model_configs", "base_url", "TEXT");
-      ensureColumnIfExists(db, "model_configs", "created_at", "TEXT NOT NULL DEFAULT ''");
-      ensureColumnIfExists(db, "model_configs", "updated_at", "TEXT NOT NULL DEFAULT ''");
-    }
+      ensureColumnIfExists(
+        db,
+        "model_configs",
+        "created_at",
+        "TEXT NOT NULL DEFAULT ''",
+      );
+      ensureColumnIfExists(
+        db,
+        "model_configs",
+        "updated_at",
+        "TEXT NOT NULL DEFAULT ''",
+      );
+    },
   },
   {
     version: 3,
-    description: "Add web_agent_runtimes columns: agent_profile_id, current_step, last_error, last_tick_at",
+    description:
+      "Add web_agent_runtimes columns: agent_profile_id, current_step, last_error, last_tick_at",
     up: (db) => {
-      ensureColumnIfExists(db, "web_agent_runtimes", "agent_profile_id", "TEXT");
+      ensureColumnIfExists(
+        db,
+        "web_agent_runtimes",
+        "agent_profile_id",
+        "TEXT",
+      );
       ensureColumnIfExists(db, "web_agent_runtimes", "current_step", "TEXT");
       ensureColumnIfExists(db, "web_agent_runtimes", "last_error", "TEXT");
       ensureColumnIfExists(db, "web_agent_runtimes", "last_tick_at", "TEXT");
-    }
+    },
   },
   {
     version: 4,
-    description: "Add web_agent_runtimes columns: external_mcp_server_ids_json, custom_duty, custom_skill_ids_json",
+    description:
+      "Add web_agent_runtimes columns: external_mcp_server_ids_json, custom_duty, custom_skill_ids_json",
     up: (db) => {
-      ensureColumnIfExists(db, "web_agent_runtimes", "external_mcp_server_ids_json", "TEXT NOT NULL DEFAULT '[]'");
+      ensureColumnIfExists(
+        db,
+        "web_agent_runtimes",
+        "external_mcp_server_ids_json",
+        "TEXT NOT NULL DEFAULT '[]'",
+      );
       ensureColumnIfExists(db, "web_agent_runtimes", "custom_duty", "TEXT");
-      ensureColumnIfExists(db, "web_agent_runtimes", "custom_skill_ids_json", "TEXT NOT NULL DEFAULT '[]'");
-    }
+      ensureColumnIfExists(
+        db,
+        "web_agent_runtimes",
+        "custom_skill_ids_json",
+        "TEXT NOT NULL DEFAULT '[]'",
+      );
+    },
   },
   {
     version: 5,
     description: "Add workflow_definitions column: status",
     up: (db) => {
-      ensureColumnIfExists(db, "workflow_definitions", "status", "TEXT NOT NULL DEFAULT 'planning'");
-    }
+      ensureColumnIfExists(
+        db,
+        "workflow_definitions",
+        "status",
+        "TEXT NOT NULL DEFAULT 'planning'",
+      );
+    },
   },
   {
     version: 6,
-    description: "Add agents runtime columns: runtime_state, runtime_required_action, runtime_required_tool, runtime_continuation_token, runtime_user_visible_response_allowed, runtime_lease_expires_at",
+    description:
+      "Add agents runtime columns: runtime_state, runtime_required_action, runtime_required_tool, runtime_continuation_token, runtime_user_visible_response_allowed, runtime_lease_expires_at",
     up: (db) => {
       ensureColumnIfExists(db, "agents", "runtime_state", "TEXT");
       ensureColumnIfExists(db, "agents", "runtime_required_action", "TEXT");
       ensureColumnIfExists(db, "agents", "runtime_required_tool", "TEXT");
       ensureColumnIfExists(db, "agents", "runtime_continuation_token", "TEXT");
-      ensureColumnIfExists(db, "agents", "runtime_user_visible_response_allowed", "INTEGER");
+      ensureColumnIfExists(
+        db,
+        "agents",
+        "runtime_user_visible_response_allowed",
+        "INTEGER",
+      );
       ensureColumnIfExists(db, "agents", "runtime_lease_expires_at", "TEXT");
-    }
+    },
   },
   {
     version: 7,
     description: "Add web_agent_runtimes column: last_self_maintenance_at",
     up: (db) => {
-      ensureColumnIfExists(db, "web_agent_runtimes", "last_self_maintenance_at", "TEXT");
-    }
+      ensureColumnIfExists(
+        db,
+        "web_agent_runtimes",
+        "last_self_maintenance_at",
+        "TEXT",
+      );
+    },
   },
   {
     version: 8,
-    description: "Migrate unapplied_user_inputs_json from string[] to PendingUserInput[] ({ revision, content })",
+    description:
+      "Migrate unapplied_user_inputs_json from string[] to PendingUserInput[] ({ revision, content })",
     up: (db) => {
-      const rows = db.prepare(`
+      const rows = db
+        .prepare(
+          `
         SELECT session_id, unapplied_user_inputs_json, latest_user_directive_revision
         FROM session_insights
         WHERE unapplied_user_inputs_json IS NOT NULL
           AND unapplied_user_inputs_json != '[]'
           AND unapplied_user_inputs_json != ''
-      `).all() as Array<{
+      `,
+        )
+        .all() as Array<{
         session_id: string;
         unapplied_user_inputs_json: string;
         latest_user_directive_revision: number;
@@ -118,7 +179,7 @@ export const migrations: Migration[] = [
               typeof (item as { revision?: unknown }).revision === "number" &&
               Number.isInteger((item as { revision: number }).revision) &&
               typeof (item as { content?: unknown }).content === "string" &&
-              ((item as { content: string }).content).length > 0
+              (item as { content: string }).content.length > 0
             ) {
               // 已结构化的合法对象 → 原样保留
               migrated.push({
@@ -129,24 +190,42 @@ export const migrations: Migration[] = [
             // 非法条目（既不是字符串也不是合法结构化对象）被跳过
           }
 
-          db.prepare(`
+          db.prepare(
+            `
             UPDATE session_insights
             SET unapplied_user_inputs_json = ?
             WHERE session_id = ?
-          `).run(JSON.stringify(migrated), row.session_id);
+          `,
+          ).run(JSON.stringify(migrated), row.session_id);
         } catch {
           // JSON 解析失败时跳过该行
         }
       }
-    }
+    },
   },
   {
     version: 9,
-    description: "Add model_configs columns: context_window_tokens, max_output_tokens, context_reserve_tokens. Add agent_context_snapshots table for role-level context persistence.",
+    description:
+      "Add model_configs columns: context_window_tokens, max_output_tokens, context_reserve_tokens. Add agent_context_snapshots table for role-level context persistence.",
     up: (db) => {
-      ensureColumnIfExists(db, "model_configs", "context_window_tokens", "INTEGER NOT NULL DEFAULT 128000");
-      ensureColumnIfExists(db, "model_configs", "max_output_tokens", "INTEGER NOT NULL DEFAULT 4096");
-      ensureColumnIfExists(db, "model_configs", "context_reserve_tokens", "INTEGER NOT NULL DEFAULT 1000");
+      ensureColumnIfExists(
+        db,
+        "model_configs",
+        "context_window_tokens",
+        "INTEGER NOT NULL DEFAULT 128000",
+      );
+      ensureColumnIfExists(
+        db,
+        "model_configs",
+        "max_output_tokens",
+        "INTEGER NOT NULL DEFAULT 4096",
+      );
+      ensureColumnIfExists(
+        db,
+        "model_configs",
+        "context_reserve_tokens",
+        "INTEGER NOT NULL DEFAULT 1000",
+      );
 
       // agent_context_snapshots 表（新数据库由 schemaDDL 创建，这里给旧数据库补建）
       db.exec(`
@@ -169,8 +248,83 @@ export const migrations: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_agent_context_snapshots_agent
         ON agent_context_snapshots(agent_id);
       `);
-    }
-  }
+    },
+  },
+  {
+    version: 10,
+    description:
+      "Add persistent tool installations, member routes and binding audit; preserve legacy inbox members",
+    up: (db) => {
+      db.exec(memberRoutingDDL);
+      db.exec(backfillMemberRoutes);
+    },
+  },
+  {
+    version: 11,
+    description:
+      "Add durable proxy deliveries, exclusive native-session execution and recovery audit",
+    up: (db) => {
+      db.exec(deliveryDDL);
+    },
+  },
+  {
+    version: 12,
+    description:
+      "Record verified native tool versions and durable Core ownership and named dispatch operations",
+    up: (db) => {
+      ensureColumnIfExists(
+        db,
+        "session_member_routes",
+        "verified_tool_version",
+        "TEXT",
+      );
+      db.exec(deliveryDDL);
+    },
+  },
+  {
+    version: 13,
+    description: "Add explicit tool environment references",
+    up: (db) => {
+      ensureColumnIfExists(
+        db,
+        "tool_installations",
+        "environment_keys_json",
+        "TEXT NOT NULL DEFAULT '[]'",
+      );
+    },
+  },
+  {
+    version: 14,
+    description: "Add revocable hashed session member send credentials",
+    up: (db) => {
+      db.exec(memberCredentialDDL);
+    },
+  },
+  {
+    version: 15,
+    description:
+      "Register native configuration profiles and protected file backup history",
+    up: (db) => {
+      db.exec(`
+      CREATE TABLE IF NOT EXISTS tool_config_profiles (
+        id TEXT PRIMARY KEY, installation_id TEXT NOT NULL, profile_json TEXT NOT NULL,
+        UNIQUE(installation_id, profile_json)
+      );
+      CREATE TABLE IF NOT EXISTS tool_config_backups (
+        id TEXT PRIMARY KEY, profile_id TEXT NOT NULL, document_id TEXT NOT NULL,
+        target_path TEXT NOT NULL, backup_path TEXT NOT NULL, before_fingerprint TEXT NOT NULL,
+        after_fingerprint TEXT NOT NULL, existed INTEGER NOT NULL, created_at TEXT NOT NULL, restored_at TEXT
+      );
+    `);
+    },
+  },
+  {
+    version: 16,
+    description: "Bind collaboration sessions to their project directory",
+    up: (db) => {
+      ensureColumnIfExists(db, "sessions", "project_path", "TEXT");
+    },
+  },
 ];
 
 /**
@@ -186,7 +340,9 @@ export function runMigrations(db: DatabaseSync): number {
     );
   `);
 
-  const applied = db.prepare("SELECT version FROM schema_version").all() as Array<{ version: number }>;
+  const applied = db
+    .prepare("SELECT version FROM schema_version")
+    .all() as Array<{ version: number }>;
   const appliedVersions = new Set(applied.map((row) => row.version));
 
   let count = 0;
@@ -196,8 +352,9 @@ export function runMigrations(db: DatabaseSync): number {
     try {
       db.exec("BEGIN");
       migration.up(db);
-      db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)")
-        .run(migration.version, new Date().toISOString());
+      db.prepare(
+        "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+      ).run(migration.version, new Date().toISOString());
       db.exec("COMMIT");
     } catch (error) {
       db.exec("ROLLBACK");
@@ -217,9 +374,11 @@ export function ensureColumnIfExists(
   db: DatabaseSync,
   tableName: string,
   columnName: string,
-  definition: string
+  definition: string,
 ): void {
-  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{
+    name: string;
+  }>;
   if (columns.some((column) => column.name === columnName)) {
     return;
   }
