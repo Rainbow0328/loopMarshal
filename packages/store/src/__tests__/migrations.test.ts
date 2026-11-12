@@ -48,55 +48,62 @@ describe("Database Migrations", () => {
       db.close();
     }
   });
-  it("backs up an existing database before upgrading and does not repeat the backup on restart", () => {
-    const root = mkdtempSync(join(tmpdir(), "loopmarshal-migration-backup-"));
-    const path = join(root, "legacy.sqlite");
-    try {
-      const old = new DatabaseSync(path);
-      old.exec(
-        schemaDDL.slice(
-          0,
-          -(
-            memberRoutingDDL.length +
-            deliveryDDL.length +
-            memberCredentialDDL.length
+  // File-backed migrations need time for durable writes on slower CI disks.
+  it(
+    "backs up an existing database before upgrading and does not repeat the backup on restart",
+    { timeout: 30_000 },
+    () => {
+      const root = mkdtempSync(join(tmpdir(), "loopmarshal-migration-backup-"));
+      const path = join(root, "legacy.sqlite");
+      try {
+        const old = new DatabaseSync(path);
+        old.exec(
+          schemaDDL.slice(
+            0,
+            -(
+              memberRoutingDDL.length +
+              deliveryDDL.length +
+              memberCredentialDDL.length
+            ),
           ),
-        ),
-      );
-      old.exec(
-        "CREATE TABLE backup_evidence (value TEXT); INSERT INTO backup_evidence VALUES ('preserve me')",
-      );
-      old.close();
-      const manager = new DatabaseManager(path);
-      try {
-        manager.migrate();
-        manager.migrate();
+        );
+        old.exec(
+          "CREATE TABLE backup_evidence (value TEXT); INSERT INTO backup_evidence VALUES ('preserve me')",
+        );
+        old.close();
+        const manager = new DatabaseManager(path);
+        try {
+          manager.migrate();
+          manager.migrate();
+        } finally {
+          manager.close();
+        }
+        const backups = readdirSync(root).filter((name) =>
+          name.endsWith(".bak"),
+        );
+        expect(backups).toHaveLength(1);
+        const backup = new DatabaseSync(join(root, backups[0]!), {
+          readOnly: true,
+        });
+        try {
+          expect(
+            backup.prepare("SELECT value FROM backup_evidence").get(),
+          ).toMatchObject({ value: "preserve me" });
+          expect(
+            backup
+              .prepare(
+                "SELECT 1 FROM sqlite_master WHERE name = 'session_member_routes'",
+              )
+              .get(),
+          ).toBeUndefined();
+        } finally {
+          backup.close();
+        }
       } finally {
-        manager.close();
+        rmSync(root, { recursive: true, force: true });
       }
-      const backups = readdirSync(root).filter((name) => name.endsWith(".bak"));
-      expect(backups).toHaveLength(1);
-      const backup = new DatabaseSync(join(root, backups[0]!), {
-        readOnly: true,
-      });
-      try {
-        expect(
-          backup.prepare("SELECT value FROM backup_evidence").get(),
-        ).toMatchObject({ value: "preserve me" });
-        expect(
-          backup
-            .prepare(
-              "SELECT 1 FROM sqlite_master WHERE name = 'session_member_routes'",
-            )
-            .get(),
-        ).toBeUndefined();
-      } finally {
-        backup.close();
-      }
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
+    },
+  );
   it("upgrades version 9 members and their messages without fabricating native bindings", () => {
     const db = new DatabaseSync(":memory:");
     try {
