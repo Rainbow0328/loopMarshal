@@ -10,7 +10,7 @@ LoopMarshal is a local-first AI coding collaboration tool. You give a Host a goa
 
 **English** | [中文](./README.md)
 
-[Quick start](#quick-start) · [First collaboration guide (Chinese)](./FIRST_COLLABORATION.md) · [Compatibility](./CLI_COMPATIBILITY.md) · [Desktop build](./DESKTOP_BUILD.md) · [Documentation](./DOCUMENTATION.md)
+[Quick start](#quick-start) · [First collaboration guide (Chinese)](./FIRST_COLLABORATION.md) · [Compatibility](./CLI_COMPATIBILITY.md) · [Desktop build](./DESKTOP_BUILD.md)
 
 **0.1.0 Preview** is available as a [Windows x64 installer](https://github.com/Rainbow0328/loopMarshal/releases/tag/v0.1.0) or from source. The installer includes its runtime; third-party tools and model services are configured separately. Detailed guides currently use Chinese; this README covers the main workflow in English, with the actual Chinese UI labels alongside it.
 
@@ -42,7 +42,7 @@ Download the [preview installer](https://github.com/Rainbow0328/loopMarshal/rele
 To run from source, install **Node.js 22.13+ (24 recommended) and pnpm 10.10.0**:
 
 ```powershell
-git clone --branch feat/desktop-loop-marshal https://github.com/Rainbow0328/loopMarshal.git
+git clone https://github.com/Rainbow0328/loopMarshal.git
 cd loopMarshal
 pnpm install --frozen-lockfile
 pnpm run desktop:dev
@@ -214,7 +214,7 @@ loopmarshal await frontend --session product-ui
 loopmarshal submit frontend --session product-ui --content 'Results and verification'
 ```
 
-The desktop package also includes a CLI entry point without a global install; see [desktop command access](./DESKTOP_BUILD.md#host-的命令入口). MCP and CLI use the same session identity and routing rules. See [sessions and members](./SESSION_WORKSPACE.md) and [native session proxies](./NATIVE_SESSION_PROXY.md).
+The desktop package also includes a CLI entry point without a global install; see [desktop command access](./DESKTOP_BUILD.md#host-的命令入口). MCP and CLI use the same session identity and routing rules. See the [first collaboration guide](./FIRST_COLLABORATION.md#继续已有协作) for joining sessions and native session precautions.
 
 ## Data and current boundaries
 
@@ -249,7 +249,7 @@ skills/              Role instructions for external tools
 scripts/             Builds, regressions, and documentation screenshots
 ```
 
-See [documentation](./DOCUMENTATION.md), [contributing](./CONTRIBUTING.md), and the [changelog](./CHANGELOG.md).
+See [contributing](./CONTRIBUTING.md) and the [changelog](./CHANGELOG.md).
 
 ## License
 

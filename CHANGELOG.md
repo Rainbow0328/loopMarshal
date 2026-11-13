@@ -34,11 +34,11 @@ The first public preview. Desktop, CLI, and workspace package versions remain **
 
 - Rewritten Chinese and English READMEs with current workflows, compatibility boundaries, and six real UI screenshots using isolated demo data.
 - Step-by-step [first collaboration guide](FIRST_COLLABORATION.md) covering tool/model setup, required fields, Host/Worker/Keeper creation, the first task, report and knowledge checks, and common blockers.
-- Updated session, configuration, desktop, and development guides, plus a [documentation index](DOCUMENTATION.md).
+- Updated session, configuration, desktop, and development guides.
 - Repeatable screenshot capture via `scripts/capture-docs.mjs`, without real model calls or changes to user configuration.
 
 ### Current boundaries
 
 - Full-history message API remains; UI batching is not server-side pagination.
 - No automatic worktree isolation, arbitrary IDE takeover, native terminal embedding/reattachment, or Host identity transfer.
-- Configuration coverage and real-model evidence vary by tool. See [native configuration](NATIVE_TOOL_CONFIG.md) and [compatibility](CLI_COMPATIBILITY.md).
+- Configuration coverage and real-model evidence vary by tool. See [native configuration](FIRST_COLLABORATION.md#工具配置与生效) and [compatibility](CLI_COMPATIBILITY.md).

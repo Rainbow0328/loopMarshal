@@ -10,7 +10,7 @@ LoopMarshal 是本地优先的 AI 编程协作工具：你向 Host 提出目标�
 
 **中文** | [English](./README-EN.md)
 
-[快速开始](#快速开始) · [首次协作完整教程](./FIRST_COLLABORATION.md) · [兼容范围](./CLI_COMPATIBILITY.md) · [桌面构建](./DESKTOP_BUILD.md) · [文档导航](./DOCUMENTATION.md)
+[快速开始](#快速开始) · [首次协作完整教程](./FIRST_COLLABORATION.md) · [兼容范围](./CLI_COMPATIBILITY.md) · [桌面构建](./DESKTOP_BUILD.md)
 
 当前版本为 **0.1.0 Preview（预览版）**。[下载 Windows x64 安装包](https://github.com/Rainbow0328/loopMarshal/releases/tag/v0.1.0)，或从下方源码运行。安装包包含运行时，无需另装 Node.js；第三方工具和模型服务需自行准备。
 
@@ -42,7 +42,7 @@ LoopMarshal 是本地优先的 AI 编程协作工具：你向 Host 提出目标�
 从源码运行需要 **Node.js 22.13+（推荐 24）和 pnpm 10.10.0**：
 
 ```powershell
-git clone --branch feat/desktop-loop-marshal https://github.com/Rainbow0328/loopMarshal.git
+git clone https://github.com/Rainbow0328/loopMarshal.git
 cd loopMarshal
 pnpm install --frozen-lockfile
 pnpm run desktop:dev
@@ -223,7 +223,7 @@ loopmarshal await 前端开发 --session 商品管理台
 loopmarshal submit 前端开发 --session 商品管理台 --content '结果与验证记录'
 ```
 
-桌面安装包另提供随包命令入口，无需全局安装，路径见 [Host 的命令入口](./DESKTOP_BUILD.md#host-的命令入口)。MCP 与 CLI 共用会话、身份和路由规则，详细接入见 [会话与成员](./SESSION_WORKSPACE.md) 和 [原生会话代理](./NATIVE_SESSION_PROXY.md)。
+桌面安装包另提供随包命令入口，无需全局安装，路径见 [Host 的命令入口](./DESKTOP_BUILD.md#host-的命令入口)。MCP 与 CLI 共用会话、身份和路由规则；接入及原生会话注意事项见 [首次协作教程](./FIRST_COLLABORATION.md#继续已有协作)。
 
 ## 数据与运行边界
 
@@ -258,7 +258,7 @@ skills/              外部工具角色指令与配置支持
 scripts/             构建、回归与文档截图
 ```
 
-文档入口、当前使用说明与历史验收记录见 [文档导航](./DOCUMENTATION.md)。参与开发见 [贡献指南](./CONTRIBUTING.md)，开发变化见 [CHANGELOG](./CHANGELOG.md)。
+参与开发见 [贡献指南](./CONTRIBUTING.md)，开发变化见 [CHANGELOG](./CHANGELOG.md)。
 
 ## License
 

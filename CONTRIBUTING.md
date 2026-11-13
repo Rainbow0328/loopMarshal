@@ -1,6 +1,6 @@
 # Contributing to LoopMarshal
 
-LoopMarshal **0.1.0 Preview** is an early release. Start with the [README](README-EN.md) and [documentation index](DOCUMENTATION.md).
+LoopMarshal **0.1.0 Preview** is an early release. Start with the [README](README-EN.md) and [first collaboration guide](FIRST_COLLABORATION.md).
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@ LoopMarshal **0.1.0 Preview** is an early release. Start with the [README](READM
 ## Getting started
 
 ```powershell
-git clone --branch feat/desktop-loop-marshal https://github.com/Rainbow0328/loopMarshal.git
+git clone https://github.com/Rainbow0328/loopMarshal.git
 cd loopMarshal
 pnpm install --frozen-lockfile
 pnpm run build
@@ -73,7 +73,7 @@ Choose the capability first: native proxy, configuration editing, discovery, and
 4. Keep member routing and named sending shared with existing tools. Test two native sessions in the same project, history isolation, restarts, invalid IDs, and failed execution.
 5. Validate configuration preview/write/restore without exposing secrets or overwriting unknown fields.
 6. If legacy `start-agent` support is needed, update `SupportedIde`, `IDE_META`, setup/launch rules in `apps/cli/src/start-agent.ts`, and role instructions under `skills/` separately.
-7. Update [CLI_COMPATIBILITY.md](CLI_COMPATIBILITY.md) and [NATIVE_TOOL_CONFIG.md](NATIVE_TOOL_CONFIG.md) with the actual evidence level and reproducible validation commands.
+7. Update [CLI_COMPATIBILITY.md](CLI_COMPATIBILITY.md) and [tool configuration guide](FIRST_COLLABORATION.md#工具配置与生效) with the actual evidence level and reproducible validation commands.
 
 ## Coding and performance
 
