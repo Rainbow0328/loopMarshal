@@ -9,6 +9,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { DocumentEditor } from "./ToolConfigDocumentEditor";
+import { ImportModelDialog } from "./ImportModelDialog";
+import "./tool-install.css";
 
 const documentName = (document: ToolConfigDocument) =>
   document.scope === "user"
@@ -30,6 +32,7 @@ export function ProfileEditor({
   const [documentId, setDocumentId] = useState("user");
   const [editorRevision, setEditorRevision] = useState(0);
   const [dirty, setDirty] = useState(false);
+  const [importing, setImporting] = useState(false);
   const documents = useQuery({
     queryKey: ["tool-config-documents", profile.id],
     queryFn: () => api.getToolConfigDocuments(profile.id),
@@ -70,6 +73,18 @@ export function ProfileEditor({
   return (
     <section className="config-panel native-config-panel">
       <div className="native-config-toolbar">
+        <button
+          className="btn btn-secondary btn-sm"
+          disabled={dirty}
+          title={
+            dirty
+              ? "请先保存或放弃当前修改"
+              : "使用 LoopMarshal 中已有的模型连接"
+          }
+          onClick={() => setImporting(true)}
+        >
+          导入已有模型
+        </button>
         <div className="native-config-sources" aria-label="配置文件">
           {documents.data?.documents.map((document) => (
             <button
@@ -103,6 +118,16 @@ export function ProfileEditor({
         <p role="alert" className="config-warning">
           {(documents.error ?? backups.error ?? restore.error)?.message}
         </p>
+      )}
+      {importing && (
+        <ImportModelDialog
+          profileId={profile.id}
+          toolId={profile.toolId}
+          close={() => {
+            setImporting(false);
+            refresh();
+          }}
+        />
       )}
       {documents.isLoading && <Loading text="读取工具配置…" />}
       {activeDocument && (

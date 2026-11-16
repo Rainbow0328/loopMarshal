@@ -1,0 +1,228 @@
+.discussion-layout {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 16px;
+  min-height: min(680px, 76vh);
+}
+.discussion-room-list {
+  overflow: auto;
+  max-height: 65vh;
+}
+.discussion-cli-root {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 12px 24px;
+  font-size: 14px;
+}
+.discussion-main fieldset legend {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.discussion-main fieldset p {
+  font-size: 14px;
+  line-height: 1.6;
+}
+.discussion-composer-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.discussion-message header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.discussion-message header span {
+  opacity: 0.65;
+  font-size: 13px;
+}
+.discussion-message.is-failed {
+  border-left: 3px solid var(--c-error, #b43f3f);
+}
+.discussion-sidebar,
+.discussion-main {
+  padding: 20px;
+}
+.discussion-sidebar h2,
+.discussion-main h2 {
+  font-size: 18px;
+  margin: 0 0 14px;
+}
+.discussion-sidebar > .btn {
+  width: 100%;
+  margin-bottom: 16px;
+}
+.discussion-room {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  padding: 12px;
+  text-align: left;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.discussion-room.active {
+  background: var(--c-bg-subtle, #e8edf7);
+}
+.discussion-room span,
+.discussion-heading p {
+  font-size: 13px;
+  opacity: 0.7;
+  overflow-wrap: anywhere;
+}
+.discussion-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.discussion-create {
+  display: grid;
+  gap: 16px;
+  max-width: 600px;
+}
+.discussion-create p,
+.discussion-heading p {
+  margin: 0;
+}
+.discussion-create > label {
+  display: grid;
+  gap: 8px;
+}
+.discussion-create fieldset {
+  display: grid;
+  gap: 10px;
+  border: 0;
+  padding: 0;
+}
+.discussion-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.discussion-choice span {
+  opacity: 0.65;
+  font-size: 13px;
+}
+.discussion-create .btn {
+  justify-self: start;
+}
+.discussion-heading {
+  border-bottom: 1px solid var(--c-border, #dce1e9);
+  padding-bottom: 14px;
+}
+.discussion-heading h2 {
+  margin-bottom: 4px;
+}
+.discussion-messages {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 55vh;
+  padding: 20px 0;
+}
+.discussion-empty {
+  text-align: center;
+  opacity: 0.65;
+  margin-top: 80px;
+}
+.discussion-message {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--c-bg-subtle, #f3f5f9);
+  overflow-wrap: anywhere;
+}
+.discussion-message.is-user {
+  margin-left: 12%;
+}
+.discussion-message header strong {
+  display: block;
+  margin-bottom: 7px;
+}
+.discussion-composer {
+  border-top: 1px solid var(--c-border, #dce1e9);
+  padding-top: 12px;
+}
+.discussion-recipients {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.discussion-composer textarea {
+  display: block;
+  width: 100%;
+  min-height: 90px;
+  padding: 12px;
+  resize: vertical;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--c-border, #cbd2df);
+  border-radius: 10px;
+  margin-bottom: 10px;
+}
+@media (max-width: 700px) {
+  .discussion-layout {
+    grid-template-columns: 1fr;
+  }
+  .discussion-sidebar {
+    max-height: 220px;
+    overflow: auto;
+  }
+}
+
+.discussion-heading,
+.discussion-knowledge-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.discussion-knowledge {
+  overflow: auto;
+  padding: 18px 0;
+  display: grid;
+  gap: 14px;
+}
+.discussion-knowledge h3,
+.discussion-knowledge h4,
+.discussion-knowledge p {
+  margin: 0;
+}
+.discussion-source-list {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow: auto;
+}
+.discussion-source-list label {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.discussion-draft {
+  display: grid;
+  gap: 10px;
+}
+.discussion-draft label {
+  display: grid;
+  gap: 6px;
+}
+.discussion-draft textarea {
+  width: 100%;
+  padding: 12px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--c-border, #cbd2df);
+  border-radius: 8px;
+}
+.discussion-knowledge-entry {
+  padding: 14px;
+  border: 1px solid var(--c-border, #dce1e9);
+  border-radius: 10px;
+}

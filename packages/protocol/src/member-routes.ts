@@ -165,6 +165,8 @@ export type ToolInstallation = z.output<
   createdAt: string;
   updatedAt: string;
   compatibility?: import("./tool-compatibility.js").ToolCompatibility;
+  /** Paths managed by the installer; never contain credentials. */
+  managedPaths?: { configRoot: string; cacheRoot: string };
 };
 
 export const updateToolInstallationInputSchema = toolInstallationShape

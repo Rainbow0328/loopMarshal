@@ -29,3 +29,6 @@ export * from "./deliveries.js";
 export * from "./tool-config.js";
 export * from "./tool-compatibility.js";
 export * from "./session-setup.js";
+export * from "./tool-installer.js";
+export * from "./discussions.js";
+export * from "./models.js";

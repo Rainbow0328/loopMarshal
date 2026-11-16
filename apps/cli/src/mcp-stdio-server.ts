@@ -11,6 +11,18 @@ import { createInterface } from "node:readline";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { createLocalClient } from "./client.js";
+import {
+  controlMcpTools,
+  isControlMcpTool,
+  callControlMcpTool,
+  type StdioToolDefinition,
+} from "./control/mcp-tools.js";
+
+import { McpAccessPolicy } from "./control/access.js";
+
+const controlClient = createLocalClient();
+const accessPolicy = new McpAccessPolicy();
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,15 +48,7 @@ type JsonRpcNotification = {
   params?: Record<string, unknown>;
 };
 
-type ToolDef = {
-  name: string;
-  description: string;
-  inputSchema: {
-    type: "object";
-    properties: Record<string, unknown>;
-    required: string[];
-  };
-};
+type ToolDef = StdioToolDefinition;
 
 // ---------------------------------------------------------------------------
 // Transport
@@ -150,7 +154,7 @@ const runCliCommand = (
       reject(err);
     });
 
-    child.on("exit", (code) => {
+    child.on("close", (code) => {
       if (progressTimer) clearInterval(progressTimer);
       resolve({
         stdout,
@@ -272,6 +276,10 @@ const runMultiCliCommands = async (
   for (const cmd of commands) {
     const result = await runCliCommand(cmd.args, {});
     if (result.exitCode !== 0) {
+      if (cmd.label === "attach")
+        throw new Error(
+          result.stderr.trim() || result.stdout.trim() || "Attach failed",
+        );
       // Non-fatal: continue with other commands
       results[cmd.label] = {
         error: result.stderr.trim() || result.stdout.trim(),
@@ -305,39 +313,23 @@ const HOST_ONLY_TOOLS = new Set([
 ]);
 
 /**
- * Resolve the effective role for tool filtering.
- *
- * Priority:
- * 1. Runtime role set by `attach` call (dynamic — covers role changes across sessions)
- * 2. LOOPMARSHAL_ROLE env var (static — set by mcp-setup for pre-connection isolation)
- * 3. undefined (no filtering — all tools exposed)
- */
-let runtimeRole: "host" | "worker" | undefined;
-
-const getEffectiveRole = (): "host" | "worker" | undefined => {
-  if (runtimeRole) return runtimeRole;
-  const envRole = process.env.LOOPMARSHAL_ROLE;
-  if (envRole === "host" || envRole === "worker") return envRole;
-  return undefined;
-};
-
-/**
  * Returns the filtered tool list based on the effective role.
  * When no role is known, all tools are exposed (backward compatible).
  */
 const getFilteredTools = (): ToolDef[] => {
-  const role = getEffectiveRole();
-  if (!role) return tools;
-  if (role === "host") return tools; // host has access to everything
-  // worker: exclude host-only tools
-  return tools.filter((t) => !HOST_ONLY_TOOLS.has(t.name));
+  return tools.filter((tool) =>
+    isControlMcpTool(tool.name)
+      ? accessPolicy.canManageApplication
+      : !HOST_ONLY_TOOLS.has(tool.name) || accessPolicy.canUseHostTools,
+  );
 };
 
 const tools: ToolDef[] = [
+  ...controlMcpTools,
   {
     name: "attach",
     description:
-      "Attach the current AI IDE as a member to an loopmarshal session. Must be called before any other tool.",
+      "Attach the current AI IDE as a session member before using member collaboration tools. Application management tools do not require attach.",
     inputSchema: {
       type: "object",
       properties: {
@@ -603,6 +595,10 @@ const handleToolCall = async (
   args: Record<string, unknown>,
   progressToken?: string | number,
 ): Promise<unknown> => {
+  if (isControlMcpTool(toolName)) {
+    accessPolicy.assertApplicationAccess();
+    return callControlMcpTool(controlClient, toolName, args);
+  }
   const buildArgs = (): string[] => {
     switch (toolName) {
       case "attach":
@@ -948,7 +944,7 @@ const handleMessage = async (message: JsonRpcRequest): Promise<void> => {
         sendResult(id, {
           protocolVersion: "2024-11-05",
           capabilities: {
-            tools: { listChanged: false },
+            tools: { listChanged: true },
             logging: {},
           },
           serverInfo: {
@@ -981,8 +977,7 @@ const handleMessage = async (message: JsonRpcRequest): Promise<void> => {
         // If the effective role is worker, reject host-only tool calls.
         // This is a runtime guard that works even if the IDE doesn't support
         // listChanged (dynamic tool filtering).
-        const effectiveRole = getEffectiveRole();
-        if (effectiveRole === "worker" && HOST_ONLY_TOOLS.has(toolName)) {
+        if (!accessPolicy.canUseHostTools && HOST_ONLY_TOOLS.has(toolName)) {
           sendResult(id, {
             content: [
               {
@@ -995,22 +990,20 @@ const handleMessage = async (message: JsonRpcRequest): Promise<void> => {
           break;
         }
 
-        // --- Track runtime role from attach/resume calls ---
-        // When the model calls attach with role=host/worker, we update the
-        // runtime role so subsequent tools/list and tools/call are filtered.
-        if ((toolName === "attach" || toolName === "resume") && toolArgs.role) {
-          const claimedRole = String(toolArgs.role);
-          if (claimedRole === "host" || claimedRole === "worker") {
-            runtimeRole = claimedRole;
-          }
-        }
-
         try {
-          const result = await handleToolCall(
-            toolName,
-            toolArgs,
-            progressToken,
-          );
+          const attaching = toolName === "attach" || toolName === "resume";
+          const invoke = () =>
+            handleToolCall(toolName, toolArgs, progressToken);
+          const result = attaching
+            ? await accessPolicy.attach(toolArgs.role, invoke)
+            : await invoke();
+          // A failed attach must not change tool visibility or elevate a Worker.
+          if (attaching) {
+            send({
+              jsonrpc: "2.0",
+              method: "notifications/tools/list_changed",
+            });
+          }
           sendResult(id, {
             content: [
               {
@@ -1051,19 +1044,18 @@ const handleMessage = async (message: JsonRpcRequest): Promise<void> => {
 
 const CORE_HOST = process.env.LOOPMARSHAL_HOST ?? "127.0.0.1";
 const CORE_PORT = Number(process.env.LOOPMARSHAL_PORT ?? "42688");
-const CORE_BASE_URL = `http://${CORE_HOST}:${CORE_PORT}`;
+const CORE_BASE_URL = (
+  process.env.LOOPMARSHAL_BASE_URL ?? `http://${CORE_HOST}:${CORE_PORT}`
+).replace(/\/$/, "");
 
 const HEALTH_CHECK_TIMEOUT_MS = 3_000;
 const HEARTBEAT_INTERVAL_MS = 15_000;
 
 const checkCoreHealth = async (): Promise<boolean> => {
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
     const response = await fetch(`${CORE_BASE_URL}/health`, {
-      signal: controller.signal,
+      signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS),
     });
-    clearTimeout(timer);
     return response.ok;
   } catch {
     return false;
@@ -1072,8 +1064,6 @@ const checkCoreHealth = async (): Promise<boolean> => {
 
 const registerWithCore = async (): Promise<boolean> => {
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
     const response = await fetch(`${CORE_BASE_URL}/api/mcp-stdio/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1081,9 +1071,8 @@ const registerWithCore = async (): Promise<boolean> => {
         pid: process.pid,
         ideLabel: process.env.LOOPMARSHAL_IDE_LABEL ?? null,
       }),
-      signal: controller.signal,
+      signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS),
     });
-    clearTimeout(timer);
     return response.ok;
   } catch {
     return false;
@@ -1096,6 +1085,7 @@ const unregisterFromCore = async (): Promise<void> => {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pid: process.pid }),
+      signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS),
     });
   } catch {
     // Best-effort: core may already be down
@@ -1104,15 +1094,12 @@ const unregisterFromCore = async (): Promise<void> => {
 
 const sendHeartbeat = async (): Promise<boolean> => {
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
     const response = await fetch(`${CORE_BASE_URL}/api/mcp-stdio/heartbeat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pid: process.pid }),
-      signal: controller.signal,
+      signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS),
     });
-    clearTimeout(timer);
     return response.ok;
   } catch {
     return false;

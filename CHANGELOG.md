@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased — 0.1.0 Preview
+
+### Application control and collaboration
+
+- Expose 70 application actions through a shared CLI/MCP registry, covering collaboration setup, named messages, models, tools/configuration/installations, runtimes, knowledge, discussions, MCP extensions, and preferences.
+- Add capability discovery, exact input schemas, structured JSON results, user-to-Host messaging, idempotency conflict checks, and atomic MCP role attachment. Member credentials cannot use the application management entry points.
+- Add isolated discussion rooms, reviewed knowledge summaries with source references, and explicit grants for collaboration Hosts to retrieve discussion knowledge.
+- Add managed Worker installation directories and preview/apply of compatible saved model settings, with configuration backups and external-change detection.
+
+### Reliability and validation
+
+- Separate application actions by responsibility; share bounded JSON input, error handling, and access checks. Generate and cache JSON Schemas only when requested.
+- Handle empty SDK results and malformed upstream responses consistently, preserving HTTP failures and structured permission errors.
+- Use production dependency deployment for user packages, normalize workspace versions, include web assets, and avoid hard-link mutation and archive extraction issues.
+- Pass 316 automated tests, CLI/MCP application-control integration, seven additional business regression checks, formatting/type checks, and the production build. Independently extract a user package and verify Core, CLI, and MCP startup.
+- Integration checks use isolated data, a local deterministic model service, and a native-tool test double; this is not renewed real-model acceptance for every supported CLI.
+
+Desktop, CLI, and package versions remain **0.1.0**. These source changes do not update an existing installer or installed application.
+
 ## 0.1.0 Preview — 2026-11-12
 
 The first public preview. Desktop, CLI, and workspace package versions remain **0.1.0**. Windows x64 installers are distributed through GitHub Releases; source updates do not update an installed application.

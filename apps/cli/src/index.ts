@@ -7,8 +7,8 @@ import {
   type MessageType,
   type WindowBinding,
 } from "@loopmarshal/protocol";
-import { createLoopMarshalClient, LoopMarshalSdkError } from "@loopmarshal/sdk";
-import { readCoreManagementToken, wrapForDisplay } from "@loopmarshal/shared";
+import { LoopMarshalSdkError } from "@loopmarshal/sdk";
+import { wrapForDisplay } from "@loopmarshal/shared";
 import { Command } from "commander";
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -25,6 +25,8 @@ import {
   type WindowDispatchTaskSpec,
 } from "./command-input.js";
 import { registerProxyCommands } from "./proxy-commands.js";
+import { registerControlCommands } from "./control/commands.js";
+import { createLocalClient } from "./client.js";
 
 import {
   createCommandTrace,
@@ -89,17 +91,7 @@ import {
 
 const projectRoot = process.cwd();
 const program = new Command();
-const client = createLoopMarshalClient({
-  headers: () => ({
-    "x-loopmarshal-client": "cli",
-    "x-loopmarshal-process": String(process.pid),
-    ...(process.env.LOOPMARSHAL_MEMBER_TOKEN
-      ? { authorization: `Bearer ${process.env.LOOPMARSHAL_MEMBER_TOKEN}` }
-      : readCoreManagementToken()
-        ? { "x-loopmarshal-management-token": readCoreManagementToken()! }
-        : {}),
-  }),
-});
+const client = createLocalClient();
 const cliLeaseOwnerToken = `cli:${process.pid}:${randomUUID()}`;
 const runtimeTerminalProgressHints = [
   "running",
@@ -5591,4 +5583,5 @@ program
   });
 
 registerProxyCommands(program, client);
+registerControlCommands(program, client);
 await program.parseAsync();

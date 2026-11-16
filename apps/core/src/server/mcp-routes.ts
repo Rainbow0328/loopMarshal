@@ -57,6 +57,7 @@ export function registerMcpRoutes<Logger extends FastifyBaseLogger>(
       const executionTools = [
         "session_context",
         "query_messages",
+        "discussion_read",
         "knowledge_list",
         "knowledge_read",
         "knowledge_update",

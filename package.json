@@ -75,6 +75,7 @@
     "smoke:cli:knowledge": "npm run build && node scripts/smoke-cli-knowledge.mjs",
     "smoke:cli:knowledge-keeper": "npm run build && node scripts/smoke-cli-knowledge-keeper.mjs",
     "smoke:console:api": "npm run build && node scripts/smoke-console-api.mjs",
+    "smoke:external": "npm run build && node scripts/smoke-external-control.mjs",
     "smoke:websocket:console-update": "npm run build && node scripts/smoke-websocket-console-update.mjs",
     "smoke:cli:attach-reset": "npm run build && node scripts/smoke-cli-attach-reset.mjs",
     "smoke:cli:batch-dispatch": "npm run build && node scripts/smoke-cli-batch-dispatch.mjs",
@@ -87,7 +88,7 @@
     "smoke:regression": "npm run build && node scripts/smoke-message-fail.mjs && node scripts/smoke-duplicate-agent-name.mjs && node scripts/smoke-inbox-filters.mjs",
     "test": "pnpm -r --workspace-concurrency=1 --if-present run test",
     "lint": "pnpm run format:check && pnpm run typecheck",
-    "format": "prettier --write \"{apps,packages,adapters}/*/src/**/*.{ts,tsx,js,cjs,mjs,css}\" \"apps/*/*.{json,ts,cjs,js}\" \"packages/*/*.json\" \"scripts/*.{mjs,js}\" \"*.{json,yaml}\" \".prettierrc.json\"",
-    "format:check": "prettier --check \"{apps,packages,adapters}/*/src/**/*.{ts,tsx,js,cjs,mjs,css}\" \"apps/*/*.{json,ts,cjs,js}\" \"packages/*/*.json\" \"scripts/*.{mjs,js}\" \"*.{json,yaml}\" \".prettierrc.json\""
+    "format": "prettier --write \"{apps,packages,adapters}/*/src/**/*.{ts,tsx,js,cjs,mjs,css}\" \"apps/*/*.{json,ts,cjs,js}\" \"packages/*/*.json\" \"scripts/**/*.{mjs,js}\" \"*.{json,yaml}\" \".prettierrc.json\"",
+    "format:check": "prettier --check \"{apps,packages,adapters}/*/src/**/*.{ts,tsx,js,cjs,mjs,css}\" \"apps/*/*.{json,ts,cjs,js}\" \"packages/*/*.json\" \"scripts/**/*.{mjs,js}\" \"*.{json,yaml}\" \".prettierrc.json\""
   }
 }

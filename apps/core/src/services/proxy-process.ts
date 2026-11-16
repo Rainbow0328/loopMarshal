@@ -7,7 +7,7 @@ import {
   readdirSync,
   readSync,
 } from "node:fs";
-import { dirname, extname, join, resolve, sep } from "node:path";
+import { delimiter, dirname, extname, join, resolve, sep } from "node:path";
 import type { ProxyToolId, ToolInstallation } from "@loopmarshal/protocol";
 import { toolEnvironmentKeys } from "@loopmarshal/protocol";
 
@@ -136,7 +136,10 @@ export function resolveToolExecutable(installation: ToolInstallation): {
 }
 
 export function proxyEnvironment(
-  installation?: Pick<ToolInstallation, "toolId" | "environmentKeys">,
+  installation?: Pick<
+    ToolInstallation,
+    "toolId" | "environmentKeys" | "managedPaths"
+  >,
 ): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -149,6 +152,37 @@ export function proxyEnvironment(
     }
   }
   environment.NO_COLOR = "1";
+  // Electron's executable also serves as Node in packaged clients.
+  environment.ELECTRON_RUN_AS_NODE = "1";
+  // Managed workers must also find the bundled Node runtime when no system Node
+  // is installed. Keep the rest of the user's executable search path intact.
+  const pathKey =
+    Object.keys(environment).find((key) => key.toUpperCase() === "PATH") ??
+    "PATH";
+  environment[pathKey] =
+    dirname(process.execPath) + delimiter + (environment[pathKey] ?? "");
+  if (installation?.managedPaths) {
+    environment.XDG_CACHE_HOME = installation.managedPaths.cacheRoot;
+    environment.npm_config_cache = join(
+      installation.managedPaths.cacheRoot,
+      "npm",
+    );
+    if (installation.toolId === "opencode") {
+      environment.XDG_CONFIG_HOME = dirname(
+        installation.managedPaths.configRoot,
+      );
+      environment.XDG_DATA_HOME = join(
+        installation.managedPaths.cacheRoot,
+        "data",
+      );
+      environment.XDG_STATE_HOME = join(
+        installation.managedPaths.cacheRoot,
+        "state",
+      );
+    }
+    if (installation.toolId === "mimo")
+      environment.MIMOCODE_HOME = dirname(installation.managedPaths.configRoot);
+  }
   for (const key of installation?.environmentKeys ?? []) {
     if (!toolEnvironmentKeys[installation!.toolId].includes(key))
       throw new Error("Unsupported inherited tool environment key.");

@@ -49,6 +49,8 @@ import {
 import { installationCompatibility } from "./tool-compatibility-service.js";
 import { resolveToolExecutable } from "./proxy-process.js";
 import { checkToolReadiness } from "./tool-readiness-service.js";
+import { prepareModelToolConfig } from "./model-tool-config.js";
+import type { ModelConfigWithSecret } from "@loopmarshal/store";
 
 type Target = {
   id: string;
@@ -601,6 +603,46 @@ export class ToolConfigService {
       backup: this.backups(profileId).find((item) => item.id === id)!,
     };
   }
+  public previewModel(
+    profileId: string,
+    expectedFingerprint: string,
+    model: ModelConfigWithSecret,
+    responsesConfirmed = false,
+  ): ToolConfigPreview {
+    const profile = this.profile(profileId);
+    const target = this.target(profile, "user");
+    const snapshot = this.read(target);
+    if (snapshot.fingerprint !== expectedFingerprint)
+      throw conflict("配置已被外部修改，请重新读取。");
+    const result = prepareModelToolConfig(
+      profile.toolId,
+      snapshot.text,
+      model,
+      responsesConfirmed,
+    );
+    if (Buffer.byteLength(result.text) > 1024 * 1024)
+      throw coreErrors.invalidInput("配置文件超过 1MB，未写入。");
+    for (const [id, item] of this.previews)
+      if (item.expires < Date.now()) this.previews.delete(id);
+    if (this.previews.size >= 100)
+      throw conflict("待确认的预览过多，请稍后重试。");
+    const previewId = randomUUID();
+    const expires = Date.now() + 5 * 60_000;
+    this.previews.set(previewId, {
+      profileId,
+      target,
+      before: snapshot.fingerprint,
+      text: result.text,
+      expires,
+    });
+    return {
+      previewId,
+      path: target.path,
+      changes: result.changes,
+      expiresAt: new Date(expires).toISOString(),
+      effectiveAfter,
+    };
+  }
   public backups(profileId: string): ToolConfigBackup[] {
     this.profile(profileId);
     return this.backupRows(profileId).map((row) => ({
@@ -829,6 +871,12 @@ export class ToolConfigService {
     }
   }
   private assertIdle(): void {
+    if (
+      this.db
+        .prepare("SELECT 1 FROM discussion_rooms WHERE busy=1 LIMIT 1")
+        .get()
+    )
+      throw conflict("有讨论成员正在运行，请等待讨论结束后修改配置。");
     const running = this.db
       .prepare(
         "SELECT 1 FROM message_deliveries WHERE state IN ('delivering','awaiting_result','unknown') LIMIT 1",

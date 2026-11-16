@@ -1,3 +1,5 @@
+import type { DiscussionService } from "../services/discussion-service.js";
+import type { ToolInstallerService } from "../services/tool-installer-service.js";
 import type { ModelConfigRepository } from "@loopmarshal/store";
 import type { AgentContextService } from "../services/agent-context-service.js";
 import type { AgentWorkflowRegistry } from "../services/agent-workflow-registry.js";
@@ -31,6 +33,8 @@ import type { ProxyDeliveryService } from "../services/proxy-delivery-service.js
 import type { ToolConfigService } from "../services/tool-config-service.js";
 
 export type ServerServices = {
+  toolInstallerService?: ToolInstallerService;
+  discussionService?: DiscussionService;
   managedAgentSetupService?: ManagedAgentSetupService;
   toolConfigService?: ToolConfigService;
   memberCredentialService?: MemberCredentialService;

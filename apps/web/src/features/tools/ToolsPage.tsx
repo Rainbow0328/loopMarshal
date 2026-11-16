@@ -23,6 +23,7 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { ToolCompatibilityNotice } from "./ToolCompatibilityNotice";
+import { InstallToolsDialog } from "./InstallToolsDialog";
 
 const names = toolNames;
 
@@ -30,6 +31,7 @@ export function ToolsPage() {
   const api = getApiClient();
   const qc = useQueryClient();
   const [showInstall, setShowInstall] = useState(false);
+  const [showDownload, setShowDownload] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [tool, setTool] = useState<ProxyToolId>("codex");
   const [path, setPath] = useState("");
@@ -67,6 +69,13 @@ export function ToolsPage() {
         subtitle="查找本机 Worker，管理接入与配置"
         actions={
           <>
+            <button
+              className="btn btn-secondary"
+              onClick={() => setShowDownload(true)}
+            >
+              <Icon name="plus" size={16} />
+              安装 Worker
+            </button>
             <Link
               className="btn btn-secondary"
               to="/tool-config"
@@ -229,6 +238,9 @@ export function ToolsPage() {
           />
         )}
       </PageContainer>
+      {showDownload && (
+        <InstallToolsDialog close={() => setShowDownload(false)} />
+      )}
       <Dialog
         open={showInstall}
         onClose={() => setShowInstall(false)}

@@ -29,6 +29,8 @@ import {
   extendedNativeTools,
   ExtendedNativeSessionAdapter,
 } from "./extended-native-session-adapter.js";
+import { appendManagedCodexSettings } from "./managed-codex-settings.js";
+import { appendManagedClaudeSettings } from "./managed-claude-settings.js";
 
 export type NativeTurnResult = {
   outcome: "reported" | "failed" | "blocked" | "unknown";
@@ -425,22 +427,8 @@ export function buildNativeInvocation(
       "-",
     ];
     input = prompt;
-    if (automaticSetup) {
-      // LoopMarshal members have their own identities and task lifecycle. Native
-      // subagent tools cannot address them and must not compete with this MCP.
-      args.push("-c", "features.multi_agent=false");
-      const prefix = `mcp_servers.${automaticSetup.serverName}`;
-      args.push(
-        "-c",
-        `${prefix}.command=${JSON.stringify(process.execPath)}`,
-        "-c",
-        `${prefix}.args=${JSON.stringify([automaticSetup.bridgePath, "--mcp"])}`,
-        "-c",
-        `${prefix}.enabled=true`,
-        "-c",
-        `${prefix}.required=true`,
-      );
-    }
+    if (automaticSetup)
+      appendManagedCodexSettings(args, snapshot, automaticSetup);
   } else if (installation.toolId === "claude") {
     environment.CLAUDE_CONFIG_DIR = binding.runtimeNamespace;
     args = [
@@ -452,7 +440,8 @@ export function buildNativeInvocation(
       "--verbose",
     ];
     input = prompt;
-    if (automaticSetup)
+    if (automaticSetup) {
+      appendManagedClaudeSettings(args, snapshot);
       args.push(
         "--mcp-config",
         automaticSetup.mcpConfigPath,
@@ -463,6 +452,7 @@ export function buildNativeInvocation(
           .map((name) => `mcp__${automaticSetup.serverName}__${name}`)
           .join(","),
       );
+    }
   } else if (installation.toolId === "qwen") {
     environment.QWEN_HOME = binding.runtimeNamespace;
     environment.QWEN_RUNTIME_DIR = binding.runtimeNamespace;
@@ -576,21 +566,10 @@ export function buildNativeCreateInvocation(
       "This tool creates sessions through its running server endpoint.",
     );
   }
-  if (automaticSetup && installation.toolId === "codex") {
-    args.push("-c", "features.multi_agent=false");
-    const prefix = `mcp_servers.${automaticSetup.serverName}`;
-    args.push(
-      "-c",
-      `${prefix}.command=${JSON.stringify(process.execPath)}`,
-      "-c",
-      `${prefix}.args=${JSON.stringify([automaticSetup.bridgePath, "--mcp"])}`,
-      "-c",
-      `${prefix}.enabled=true`,
-      "-c",
-      `${prefix}.required=true`,
-    );
-  }
-  if (automaticSetup && installation.toolId === "claude")
+  if (automaticSetup && installation.toolId === "codex")
+    appendManagedCodexSettings(args, snapshot, automaticSetup);
+  if (automaticSetup && installation.toolId === "claude") {
+    appendManagedClaudeSettings(args, snapshot);
     args.push(
       "--mcp-config",
       automaticSetup.mcpConfigPath,
@@ -601,6 +580,7 @@ export function buildNativeCreateInvocation(
         .map((name) => `mcp__${automaticSetup.serverName}__${name}`)
         .join(","),
     );
+  }
   if (!input && Buffer.byteLength(prompt) > 16000)
     throw new Error(
       "This tool invocation requires a shorter prompt; the task was not truncated.",
@@ -739,6 +719,9 @@ export class NativeCliSessionAdapter implements NativeSessionAdapter {
               event.subtype.startsWith("error"));
           if (typeof event.result === "string") text = event.result;
           if (typeof event.response === "string") text = event.response;
+          blocked ||=
+            Array.isArray(event.permission_denials) &&
+            event.permission_denials.length > 0;
           const projection = event.projection as
             | { status?: string }
             | undefined;

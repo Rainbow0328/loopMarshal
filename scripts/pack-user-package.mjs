@@ -12,9 +12,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -23,41 +25,30 @@ const webDistPath = join(repoRoot, "apps", "web", "dist");
 
 const rootPackage = {
   packageJsonPath: join(repoRoot, "apps", "cli", "package.json"),
-  distPath: join(repoRoot, "apps", "cli", "dist"),
 };
 
 const bundledPackages = [
   {
     name: "@loopmarshal/core",
     packageJsonPath: join(repoRoot, "apps", "core", "package.json"),
-    distPath: join(repoRoot, "apps", "core", "dist"),
   },
   {
     name: "@loopmarshal/protocol",
     packageJsonPath: join(repoRoot, "packages", "protocol", "package.json"),
-    distPath: join(repoRoot, "packages", "protocol", "dist"),
   },
   {
     name: "@loopmarshal/shared",
     packageJsonPath: join(repoRoot, "packages", "shared", "package.json"),
-    distPath: join(repoRoot, "packages", "shared", "dist"),
   },
   {
     name: "@loopmarshal/sdk",
     packageJsonPath: join(repoRoot, "packages", "sdk", "package.json"),
-    distPath: join(repoRoot, "packages", "sdk", "dist"),
   },
   {
     name: "@loopmarshal/store",
     packageJsonPath: join(repoRoot, "packages", "store", "package.json"),
-    distPath: join(repoRoot, "packages", "store", "dist"),
   },
 ];
-
-const internalPackageNames = new Set([
-  "loopmarshal",
-  ...bundledPackages.map((item) => item.name),
-]);
 
 const readJson = async (path) => {
   return JSON.parse(await readFile(path, "utf8"));
@@ -65,10 +56,20 @@ const readJson = async (path) => {
 
 const writeJson = async (path, value) => {
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, JSON.stringify(value, null, 2), "utf8");
+  // Deployed workspace files can be hard links. Replace rather than mutate them.
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, JSON.stringify(value, null, 2), {
+      encoding: "utf8",
+      flag: "wx",
+    });
+    await rename(temporary, path);
+  } finally {
+    await rm(temporary, { force: true });
+  }
 };
 
-const sanitizePackageJson = (pkg, overrides = {}) => {
+const sanitizePackageJson = (pkg, internalVersions, overrides = {}) => {
   const next = {
     ...pkg,
     ...overrides,
@@ -77,102 +78,86 @@ const sanitizePackageJson = (pkg, overrides = {}) => {
 
   delete next.scripts;
   delete next.workspaces;
+  delete next.devDependencies;
+
+  for (const field of [
+    "dependencies",
+    "optionalDependencies",
+    "peerDependencies",
+  ]) {
+    if (!next[field]) continue;
+    next[field] = Object.fromEntries(
+      Object.entries(next[field]).map(([name, version]) => {
+        if (!version.startsWith("workspace:")) return [name, version];
+        const localVersion = internalVersions.get(name);
+        if (!localVersion)
+          throw new Error(`Unknown workspace dependency: ${name}`);
+        return [name, localVersion];
+      }),
+    );
+  }
 
   return next;
 };
 
-const packageNameToPathParts = (name) => name.split("/");
-
-const getInstalledPackageDir = (packageName) => {
-  return join(repoRoot, "node_modules", ...packageNameToPathParts(packageName));
-};
-
-const collectExternalDependencies = async () => {
-  const collected = new Set();
-  const visited = new Set();
-  const queue = [];
-
-  const enqueueDependencies = (pkg) => {
-    for (const dependencyName of Object.keys(pkg.dependencies ?? {})) {
-      if (!internalPackageNames.has(dependencyName)) {
-        queue.push(dependencyName);
-      }
-    }
-  };
-
-  enqueueDependencies(await readJson(rootPackage.packageJsonPath));
-
-  for (const item of bundledPackages) {
-    enqueueDependencies(await readJson(item.packageJsonPath));
-  }
-
-  while (queue.length > 0) {
-    const dependencyName = queue.shift();
-
-    if (!dependencyName || visited.has(dependencyName)) {
-      continue;
-    }
-
-    visited.add(dependencyName);
-    collected.add(dependencyName);
-
-    const dependencyPackageJson = await readJson(
-      join(getInstalledPackageDir(dependencyName), "package.json"),
+const deployProductionCli = async () => {
+  const target = relative(repoRoot, releaseRoot).replaceAll("\\", "/");
+  if (!/^[\w./-]+$/.test(target) || target.startsWith("../"))
+    throw new Error("Unexpected package output path");
+  await rm(releaseRoot, { recursive: true, force: true });
+  // Match desktop deployment: let pnpm preserve transitive and nested versions.
+  const args = [
+    "--filter",
+    "./apps/cli",
+    "deploy",
+    "--prod",
+    "--config.node-linker=hoisted",
+    "--config.package-import-method=copy",
+    target,
+  ];
+  const windows = process.platform === "win32";
+  await new Promise((done, reject) => {
+    const child = spawn(
+      windows ? process.env.ComSpec || "cmd.exe" : "pnpm",
+      windows ? ["/d", "/s", "/c", `pnpm ${args.join(" ")}`] : args,
+      { cwd: repoRoot, windowsHide: true, stdio: "inherit" },
     );
-
-    for (const childDependencyName of Object.keys(
-      dependencyPackageJson.dependencies ?? {},
-    )) {
-      if (!internalPackageNames.has(childDependencyName)) {
-        queue.push(childDependencyName);
-      }
-    }
-  }
-
-  return [...collected].sort((left, right) => left.localeCompare(right));
-};
-
-const copyPackage = async ({ packageJsonPath, distPath, name }, targetRoot) => {
-  const packageJson = sanitizePackageJson(await readJson(packageJsonPath));
-  const packageDir = join(targetRoot, "node_modules", ...name.split("/"));
-
-  await mkdir(packageDir, { recursive: true });
-  await writeJson(join(packageDir, "package.json"), packageJson);
-  await cp(distPath, join(packageDir, "dist"), { recursive: true });
-};
-
-const copyExternalDependency = async (name, targetRoot) => {
-  const sourceDir = getInstalledPackageDir(name);
-  const targetDir = join(
-    targetRoot,
-    "node_modules",
-    ...packageNameToPathParts(name),
-  );
-
-  await mkdir(dirname(targetDir), { recursive: true });
-  await cp(sourceDir, targetDir, { recursive: true, dereference: true });
+    child.on("error", reject);
+    child.on("close", (code) =>
+      code === 0
+        ? done()
+        : reject(
+            new Error(`Production dependency deployment failed (${code})`),
+          ),
+    );
+  });
 };
 
 const main = async () => {
-  await rm(releaseRoot, { recursive: true, force: true });
-  await mkdir(releaseRoot, { recursive: true });
-
-  const externalDependencies = await collectExternalDependencies();
-
+  const internalVersions = new Map();
+  const manifests = new Map();
+  for (const item of bundledPackages) {
+    const manifest = await readJson(item.packageJsonPath);
+    internalVersions.set(item.name, manifest.version);
+    manifests.set(item.name, manifest);
+  }
   const rootPackageJson = sanitizePackageJson(
     await readJson(rootPackage.packageJsonPath),
-    {
-      bundledDependencies: [
-        ...bundledPackages.map((item) => item.name),
-        ...externalDependencies,
-      ],
-    },
+    internalVersions,
+    { bundledDependencies: true },
   );
+  const sanitizedPackages = bundledPackages.map((item) => ({
+    name: item.name,
+    manifest: sanitizePackageJson(manifests.get(item.name), internalVersions, {
+      ...(item.name === "@loopmarshal/core"
+        ? { files: [...manifests.get(item.name).files, "web/**/*"] }
+        : {}),
+    }),
+  }));
+
+  await deployProductionCli();
 
   await writeJson(join(releaseRoot, "package.json"), rootPackageJson);
-  await cp(rootPackage.distPath, join(releaseRoot, "dist"), {
-    recursive: true,
-  });
 
   // Copy skills directory (used by start-agent for IDE skill injection)
   const skillsSourcePath = join(repoRoot, "skills");
@@ -182,8 +167,16 @@ const main = async () => {
     });
   }
 
-  for (const item of bundledPackages) {
-    await copyPackage(item, releaseRoot);
+  for (const item of sanitizedPackages) {
+    await writeJson(
+      join(
+        releaseRoot,
+        "node_modules",
+        ...item.name.split("/"),
+        "package.json",
+      ),
+      item.manifest,
+    );
   }
 
   if (existsSync(join(webDistPath, "index.html"))) {
@@ -194,15 +187,11 @@ const main = async () => {
     );
   }
 
-  for (const dependencyName of externalDependencies) {
-    await copyExternalDependency(dependencyName, releaseRoot);
-  }
-
   process.stdout.write(
     `${JSON.stringify(
       {
         releaseRoot,
-        bundledExternalDependencies: externalDependencies,
+        bundledDependencies: Object.keys(rootPackageJson.dependencies),
         nextCommand: "npm pack ./release/loopmarshal --json --cache .npm-cache",
       },
       null,

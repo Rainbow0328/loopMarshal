@@ -1,0 +1,55 @@
+.tool-install-form {
+  display: grid;
+  gap: 16px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.tool-install-form p {
+  margin: 0;
+  color: var(--c-text-secondary);
+}
+.tool-install-form [role="alert"] {
+  color: var(--c-error, #b43f3f);
+}
+.tool-install-form > .btn {
+  justify-self: start;
+}
+.tool-install-paths {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding: 12px 16px;
+  background: var(--c-bg-subtle);
+  border-radius: 8px;
+}
+.tool-install-preview,
+.tool-install-success {
+  padding: 16px;
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+}
+.tool-install-preview code {
+  display: block;
+  overflow-wrap: anywhere;
+  margin-top: 6px;
+}
+.tool-install-preview ul {
+  max-height: 180px;
+  overflow: auto;
+}
+.tool-install-success .btn {
+  margin: 12px 8px 0 0;
+}
+.tool-install-form .discussion-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.tool-install-directory {
+  display: flex;
+  gap: 8px;
+}
+.tool-install-directory .input {
+  flex: 1;
+  min-width: 0;
+}

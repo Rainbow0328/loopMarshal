@@ -1,7 +1,7 @@
 import type { AgentRole, MemberAccessMode } from "@loopmarshal/protocol";
 import { projectKnowledgePolicy } from "./project-knowledge-policy.js";
 
-export const managedSkillVersion = 4;
+export const managedSkillVersion = 5;
 export function managedCollaborationSkill(
   role: AgentRole,
   mode: MemberAccessMode,
@@ -33,6 +33,7 @@ export function managedToolNames(
       "dispatch_task",
       "update_insight",
       "query_messages",
+      "discussion_read",
     );
   if (role === "knowledge_keeper") tools.push("knowledge_update");
   if (["mcp_await", "cli_await"].includes(mode)) {

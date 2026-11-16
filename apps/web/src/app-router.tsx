@@ -70,6 +70,14 @@ const preferencesRoute = createRoute({
     "PreferencesPage",
   ),
 });
+const discussionsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/discussions",
+  component: lazyRouteComponent(
+    () => import("@/features/discussions/DiscussionsPage"),
+    "DiscussionsPage",
+  ),
+});
 const toolsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/tools",
@@ -95,6 +103,7 @@ const toolConfigRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   workbenchRoute,
+  discussionsRoute,
   activityRoute,
   modelsRoute,
   mcpRoute,

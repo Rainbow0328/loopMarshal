@@ -580,6 +580,12 @@ describe("automatically managed member collaboration", () => {
           `mcp_servers.${setup.serverName}.required=true`,
         );
         expect(plan.args).toContain("features.multi_agent=false");
+        expect(plan.args).toContain(
+          `mcp_servers.${setup.serverName}.tools.discussion_read.approval_mode="approve"`,
+        );
+        expect(plan.args).not.toContain(
+          "--dangerously-bypass-approvals-and-sandbox",
+        );
         expect(
           buildNativeCreateInvocation(
             snapshot,
@@ -592,6 +598,97 @@ describe("automatically managed member collaboration", () => {
         expect(plan.args).toContain(setup.mcpConfigPath);
         expect(plan.args).toContain("--plugin-dir");
       }
+    }
+  });
+
+  it("allows project work for a fresh managed Codex profile while preserving explicit user policies", async () => {
+    const f = await fixture();
+    const created = await f.setup();
+    const setup = (await f.manifests(created.session.id))[0]!;
+    const snapshot: ProxyTargetSnapshot = {
+      installation: {
+        id: "managed-codex",
+        toolId: "codex",
+        displayName: "Codex",
+        executablePath: process.execPath,
+        executableArgs: [],
+        environmentKeys: [],
+        version: "fixture",
+        createdAt: "",
+        updatedAt: "",
+        managedPaths: { configRoot: f.root, cacheRoot: join(f.root, "cache") },
+      },
+      binding: {
+        installationId: "managed-codex",
+        workspacePath: f.project,
+        runtimeNamespace: f.root,
+        nativeSessionId: "existing-session",
+        endpoint: null,
+      },
+      nativeSessionKey: "managed-key",
+    };
+    const configPath = join(f.root, "config.toml");
+    for (const invoke of [
+      () => buildNativeCreateInvocation(snapshot, "task", "new-id", setup),
+      () => buildNativeInvocation(snapshot, "task", setup),
+    ]) {
+      writeFileSync(configPath, 'model="test"\n');
+      const fresh = invoke();
+      expect(fresh.args).toContain('sandbox_mode="workspace-write"');
+      expect(fresh.args).toContain('approval_policy="never"');
+      expect(readFileSync(configPath, "utf8")).toBe('model="test"\n');
+      const configured =
+        'sandbox_mode="read-only"\napproval_policy="on-request"\n';
+      writeFileSync(configPath, configured);
+      const restricted = invoke();
+      expect(restricted.args).not.toContain('sandbox_mode="workspace-write"');
+      expect(restricted.args).not.toContain('approval_policy="never"');
+      expect(readFileSync(configPath, "utf8")).toBe(configured);
+      writeFileSync(configPath, 'default_permissions=":read-only"\n');
+      expect(invoke().args).not.toContain('sandbox_mode="workspace-write"');
+    }
+  });
+
+  it("uses Claude automatic review only for fresh managed profiles and preserves an explicit permission mode", async () => {
+    const f = await fixture();
+    const created = await f.setup();
+    const setup = (await f.manifests(created.session.id))[0]!;
+    const snapshot: ProxyTargetSnapshot = {
+      installation: {
+        id: "managed-claude",
+        toolId: "claude",
+        displayName: "Claude",
+        executablePath: process.execPath,
+        executableArgs: [],
+        environmentKeys: [],
+        version: "fixture",
+        createdAt: "",
+        updatedAt: "",
+        managedPaths: { configRoot: f.root, cacheRoot: join(f.root, "cache") },
+      },
+      binding: {
+        installationId: "managed-claude",
+        workspacePath: f.project,
+        runtimeNamespace: f.root,
+        nativeSessionId: "existing-session",
+        endpoint: null,
+      },
+      nativeSessionKey: "managed-key",
+    };
+    const configPath = join(f.root, "settings.json");
+    for (const invoke of [
+      () => buildNativeCreateInvocation(snapshot, "task", "new-id", setup),
+      () => buildNativeInvocation(snapshot, "task", setup),
+    ]) {
+      writeFileSync(configPath, "{}");
+      const fresh = invoke();
+      expect(fresh.args[fresh.args.indexOf("--permission-mode") + 1]).toBe(
+        "auto",
+      );
+      expect(fresh.args).not.toContain("--dangerously-skip-permissions");
+      expect(readFileSync(configPath, "utf8")).toBe("{}");
+      writeFileSync(configPath, '{"permissions":{"defaultMode":"manual"}}');
+      expect(invoke().args).not.toContain("--permission-mode");
     }
   });
 

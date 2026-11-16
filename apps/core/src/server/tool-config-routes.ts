@@ -13,6 +13,7 @@ import { z } from "zod";
 import { coreErrors } from "../errors.js";
 import type { ToolConfigService } from "../services/tool-config-service.js";
 import { successResponse } from "./response.js";
+import type { ModelConfigRepository } from "@loopmarshal/store";
 
 export function registerToolConfigRoutes<Logger extends FastifyBaseLogger>(
   server: FastifyInstance<
@@ -22,6 +23,7 @@ export function registerToolConfigRoutes<Logger extends FastifyBaseLogger>(
     Logger
   >,
   service: ToolConfigService,
+  models?: ModelConfigRepository,
 ): void {
   const parse = <T>(schema: z.ZodType<T>, value: unknown): T => {
     const result = schema.safeParse(value);
@@ -93,6 +95,31 @@ export function registerToolConfigRoutes<Logger extends FastifyBaseLogger>(
       ),
     );
   });
+  server.post(
+    "/api/tool-config/profiles/:profileId/model-preview",
+    async (request) => {
+      const input = parse(
+        z
+          .object({
+            modelId: z.string().min(1),
+            expectedFingerprint: z.string().min(1),
+            responsesConfirmed: z.boolean().default(false),
+          })
+          .strict(),
+        request.body,
+      );
+      if (!models?.findById(input.modelId))
+        throw coreErrors.invalidInput("所选模型不存在，请刷新模型列表。");
+      return successResponse(
+        service.previewModel(
+          (request.params as { profileId: string }).profileId,
+          input.expectedFingerprint,
+          models.getFull(input.modelId),
+          input.responsesConfirmed,
+        ),
+      );
+    },
+  );
   server.get("/api/tool-config/profiles/:profileId/backups", async (request) =>
     successResponse({
       backups: service.backups(

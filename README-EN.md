@@ -156,6 +156,20 @@ See [full troubleshooting (Chinese)](./FIRST_COLLABORATION.md#常见问题). If 
 
 If an IDE/CLI agent created a collaboration through LoopMarshal MCP or CLI, click the current session name and use **刷新** (Refresh) or **打开已有协作** (Open existing collaboration) at the top of the session picker. The external agent must use the same Core. This lists registered collaborations, not every private chat in third-party tools.
 
+## Install a Worker
+
+Open **发现 Worker → 安装 Worker**, choose a tool and a storage root, then install. The official npm packages for Codex, Claude Code, Qwen Code, Gemini CLI, OpenCode and MiMo are supported. Programs, configuration and managed caches use separate folders under your chosen root; existing installations and system PATH are preserved. New Windows desktop builds bundle Node/npm; source users need Node.js 22+ and npm.
+
+Choose an existing model connection during installation, or use **工具配置 → 导入已有模型** afterwards. Review the destination and masked changes before writing; original files are backed up. Codex requires Responses support and explicit confirmation; Claude Code requires Anthropic Messages. Gemini CLI needs native Gemini authentication and cannot use an OpenAI/Anthropic connection directly. MiMo/OpenCode collaboration still requires a running session server. Installation does not validate model access or eliminate every vendor-specific dependency.
+
+For project collaboration with fresh managed profiles, Codex defaults to workspace writes with an unelevated Windows sandbox, and Claude Code uses its native automatic permission review. Explicit policies in existing configuration remain in effect. Workers can find the bundled Node runtime; native permission denials are reported as blocked operations.
+
+## Discuss and reuse conclusions
+
+Open **讨论室**, create a room with 1–8 saved models or supported CLI members, and choose who replies each round. Codex and Claude Code discussion members use isolated native conversations with execution restricted; other tools retain their existing project-collaboration support. Replies appear independently, and a round can be stopped.
+
+Select source messages in **讨论知识库**, generate a draft with a room member, then review and save it. This knowledge belongs to the room, with traceable sources. In a project Host conversation, **引用讨论知识** can insert a saved summary or grant that collaboration permission to retrieve the room's knowledge through `discussion_read`. The Host reads brief summaries first and requests source excerpts only when needed. Room references are not silently promoted to project knowledge. Access can be revoked; previously sent content cannot be recalled.
+
 ## Compatibility
 
 There are currently **11 native proxy adapters**. Discovery does not imply every tool version, account, and model has passed full validation.
@@ -200,7 +214,28 @@ loopmarshal --version
 loopmarshal --help
 ```
 
-In the project directory, connect to the same Core. Senders must already be registered members:
+**Application control for external programs:** connect to the same running Core. These commands do not require joining a session:
+
+```powershell
+loopmarshal api actions
+loopmarshal api describe session.create
+loopmarshal model list
+loopmarshal tool list
+loopmarshal tool discover
+loopmarshal tool check <installation-id>
+loopmarshal session list
+loopmarshal session create --input-file team.json
+loopmarshal session get product-ui
+loopmarshal session message product-ui --content 'Inspect the project and propose a plan' --idempotency-key request-1
+```
+
+`team.json` uses the desktop session setup schema: `sessionName`, `projectPath`, and an `agents` array with exactly one Host. Each agent has `name`, `role`, `duty`, and `mode`. For `core_runtime`, supply `modelConfigId` from `model list`. For `managed_proxy`, supply `binding.installationId`, `binding.workspacePath`, and `binding.runtimeNamespace`; a new native conversation is created on the first task and subsequent messages resume that exact ID. Existing native sessions require `nativeSessionMode: "existing"` and `binding.nativeSessionId`. Workers may also use `mcp_await` or `cli_await`.
+
+Use `api describe <action>` for the exact schema and `api call <action> --input-file request.json` to invoke any listed action. `--input-file -` reads JSON from stdin. Groups cover sessions/members, messages/deliveries/runtimes, models, tool discovery/registration/configuration/installation, session knowledge, discussion rooms, reviewed discussion knowledge, and access grants. New commands return `{"apiVersion":"1","data":...}` or `{"apiVersion":"1","error":...}` with a nonzero exit code. Reuse idempotency keys when retrying message sends; poll recorded messages or execution events for the eventual answer. Model queries mask credentials, and an omitted API key is preserved on update. Native configuration writes retain the existing fingerprint, preview, backup and apply flow.
+
+External MCP clients launch `loopmarshal mcp serve`: call `app_capabilities`, read an action's schema with `app_describe`, then invoke `app_call` with `{ "action": "session.get", "input": { "session": "product-ui" } }`. Common operations also have direct tools: `session_create/list/get/message`, `model_list`, `tool_list/discover/check`, and `discussion_list`. Control connections use local management credentials; applications need not attach as members, and locally authorized Hosts can also use these tools. Worker/Keeper connections and connections holding only `LOOPMARSHAL_MEMBER_TOKEN` retain the collaboration tools and cannot invoke global management actions. The desktop CLI wrapper selects its running backend automatically. Source clients can set `LOOPMARSHAL_BASE_URL` and the backend's `LOOPMARSHAL_DATABASE_PATH` to select the same service and management credential.
+
+In the project directory, the following **member collaboration commands** require an already registered sender:
 
 ```powershell
 loopmarshal attach host --session product-ui --role host --duty 'Plan, coordinate, and review'
@@ -215,6 +250,8 @@ loopmarshal submit frontend --session product-ui --content 'Results and verifica
 ```
 
 The desktop package also includes a CLI entry point without a global install; see [desktop command access](./DESKTOP_BUILD.md#host-的命令入口). MCP and CLI use the same session identity and routing rules. See the [first collaboration guide](./FIRST_COLLABORATION.md#继续已有协作) for joining sessions and native session precautions.
+
+Run `pnpm run smoke:external` for an isolated CLI/MCP integration check with a local deterministic model and native-tool fixture; it does not call paid provider APIs.
 
 ## Data and current boundaries
 

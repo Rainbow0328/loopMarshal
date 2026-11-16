@@ -44,6 +44,38 @@ function createHarness() {
 }
 
 describe("McpToolService local operations", () => {
+  it("rejects malformed agent messages before writing empty or undefined records", async () => {
+    const { service } = createHarness();
+    service.setAgentPermissionPolicy("host", createPolicy());
+    let writes = 0;
+    const services = {
+      sessionService: { listMembers: () => [{ id: "host", role: "host" }] },
+      messageService: {
+        sendMessage: () => {
+          writes++;
+        },
+      },
+    } as never;
+    for (const args of [
+      {},
+      { type: "message", content: "hi" },
+      { type: "task" },
+      { type: "task", content: " " },
+    ]) {
+      expect(
+        (
+          await service.executeTool(
+            "send_message",
+            args,
+            "host",
+            "session",
+            services,
+          )
+        ).success,
+      ).toBe(false);
+    }
+    expect(writes).toBe(0);
+  });
   it("checks message history read permission and resolve send permission before accessing messages", async () => {
     const { service } = createHarness();
     service.setAgentPermissionPolicy(

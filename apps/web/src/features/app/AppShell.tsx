@@ -12,6 +12,7 @@ const NAV_GROUPS = [
     label: "协作",
     items: [
       { to: "/", label: "当前协作", icon: "workspace" },
+      { to: "/discussions", label: "讨论室", icon: "model" },
       { to: "/knowledge", label: "知识库", icon: "book" },
     ],
   },

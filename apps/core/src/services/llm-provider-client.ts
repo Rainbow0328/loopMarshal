@@ -21,6 +21,7 @@ export type LlmChatMessage = {
 };
 
 export type LlmChatInput = {
+  signal?: AbortSignal;
   messages: LlmChatMessage[];
   prompt?: string;
   tools?: unknown[];
@@ -88,7 +89,10 @@ const createOpenAiCompatibleRequest = async (
         Authorization: `Bearer ${config.apiKeyEncrypted}`,
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout((config.timeoutSeconds ?? 60) * 1000),
+      signal: AbortSignal.any([
+        AbortSignal.timeout((config.timeoutSeconds ?? 60) * 1000),
+        ...(input.signal ? [input.signal] : []),
+      ]),
     },
   );
 
@@ -306,7 +310,10 @@ const createAnthropicRequest = async (
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout((config.timeoutSeconds ?? 60) * 1000),
+    signal: AbortSignal.any([
+      AbortSignal.timeout((config.timeoutSeconds ?? 60) * 1000),
+      ...(input.signal ? [input.signal] : []),
+    ]),
   });
 
   return {

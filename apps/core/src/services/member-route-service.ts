@@ -92,6 +92,7 @@ export class MemberRouteService {
     const executablePath = this.canonicalPath(merged.executablePath, false);
     const updated: ToolInstallation = {
       ...merged,
+      ...(current.managedPaths ? { managedPaths: current.managedPaths } : {}),
       id: current.id,
       executablePath,
       createdAt: current.createdAt,

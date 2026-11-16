@@ -4,7 +4,7 @@ import { MemberCredentialService } from "../services/member-credential-service.j
 import { buildNativeInvocation } from "../services/native-session-adapters.js";
 import { createToolInstallationInputSchema } from "@loopmarshal/protocol";
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 
 const cleanup: Array<() => void> = [];
 afterEach(() => {
@@ -52,6 +52,13 @@ describe("member send credentials", () => {
       expect(
         buildNativeInvocation(snapshot, "task").env.OPENAI_API_KEY,
       ).toBeUndefined();
+      const environment = buildNativeInvocation(snapshot, "task").env;
+      const pathKey = Object.keys(environment).find(
+        (key) => key.toUpperCase() === "PATH",
+      )!;
+      expect(environment[pathKey]?.split(delimiter)[0]).toBe(
+        dirname(process.execPath),
+      );
       snapshot.installation.environmentKeys = ["OPENAI_API_KEY"];
       expect(buildNativeInvocation(snapshot, "task").env.OPENAI_API_KEY).toBe(
         "model-test-only",

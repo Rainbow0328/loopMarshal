@@ -10,6 +10,8 @@ import type {
 } from "@loopmarshal/protocol";
 
 import { CoreError } from "../errors.js";
+import { saveModelConfigSchema } from "@loopmarshal/protocol";
+import { randomUUID } from "node:crypto";
 import { createLlmRequest } from "../services/llm-provider-client.js";
 import { successResponse } from "./response.js";
 
@@ -61,43 +63,54 @@ export function registerRuntimeRoutes<Logger extends FastifyBaseLogger>(
   });
 
   server.get("/api/models", async () => {
-    return successResponse(services.modelConfigService.list());
+    return successResponse(
+      services.modelConfigService.list().map(({ apiKey, ...model }) => ({
+        ...model,
+        apiKey: null,
+        hasApiKey: Boolean(apiKey),
+      })),
+    );
   });
 
   server.post("/api/models", async (request) => {
-    const body = request.body as {
-      id?: string;
-      name: string;
-      provider: string;
-      modelId: string;
-      baseUrl?: string;
-      apiKey?: string;
-      contextWindowTokens?: number;
-      maxOutputTokens?: number;
-      contextReserveTokens?: number;
-    };
+    const parsed = saveModelConfigSchema.safeParse(request.body);
+    if (!parsed.success)
+      throw new CoreError(
+        "INVALID_INPUT",
+        "模型参数不合法，请检查名称、模型、地址和上下文大小。",
+      );
+    const body = parsed.data;
     const timestamp = new Date().toISOString();
-    const id = body.id ?? `model-${Date.now()}`;
+    const id = body.id ?? `model-${randomUUID()}`;
+    const existing = services.modelConfigService.findById(id);
     services.modelConfigService.upsert({
       id,
       name: body.name,
       provider: body.provider,
       modelId: body.modelId,
-      apiKey: body.apiKey ?? null,
-      baseUrl: body.baseUrl ?? null,
-      contextWindowTokens: body.contextWindowTokens ?? 128000,
-      maxOutputTokens: body.maxOutputTokens ?? 4096,
-      contextReserveTokens: body.contextReserveTokens ?? 1000,
-      createdAt: timestamp,
+      apiKey:
+        body.apiKey === undefined
+          ? (existing?.apiKey ?? null)
+          : body.apiKey || null,
+      baseUrl:
+        body.baseUrl === undefined
+          ? (existing?.baseUrl ?? null)
+          : body.baseUrl || null,
+      contextWindowTokens:
+        body.contextWindowTokens ?? existing?.contextWindowTokens ?? 128000,
+      maxOutputTokens:
+        body.maxOutputTokens ?? existing?.maxOutputTokens ?? 4096,
+      contextReserveTokens:
+        body.contextReserveTokens ?? existing?.contextReserveTokens ?? 1000,
+      createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,
     });
-    if (body.baseUrl) {
-      process.env[`${body.provider.toUpperCase()}_BASE_URL`] = body.baseUrl;
-    }
-    if (body.apiKey) {
-      process.env[`${body.provider.toUpperCase()}_API_KEY`] = body.apiKey;
-    }
-    return successResponse(services.modelConfigService.findById(id));
+    const saved = services.modelConfigService.findById(id)!;
+    return successResponse({
+      ...saved,
+      apiKey: null,
+      hasApiKey: Boolean(saved.apiKey),
+    });
   });
 
   server.delete("/api/models/:modelId", async (request) => {

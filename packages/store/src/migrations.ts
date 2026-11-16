@@ -325,6 +325,69 @@ export const migrations: Migration[] = [
       ensureColumnIfExists(db, "sessions", "project_path", "TEXT");
     },
   },
+
+  {
+    version: 17,
+    description: "Add isolated discussion rooms and messages",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS discussion_rooms (
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, members_json TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS discussion_messages (
+          id TEXT PRIMARY KEY, room_id TEXT NOT NULL, speaker TEXT NOT NULL,
+          content TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL,
+          FOREIGN KEY(room_id) REFERENCES discussion_rooms(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS discussion_messages_room ON discussion_messages(room_id, created_at, id);
+      `);
+    },
+  },
+
+  {
+    version: 18,
+    description: "Add reviewed discussion knowledge",
+    up: (db) =>
+      db.exec(`CREATE TABLE IF NOT EXISTS discussion_knowledge (
+      id TEXT PRIMARY KEY, room_id TEXT NOT NULL, title TEXT NOT NULL,
+      content TEXT NOT NULL, sources_json TEXT NOT NULL, created_at TEXT NOT NULL,
+      FOREIGN KEY(room_id) REFERENCES discussion_rooms(id) ON DELETE CASCADE
+    ); CREATE INDEX IF NOT EXISTS discussion_knowledge_room ON discussion_knowledge(room_id, created_at);`),
+  },
+  {
+    version: 19,
+    description: "Persist managed installations and discussion execution state",
+    up: (db) => {
+      ensureColumnIfExists(
+        db,
+        "tool_installations",
+        "managed_paths_json",
+        "TEXT",
+      );
+      ensureColumnIfExists(db, "discussion_rooms", "workspace_path", "TEXT");
+      ensureColumnIfExists(
+        db,
+        "discussion_rooms",
+        "busy",
+        "INTEGER NOT NULL DEFAULT 0",
+      );
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS tool_install_jobs (
+          id TEXT PRIMARY KEY, tool_id TEXT NOT NULL, root TEXT NOT NULL,
+          status TEXT NOT NULL, installation_id TEXT, profile_id TEXT, error TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS tool_install_settings (id INTEGER PRIMARY KEY CHECK(id=1), root TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS discussion_messages_room_sequence ON discussion_messages(room_id);
+        CREATE TABLE IF NOT EXISTS discussion_room_grants (
+          session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+          room_id TEXT NOT NULL REFERENCES discussion_rooms(id) ON DELETE CASCADE,
+          PRIMARY KEY(session_id, room_id)
+        );
+      `);
+    },
+  },
 ];
 
 /**

@@ -42,7 +42,7 @@ function fixture(toolId: ProxyToolId = "codex", behavior = "success") {
         console.log(JSON.stringify({type:'result',sessionId:id,response:'zcode result',projection:{status:'idle'}}));
       } else {
         console.log(JSON.stringify({type:'system',session_id:id}));
-        console.log(JSON.stringify({type:'result',session_id:id,result:'native result',is_error:false}));
+        console.log(JSON.stringify({type:'result',session_id:id,result:'native result',is_error:false,...(behavior==='permission-denied'?{permission_denials:[{tool_name:'Write'}]}:{})}));
       }
     });
   `,
@@ -153,6 +153,25 @@ describe("native session adapters", () => {
         onEvent: () => {},
       });
       expect(result.outcome).toBe("unknown");
+    },
+  );
+
+  it.each(["create", "execute"] as const)(
+    "marks Claude permission denials as blocked during %s, even with a successful final event",
+    async (operation) => {
+      const f = fixture("claude", "permission-denied");
+      const result = await f.adapter[operation](
+        f.snapshot,
+        "write project files",
+        {
+          signal: AbortSignal.timeout(5000),
+          onStarted: () => {},
+          onEvent: () => {},
+        },
+      );
+      expect("result" in result ? result.result.outcome : result.outcome).toBe(
+        "blocked",
+      );
     },
   );
 

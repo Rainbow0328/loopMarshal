@@ -1,3 +1,6 @@
+import { DiscussionService } from "./services/discussion-service.js";
+import { ToolInstallerService } from "./services/tool-installer-service.js";
+import { DiscussionCliService } from "./services/discussion-cli-service.js";
 /*
  * Copyright 2024 Cloud Skill Team
  *
@@ -121,17 +124,8 @@ export const startCoreServer = async (
     });
   }
 
-  // Load persisted API keys and base URLs into process.env for runtime use.
-  // This allows the LLM client to pick up credentials stored via the web UI
-  // without requiring manual environment variable configuration.
-  for (const config of modelConfigRepository.list()) {
-    if (config.apiKey) {
-      process.env[`${config.provider.toUpperCase()}_API_KEY`] = config.apiKey;
-    }
-    if (config.baseUrl) {
-      process.env[`${config.provider.toUpperCase()}_BASE_URL`] = config.baseUrl;
-    }
-  }
+  // Resolve credentials per model through getFull(); saved connections must not
+  // override other models' environment fallbacks or inherited CLI credentials.
   const webAgentRuntimeRepository = new WebAgentRuntimeRepository(
     databaseManager.connection,
   );
@@ -284,7 +278,18 @@ export const startCoreServer = async (
   );
   const agentWorkflowRegistry = new AgentWorkflowRegistry();
 
+  const toolConfigService = new ToolConfigService(
+    databaseManager.connection,
+    memberRouteService,
+    config.databasePath,
+  );
+  const toolInstallerService = new ToolInstallerService(
+    databaseManager.connection,
+    memberRouteService,
+    toolConfigService,
+  );
   services = {
+    toolInstallerService,
     memberCredentialService: new MemberCredentialService(
       databaseManager.connection,
     ),
@@ -294,11 +299,7 @@ export const startCoreServer = async (
     readLocalManagementToken: () =>
       readCoreManagementToken(config.databasePath),
     memberRouteService,
-    toolConfigService: new ToolConfigService(
-      databaseManager.connection,
-      memberRouteService,
-      config.databasePath,
-    ),
+    toolConfigService,
     proxyDeliveryService,
     sessionService,
     agentService,
@@ -315,6 +316,17 @@ export const startCoreServer = async (
     extractionService,
     guardService,
     modelConfigService: modelConfigRepository,
+    discussionService: new DiscussionService(
+      databaseManager.connection,
+      modelConfigRepository,
+      {
+        members: memberRouteService,
+        configs: toolConfigService,
+        cli: new DiscussionCliService(
+          join(dirname(config.databasePath), "discussion-runtime"),
+        ),
+      },
+    ),
     externalMcpService,
     mcpToolService,
     stdioMcpRegistryService,
@@ -357,6 +369,8 @@ export const startCoreServer = async (
     databaseManager,
     stdioMcpRegistryService,
     close: async () => {
+      await toolInstallerService.stop();
+      await services.discussionService?.stop();
       await proxyDeliveryService.stop();
       webAgentRuntimeExecutorService.stopAll();
       await server.close();

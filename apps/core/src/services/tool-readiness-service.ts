@@ -54,6 +54,7 @@ export async function checkToolReadiness(
       "XDG_CACHE_HOME",
       "XDG_STATE_HOME",
     ]) {
+      if (installation.managedPaths) continue;
       if (process.env[name]) env[name] = process.env[name];
     }
     const capture = async (args: string[]) => {

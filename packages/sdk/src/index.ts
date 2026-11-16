@@ -78,7 +78,139 @@ export type AttachSessionResult = SessionJoinResult & {
   reusedExistingSession: boolean;
 };
 
+import type {
+  DiscussionRoom,
+  DiscussionMessage,
+  DiscussionKnowledge,
+  ToolInstallJob,
+  ToolInstallCatalogEntry,
+  ToolInstallRequest,
+  ToolConfigPreview,
+} from "@loopmarshal/protocol";
+export type {
+  DiscussionRoom,
+  DiscussionMessage,
+  DiscussionKnowledge,
+} from "@loopmarshal/protocol";
+
 export class LoopMarshalClient {
+  public getDiscussionKnowledgeSources(roomId: string, entryId: string) {
+    return this.request<Array<DiscussionMessage & { truncated: boolean }>>(
+      `/api/discussions/${encodeURIComponent(roomId)}/knowledge/${encodeURIComponent(entryId)}/sources`,
+    );
+  }
+  public getToolInstaller() {
+    return this.request<{
+      root: string;
+      npmAvailable: boolean;
+      catalog: ToolInstallCatalogEntry[];
+      jobs: ToolInstallJob[];
+    }>("/api/tool-installer");
+  }
+  public saveToolInstallRoot(root: string) {
+    return this.request("/api/tool-installer/settings", {
+      method: "PUT",
+      body: { root },
+    });
+  }
+  public startToolInstall(input: ToolInstallRequest) {
+    return this.request<ToolInstallJob>("/api/tool-installer/jobs", {
+      method: "POST",
+      body: input,
+    });
+  }
+  public previewToolModel(
+    profileId: string,
+    input: {
+      modelId: string;
+      expectedFingerprint: string;
+      responsesConfirmed?: boolean | undefined;
+    },
+  ) {
+    return this.request<ToolConfigPreview>(
+      `/api/tool-config/profiles/${encodeURIComponent(profileId)}/model-preview`,
+      { method: "POST", body: input },
+    );
+  }
+  public stopDiscussion(id: string) {
+    return this.request(`/api/discussions/${encodeURIComponent(id)}/stop`, {
+      method: "POST",
+      body: {},
+    });
+  }
+  public getDiscussionGrants(sessionId: string) {
+    return this.request<string[]>(
+      `/api/discussions/access/${encodeURIComponent(sessionId)}`,
+    );
+  }
+  public setDiscussionGrant(
+    sessionId: string,
+    roomId: string,
+    enabled: boolean,
+  ) {
+    return this.request<string[]>(
+      `/api/discussions/access/${encodeURIComponent(sessionId)}/${encodeURIComponent(roomId)}`,
+      { method: "PUT", body: { enabled } },
+    );
+  }
+  public listDiscussionKnowledge(id: string) {
+    return this.request<DiscussionKnowledge[]>(
+      `/api/discussions/${encodeURIComponent(id)}/knowledge`,
+    );
+  }
+  public draftDiscussionKnowledge(
+    id: string,
+    input: { modelId: string; sourceIds: string[] },
+  ) {
+    return this.request<{ content: string; sourceIds: string[] }>(
+      `/api/discussions/${encodeURIComponent(id)}/knowledge/draft`,
+      { method: "POST", body: input },
+    );
+  }
+  public saveDiscussionKnowledge(
+    id: string,
+    input: { title: string; content: string; sourceIds: string[] },
+  ) {
+    return this.request<DiscussionKnowledge>(
+      `/api/discussions/${encodeURIComponent(id)}/knowledge`,
+      { method: "POST", body: input },
+    );
+  }
+
+  public listDiscussions() {
+    return this.request<DiscussionRoom[]>("/api/discussions");
+  }
+  public createDiscussion(input: {
+    name: string;
+    modelIds: string[];
+    cliMembers?: Array<{
+      installationId: string;
+      runtimeNamespace?: string | undefined;
+    }>;
+  }) {
+    return this.request<DiscussionRoom>("/api/discussions", {
+      method: "POST",
+      body: input,
+    });
+  }
+  public listDiscussionMessages(id: string, before?: string, limit?: number) {
+    const query = new URLSearchParams();
+    if (before) query.set("before", before);
+    if (limit !== undefined) query.set("limit", String(limit));
+    return this.request<DiscussionMessage[]>(
+      `/api/discussions/${encodeURIComponent(id)}/messages${query.size ? `?${query.toString()}` : ""}`,
+    );
+  }
+  public sendDiscussionMessage(
+    id: string,
+    input: { content: string; memberIds: string[] },
+  ) {
+    return this.request<DiscussionMessage[]>(
+      `/api/discussions/${encodeURIComponent(id)}/messages`,
+      { method: "POST", body: input },
+    );
+  }
+
   public async createSessionSetup(
     input: import("@loopmarshal/protocol").CreateSessionSetupInput,
   ) {
@@ -108,7 +240,7 @@ export class LoopMarshalClient {
     sessionId: string,
     input: {
       agentName: string;
-      role?: "worker" | "knowledge_keeper";
+      role?: "worker" | "knowledge_keeper" | undefined;
       roleDescription: string;
       accessMode: "mcp_await" | "cli_await";
     },
@@ -325,7 +457,7 @@ export class LoopMarshalClient {
   }
   public async discoverNativeSessions(
     installationId: string,
-    input: { workspacePath: string; runtimeNamespace?: string },
+    input: { workspacePath: string; runtimeNamespace?: string | undefined },
   ) {
     const query = new URLSearchParams({
       workspacePath: input.workspacePath,
@@ -1260,14 +1392,15 @@ export class LoopMarshalClient {
     runtimeId: string,
     input: {
       toolsetId?: string | null;
-      modelConfigId?: string;
+      modelConfigId?: string | undefined;
       status?: string;
       currentStep?: string | null;
       lastError?: string | null;
       lastTickAt?: string | null;
       lastSelfMaintenanceAt?: string | null;
-      customDuty?: string | null;
-      customSkillIds?: string[];
+      customDuty?: string | null | undefined;
+      customSkillIds?: string[] | undefined;
+      externalMcpServerIds?: string[] | undefined;
     },
   ): Promise<import("@loopmarshal/protocol").WebAgentRuntime> {
     return this.request(
@@ -1391,19 +1524,14 @@ export class LoopMarshalClient {
 
   // Models
   public async listModels(): Promise<
-    Array<{ id: string; name: string; provider: string; modelId: string }>
+    import("@loopmarshal/protocol").ModelConfigSummary[]
   > {
     return this.request("/api/models");
   }
 
-  public async createModel(input: {
-    id?: string;
-    name: string;
-    provider: string;
-    modelId: string;
-    baseUrl?: string;
-    apiKey?: string;
-  }): Promise<{ id: string; name: string; provider: string; modelId: string }> {
+  public async createModel(
+    input: import("@loopmarshal/protocol").SaveModelConfigInput,
+  ): Promise<import("@loopmarshal/protocol").ModelConfigSummary> {
     return this.request("/api/models", {
       method: "POST",
       body: input,
@@ -1411,7 +1539,7 @@ export class LoopMarshalClient {
   }
 
   public async deleteModel(modelId: string): Promise<{ deleted: boolean }> {
-    return this.request(`/api/models/${modelId}`, {
+    return this.request(`/api/models/${encodeURIComponent(modelId)}`, {
       method: "DELETE",
     });
   }
@@ -1602,18 +1730,36 @@ export class LoopMarshalClient {
     } = {},
   ): Promise<T> {
     const resolvedHeaders = await this.headerProvider();
+    const hasBody = options.body !== undefined;
     const response = await fetch(`${this.baseUrl}${path}`, {
       method: options.method ?? "GET",
       headers: {
         ...resolvedHeaders,
-        ...(options.body ? { "Content-Type": "application/json" } : {}),
+        ...(hasBody ? { "Content-Type": "application/json" } : {}),
       },
-      ...(options.body ? { body: JSON.stringify(options.body) } : {}),
+      ...(hasBody ? { body: JSON.stringify(options.body) } : {}),
     });
 
-    const result = (await response.json()) as {
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      throw new LoopMarshalSdkError(
+        "后台返回了无效响应，请检查服务地址和运行状态。",
+        {
+          statusCode: response.status,
+          code: "INVALID_RESPONSE",
+        },
+      );
+    }
+    if (!payload || typeof payload !== "object" || Array.isArray(payload))
+      throw new LoopMarshalSdkError("后台响应格式不正确。", {
+        statusCode: response.status,
+        code: "INVALID_RESPONSE",
+      });
+    const result = payload as {
       success: boolean;
-      data?: T;
+      data: T;
       error?: {
         code?: string;
         message?: string;
@@ -1622,7 +1768,7 @@ export class LoopMarshalClient {
       timestamp: string;
     };
 
-    if (!result.success || !result.data) {
+    if (!response.ok || result.success !== true) {
       throw new LoopMarshalSdkError(
         result.error?.message ?? `Request failed for ${path}.`,
         {
@@ -1631,7 +1777,11 @@ export class LoopMarshalClient {
         },
       );
     }
-
+    if (!("data" in result))
+      throw new LoopMarshalSdkError("后台响应缺少操作结果。", {
+        statusCode: response.status,
+        code: "INVALID_RESPONSE",
+      });
     return result.data;
   }
 }

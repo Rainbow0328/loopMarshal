@@ -1,3 +1,4 @@
+import { DiscussionReference } from "./DiscussionReference";
 import { Icon } from "@/components/Icon";
 import { EmptyState, ErrorState, pushToast } from "@/components/ui";
 import type {
@@ -35,6 +36,7 @@ export function HostPanel({
 }) {
   const [draft, setDraft] = useState("");
   const [showSettings, setShowSettings] = useState(false);
+  const [showDiscussion, setShowDiscussion] = useState(false);
   const runtimeCommand = useRuntimeCommandMutation(sessionId);
   const sendMessage = useSendHostMessageMutation(sessionId);
   const conversationRef = useRef<HTMLDivElement>(null);
@@ -219,10 +221,13 @@ export function HostPanel({
                 }}
               />
               <div className="composer-bottom">
-                <span>
-                  <Icon name="folder" size={13} />
-                  在当前会话与项目中协作
-                </span>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setShowDiscussion(true)}
+                  type="button"
+                >
+                  引用讨论知识
+                </button>
                 <button
                   className="btn btn-primary"
                   disabled={!draft.trim() || sendMessage.isPending || blocked}
@@ -246,6 +251,14 @@ export function HostPanel({
         )}
       </section>
 
+      <DiscussionReference
+        sessionId={sessionId}
+        open={showDiscussion}
+        close={() => setShowDiscussion(false)}
+        insert={(text) =>
+          setDraft((current) => (current ? `${current}\n\n${text}` : text))
+        }
+      />
       <RuntimeSettingsDialog
         open={showSettings}
         onClose={() => setShowSettings(false)}

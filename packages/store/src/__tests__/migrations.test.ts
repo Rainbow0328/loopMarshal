@@ -39,7 +39,9 @@ describe("Database Migrations", () => {
       db.prepare(
         "INSERT INTO sessions (id,name,host_agent_id,status,created_at,updated_at) VALUES ('legacy-id','legacy','host','active','before','before')",
       ).run();
-      expect(runMigrations(db)).toBe(1);
+      expect(runMigrations(db)).toBe(
+        migrations.filter((item) => item.version >= 16).length,
+      );
       expect(
         db.prepare("SELECT id,name,project_path FROM sessions").get(),
       ).toEqual({ id: "legacy-id", name: "legacy", project_path: null });

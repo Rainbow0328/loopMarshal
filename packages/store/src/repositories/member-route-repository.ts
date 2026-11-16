@@ -16,11 +16,15 @@ const routeColumns = `session_id AS sessionId, agent_id AS agentId, access_mode 
   created_at AS createdAt, updated_at AS updatedAt`;
 type InstallationRow = Omit<
   ToolInstallation,
-  "executableArgs" | "environmentKeys" | "compatibility"
-> & { executableArgsJson: string; environmentKeysJson: string };
+  "executableArgs" | "environmentKeys" | "compatibility" | "managedPaths"
+> & {
+  executableArgsJson: string;
+  environmentKeysJson: string;
+  managedPathsJson: string | null;
+};
 const installationColumns = `id, tool_id AS toolId, display_name AS displayName,
   executable_path AS executablePath, executable_args_json AS executableArgsJson, environment_keys_json AS environmentKeysJson, version,
-  created_at AS createdAt, updated_at AS updatedAt`;
+  created_at AS createdAt, updated_at AS updatedAt, managed_paths_json AS managedPathsJson`;
 
 export class MemberRouteRepository {
   public constructor(private readonly database: DatabaseSync) {}
@@ -32,11 +36,21 @@ export class MemberRouteRepository {
           `SELECT ${installationColumns} FROM tool_installations ORDER BY created_at, id`,
         )
         .all() as InstallationRow[]
-    ).map(({ executableArgsJson, environmentKeysJson, ...row }) => ({
-      ...row,
-      executableArgs: JSON.parse(executableArgsJson) as string[],
-      environmentKeys: JSON.parse(environmentKeysJson) as string[],
-    }));
+    ).map(
+      ({
+        executableArgsJson,
+        environmentKeysJson,
+        managedPathsJson,
+        ...row
+      }) => ({
+        ...row,
+        ...(managedPathsJson
+          ? { managedPaths: JSON.parse(managedPathsJson) }
+          : {}),
+        executableArgs: JSON.parse(executableArgsJson) as string[],
+        environmentKeys: JSON.parse(environmentKeysJson) as string[],
+      }),
+    );
   }
 
   public getInstallation(id: string): ToolInstallation | null {
@@ -46,9 +60,17 @@ export class MemberRouteRepository {
       )
       .get(id) as InstallationRow | undefined;
     if (!row) return null;
-    const { executableArgsJson, environmentKeysJson, ...rest } = row;
+    const {
+      executableArgsJson,
+      environmentKeysJson,
+      managedPathsJson,
+      ...rest
+    } = row;
     return {
       ...rest,
+      ...(managedPathsJson
+        ? { managedPaths: JSON.parse(managedPathsJson) }
+        : {}),
       executableArgs: JSON.parse(executableArgsJson) as string[],
       environmentKeys: JSON.parse(environmentKeysJson) as string[],
     };

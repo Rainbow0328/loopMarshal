@@ -1,3 +1,5 @@
+import { registerDiscussionRoutes } from "./discussion-routes.js";
+import { registerToolInstallerRoutes } from "./tool-installer-routes.js";
 /*
  * Copyright 2024 Cloud Skill Team
  *
@@ -121,7 +123,9 @@ export const createServer = async (
       }
       if (
         url.startsWith("/api/") &&
-        (url.startsWith("/api/tool-config") ||
+        (url.startsWith("/api/discussions") ||
+          url.startsWith("/api/tool-installer") ||
+          url.startsWith("/api/tool-config") ||
           url.startsWith("/api/tool-installations") ||
           url.includes("/member-routes") ||
           url.endsWith("/proxy-members") ||
@@ -144,8 +148,16 @@ export const createServer = async (
         );
       },
     );
+  if (services.discussionService)
+    registerDiscussionRoutes(server, services.discussionService);
+  if (services.toolInstallerService)
+    registerToolInstallerRoutes(server, services.toolInstallerService);
   if (services.toolConfigService)
-    registerToolConfigRoutes(server, services.toolConfigService);
+    registerToolConfigRoutes(
+      server,
+      services.toolConfigService,
+      services.modelConfigService,
+    );
   if (services.proxyDeliveryService)
     registerProxyDeliveryRoutes(server, services.proxyDeliveryService);
 

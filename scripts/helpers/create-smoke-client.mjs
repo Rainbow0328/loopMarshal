@@ -19,7 +19,7 @@ export const createSmokeClient = (baseUrl, label) => {
     baseUrl,
     headers: {
       "x-loopmarshal-client": label,
-      "x-loopmarshal-process": String(process.pid)
-    }
+      "x-loopmarshal-process": String(process.pid),
+    },
   });
 };

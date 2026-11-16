@@ -78,6 +78,7 @@ await run(
   ],
 );
 await access(join(runtime, "node.exe"));
+await access(join(runtime, "node_modules", "npm", "bin", "npm-cli.js"));
 await run(process.env.ComSpec || "cmd.exe", [
   "/d",
   "/s",
